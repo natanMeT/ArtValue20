@@ -1,0 +1,27 @@
+node_modules
+dist
+.DS_Store
+*.local
+
+# Local env / secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Logs (dev server, scratch)
+*.log
+.devserver.*
+
+# Generated images / scratch content — app assets live in src/assets & public/, not here
+posts/
+
+# AI outputs / renders / models / checkpoints / cache / temp — kept out of the app repo
+outputs/
+generated/
+renders/
+*.safetensors
+*.ckpt
+*.gguf
+.cache/
+tmp/
+temp/

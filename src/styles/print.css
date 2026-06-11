@@ -1,0 +1,193 @@
+/* ===================================================================
+   Clean LIGHT printable quote — white background, lime accent, Heebo.
+   Independent of app dark/light theme.
+   =================================================================== */
+
+.qp-screen {
+  min-height: 100vh;
+  background: #eef0e9;
+  padding: 28px 16px 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  font-family: 'Heebo', system-ui, sans-serif;
+}
+
+.qp-toolbar {
+  width: 100%;
+  max-width: 820px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.qp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(20, 22, 15, 0.12);
+  color: #1a1c16;
+  font-weight: 600;
+  font-size: 0.9rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.2s;
+}
+.qp-btn:hover { box-shadow: 0 6px 18px -10px rgba(0, 0, 0, 0.3); }
+.qp-btn:active { transform: scale(0.97); }
+.qp-btn.primary {
+  background: #d4ff3f;
+  border-color: #d4ff3f;
+  color: #11160a;
+}
+
+.qp-sheet {
+  width: 100%;
+  max-width: 820px;
+  background: #fff;
+  color: #1a1c16;
+  border-radius: 20px;
+  padding: 48px 52px;
+  box-shadow: 0 30px 70px -40px rgba(20, 30, 10, 0.4);
+}
+
+.qp-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-bottom: 26px;
+  border-bottom: 2px solid #11160a;
+}
+.qp-brand { display: flex; align-items: center; gap: 13px; }
+.qp-logo {
+  width: 50px;
+  height: 50px;
+  border-radius: 14px;
+  background: #d4ff3f;
+  display: grid;
+  place-items: center;
+}
+.qp-brand-name { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em; }
+.qp-brand-sub { font-size: 0.8rem; color: #6b6f63; margin-top: 2px; }
+.qp-doc-meta { text-align: end; }
+.qp-doc-title { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
+.qp-doc-num { font-size: 0.92rem; color: #6b6f63; margin-top: 3px; font-weight: 600; }
+
+.qp-parties {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 30px 0;
+  flex-wrap: wrap;
+}
+.qp-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #9a9e90;
+  margin-bottom: 8px;
+}
+.qp-party-name { font-size: 1.1rem; font-weight: 700; }
+.qp-party-line { font-size: 0.88rem; color: #565a4f; margin-top: 3px; }
+.qp-dates { min-width: 220px; }
+.qp-date-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  font-size: 0.88rem;
+  padding: 5px 0;
+  color: #565a4f;
+}
+.qp-date-row strong { color: #1a1c16; }
+
+.qp-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+.qp-table th {
+  background: #f4f6ee;
+  color: #565a4f;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+  padding: 12px 14px;
+}
+.qp-table th:first-child { border-radius: 0 10px 10px 0; }
+.qp-table th:last-child { border-radius: 10px 0 0 10px; }
+.qp-table td {
+  padding: 14px;
+  text-align: center;
+  font-size: 0.92rem;
+  border-bottom: 1px solid #eceee5;
+}
+
+.qp-totals {
+  margin-top: 10px;
+  margin-inline-start: auto;
+  width: 320px;
+  max-width: 100%;
+}
+.qp-tot-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 9px 4px;
+  font-size: 0.95rem;
+  color: #565a4f;
+}
+.qp-tot-row.grand {
+  margin-top: 8px;
+  padding: 16px 18px;
+  background: #11160a;
+  color: #fff;
+  border-radius: 14px;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+.qp-tot-row.grand .tnum { color: #d4ff3f; }
+
+.qp-notes {
+  margin-top: 34px;
+  padding: 18px 20px;
+  background: #f7f9f1;
+  border-radius: 14px;
+  border-inline-start: 3px solid #d4ff3f;
+}
+.qp-notes p { font-size: 0.9rem; color: #4a4e43; line-height: 1.65; margin-top: 4px; }
+
+.qp-foot {
+  margin-top: 38px;
+  padding-top: 20px;
+  border-top: 1px solid #eceee5;
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  color: #9a9e90;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qp-table .tnum,
+.qp-tot-row .tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 600px) {
+  .qp-sheet { padding: 30px 22px; }
+  .qp-head { flex-direction: column; gap: 16px; }
+  .qp-doc-meta { text-align: start; }
+}
+
+/* ---- print ---- */
+@media print {
+  .no-print { display: none !important; }
+  .qp-screen { background: #fff; padding: 0; }
+  .qp-sheet { box-shadow: none; border-radius: 0; max-width: 100%; padding: 24px 28px; }
+  @page { margin: 14mm; }
+}
