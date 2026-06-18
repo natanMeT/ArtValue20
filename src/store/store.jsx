@@ -10,22 +10,26 @@ const THEME_KEY = 'artvalue_theme';
 const EMPTY = {
   clients: [], quotes: [], transactions: [], outreachLeads: [],
   projects: [], tasks: [], plinks: [], pfiles: [], comms: [], inventory: [],
+  activity: [], // audit log / memory — append-only event trail (last 200)
   meta: {},
 };
+
+// Ensure the audit-log array exists (backward-compat for stores created before it).
+function ensureActivity(d) { if (d && !Array.isArray(d.activity)) d.activity = []; return d; }
 
 // ---------------- localStorage helpers ----------------
 function loadLocal() {
   try {
     const raw = localStorage.getItem(DATA_KEY);
-    if (!raw) return buildSeed();
+    if (!raw) return ensureActivity(buildSeed());
     const parsed = JSON.parse(raw);
-    if (!parsed.clients || !parsed.quotes || !parsed.transactions) return buildSeed();
+    if (!parsed.clients || !parsed.quotes || !parsed.transactions) return ensureActivity(buildSeed());
     // backward-compat: backfill modules added in later versions
     if (!parsed.outreachLeads) parsed.outreachLeads = buildSeed().outreachLeads;
     if (!parsed.inventory) parsed.inventory = [];
-    return migrateProduction(migrateStudio(migrateOutreach(parsed)));
+    return ensureActivity(migrateProduction(migrateStudio(migrateOutreach(parsed))));
   } catch {
-    return buildSeed();
+    return ensureActivity(buildSeed());
   }
 }
 
@@ -103,6 +107,18 @@ function syncClientIncome(transactions, client) {
   return existing ? list.filter((t) => t.id !== existing.id) : list;
 }
 
+// ---------------- activity log (audit memory) ----------------
+// Append-only event trail so the app (and ג'יק) can answer "what changed / what
+// was X before" from REAL recorded history instead of guessing. Capped at 200.
+const ils = (n) => (Number(n) || 0).toLocaleString('he-IL');
+function act(kind, summary, extra = {}) {
+  return { id: uid('ev'), ts: new Date().toISOString(), kind, summary, ...extra };
+}
+function pushAct(state, entries) {
+  const list = Array.isArray(entries) ? entries : [entries];
+  return [...list, ...(state.activity || [])].slice(0, 200);
+}
+
 // ---------------- pure reducer (shared by both modes for in-memory state) ----------------
 function reducer(state, action) {
   switch (action.type) {
@@ -113,20 +129,34 @@ function reducer(state, action) {
 
     case 'ADD_CLIENT': {
       const client = { ...action.payload, id: action.payload.id || uid('cl') };
-      return { ...state, clients: [client, ...state.clients], transactions: syncClientIncome(state.transactions, client) };
+      const ev = act('client_add', `נוסף לקוח "${client.name}"${Number(client.value) ? ` (שווי ${ils(client.value)} ₪)` : ''}`, { entity: 'client', name: client.name, after: Number(client.value) || 0 });
+      return { ...state, clients: [client, ...state.clients], transactions: syncClientIncome(state.transactions, client), activity: pushAct(state, ev) };
     }
     case 'UPDATE_CLIENT': {
+      const prev = state.clients.find((c) => c.id === action.payload.id);
       const clients = state.clients.map((c) => (c.id === action.payload.id ? { ...c, ...action.payload } : c));
       const merged = clients.find((c) => c.id === action.payload.id);
-      return { ...state, clients, transactions: merged ? syncClientIncome(state.transactions, merged) : state.transactions };
+      const evs = [];
+      if (prev && merged) {
+        if (action.payload.value !== undefined && Number(prev.value || 0) !== Number(merged.value || 0)) {
+          evs.push(act('client_value', `שווי "${merged.name}": ${ils(prev.value)} ₪ → ${ils(merged.value)} ₪`, { entity: 'client', name: merged.name, before: Number(prev.value) || 0, after: Number(merged.value) || 0 }));
+        }
+        if (action.payload.status !== undefined && prev.status !== merged.status) {
+          evs.push(act('client_status', `סטטוס "${merged.name}": ${prev.status} → ${merged.status}`, { entity: 'client', name: merged.name, before: prev.status, after: merged.status }));
+        }
+      }
+      return { ...state, clients, transactions: merged ? syncClientIncome(state.transactions, merged) : state.transactions, activity: evs.length ? pushAct(state, evs) : state.activity };
     }
-    case 'DELETE_CLIENT':
+    case 'DELETE_CLIENT': {
+      const gone = state.clients.find((c) => c.id === action.id);
       return {
         ...state,
         clients: state.clients.filter((c) => c.id !== action.id),
         quotes: state.quotes.filter((q) => q.clientId !== action.id),
         transactions: state.transactions.filter((t) => !(t.auto && t.clientId === action.id)),
+        activity: gone ? pushAct(state, act('client_delete', `נמחק לקוח "${gone.name}"`, { entity: 'client', name: gone.name })) : state.activity,
       };
+    }
 
     case 'ADD_QUOTE':
       return { ...state, quotes: [{ ...action.payload, id: action.payload.id || uid('qt') }, ...state.quotes] };
@@ -135,8 +165,12 @@ function reducer(state, action) {
     case 'DELETE_QUOTE':
       return { ...state, quotes: state.quotes.filter((q) => q.id !== action.id) };
 
-    case 'ADD_TX':
-      return { ...state, transactions: [{ ...action.payload, id: action.payload.id || uid('tx') }, ...state.transactions] };
+    case 'ADD_TX': {
+      const tx = { ...action.payload, id: action.payload.id || uid('tx') };
+      const inc = tx.type === 'income';
+      const ev = act(inc ? 'income' : 'expense', `${inc ? 'נרשמה הכנסה' : 'נרשמה הוצאה'} ${ils(tx.amount)} ₪${tx.description ? ` · ${tx.description}` : ''}`, { amount: Number(tx.amount) || 0 });
+      return { ...state, transactions: [tx, ...state.transactions], activity: pushAct(state, ev) };
+    }
     case 'UPDATE_TX':
       return { ...state, transactions: state.transactions.map((t) => (t.id === action.payload.id ? { ...t, ...action.payload } : t)) };
     case 'DELETE_TX':
