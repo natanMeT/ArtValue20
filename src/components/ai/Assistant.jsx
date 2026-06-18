@@ -104,6 +104,13 @@ function buildContext(data) {
   } else {
     lines.push('מלאי: ריק (אין פריטים עדיין).');
   }
+  // Audit-log memory: real recorded history so ג'יק can answer "what changed /
+  // what was X before" from facts instead of guessing.
+  const acts = (data.activity || []).slice(0, 12);
+  if (acts.length) {
+    const fmt = (ts) => { try { return new Date(ts).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
+    lines.push(`יומן פעילות (היסטוריה אמיתית — לשאלות "מה השתנה / מה היה קודם" שלוף מכאן ואל תנחש): ${acts.map((a) => `${fmt(a.ts)} ${a.summary}`).join(' | ')}.`);
+  }
   return lines.map((l) => `- ${l}`).join('\n');
 }
 

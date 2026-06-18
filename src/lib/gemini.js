@@ -133,7 +133,24 @@ export async function fetchSiteText(rawUrl) {
   if (!res.ok) throw new Error(`קריאת האתר נכשלה (${res.status}). ודא שהכתובת תקינה וציבורית.`);
   const text = (await res.text()).trim();
   if (!text || text.length < 40) throw new Error('האתר ריק או חוסם קריאה אוטומטית.');
-  return text.slice(0, 14000); // cap context for the LLM
+  return cleanReaderText(text).slice(0, 6000); // strip nav/url noise + cap — keeps the analyzer on-task (KI-1)
+}
+
+// Reader output (r.jina.ai markdown) is heavy with nav links, URL-encoded hrefs
+// and emoji image refs. That noise derailed DictaLM's analyzer into echoing
+// structural JSON (measured on elitcar.co.il: raw 14k → 0/3 valid; cleaned+trimmed
+// → 2/2 valid), surfacing as "הניתוח נכשל" on noisy WordPress sites. Strip the
+// noise, keep the prose.
+function cleanReaderText(t) {
+  return String(t || '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')     // ![alt](img) image refs
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')   // [text](url) → text
+    .replace(/https?:\/\/\S+/g, '')            // bare urls
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{2,}/g, '\n')
+    .split('\n').map((l) => l.trim()).filter((l) => l.length > 2)
+    .join('\n')
+    .trim();
 }
 
 // ---- Creative mechanisms (rotate; never repeat across campaigns) ----
@@ -846,7 +863,7 @@ export async function chatWithLocalModel(history, contextText) {
 
 חוק דיוק (קריטי): "נתוני המערכת" שלמטה הם מקור האמת היחיד והמעודכן. כשנשאלת על כמות / מספר / רשימה / סטטוס — שלוף את התשובה ישירות מהנתונים האלה ואל תנחש ואל תמציא. אם נשאלת "כמה לקוחות?" החזר את המספר המדויק שמופיע בנתונים. אם משהו לא קיים — אמור זאת בכנות.
 
-חוק היסטוריה (קריטי): נתוני המערכת שלמטה הם תמונת-מצב נוכחית בלבד — אין לך תיעוד, היסטוריה או "גיבוי" של ערכים קודמים. לשאלות על העבר ("כמה היו ההכנסות לפני שעדכנתי", "מה היה השווי של הלקוח קודם", "כמה היה אתמול / לפני השינוי") — המידע הזה פשוט לא קיים אצלך, ואסור בהחלט להמציא מספר או להמציא לקוח/הסבר תומך. במקרה כזה ענה בכנות: "אני רואה רק את המצב הנוכחי — אין לי תיעוד של ערכים קודמים, אז אני לא יכול לשחזר את המספר מלפני השינוי", והַפנה את נתן לבדוק בעמוד הפיננסים. עדיף "אין לי את הנתון" על פני ניחוש.
+חוק היסטוריה (קריטי): בנתוני המערכת למטה יש "יומן פעילות" — זו ההיסטוריה האמיתית של שינויים (שווי לקוח, סטטוס, הכנסות/הוצאות) עם תאריך ושעה. לשאלות על העבר ("מה היה השווי של הלקוח קודם", "כמה היו ההכנסות לפני השינוי", "מה השתנה היום") — חפש את התשובה ביומן הפעילות וענה לפיו במדויק (למשל אם רשום "שווי X: 2,500 ₪ → 3,500 ₪", אז לפני השינוי השווי היה 2,500 ₪). אם התשובה לא מופיעה ביומן — אמור בכנות "אין לי תיעוד של זה ביומן הפעילות" ואל תמציא מספר או לקוח/הסבר תומך. עדיף "אין לי את הנתון" על פני ניחוש.
 
 ${ACTIONS_GUIDE}
 
