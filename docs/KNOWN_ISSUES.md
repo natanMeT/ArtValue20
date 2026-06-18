@@ -3,11 +3,11 @@
 > Per PRODUCT_VISION: weaknesses are documented, not fixed without a deliberate
 > decision. These are accepted limitations of frozen Creative Director Engine v1.
 
-### KI-1 · Business analysis can fail on some real sites
-- **Observed:** Live demo on `tishbi.com` (יקב תשבי) → "הניתוח נכשל — נסה אתר אחר". `aroma.co.il` worked on the first try.
-- **Cause (likely):** Reader returns thin/JS-rendered content for some sites, or DictaLM returns an analysis JSON without a usable `business` field. Site-dependent + model variance.
-- **Impact:** A client-demo URL might fail at the analysis step.
-- **Mitigation (process, no code change):** Pre-test the exact client URL before a meeting; keep a known-good fallback URL ready.
+### KI-1 · Business analysis can fail on some real sites — ✅ RESOLVED (2026-06-19)
+- **Observed:** Live demo on `tishbi.com` (יקב תשבי) → "הניתוח נכשל — נסה אתר אחר". Re-observed on `elitcar.co.il`.
+- **Measured root cause (probe):** Reader (`r.jina.ai`) fetched fine — `elitcar.co.il` returned 36,966 chars, status 200. The failure was in the analyze step: fed 14k of reader output dominated by nav links / URL-encoded hrefs / emoji image refs, DictaLM **derailed into echoing structural JSON** (`{id,object,choices,usage}` OpenAI-envelope, `{messages}` request-echo) with no `business` field — **3/3 deterministic**.
+- **Fix:** `fetchSiteText` now strips the markdown-link / URL / emoji noise (`cleanReaderText`) and trims to 6k before the model. Measured on elitcar: raw 14k → **0/3** valid; cleaned 6k → **3/3** valid (business = "ElitCar - סוכנות רכב"). Genuinely thin/blocked sites still correctly surface "האתר ריק או חוסם".
+- **Residual:** very low — extreme/empty sites remain a "try another URL" case, now rare.
 
 ### KI-2 · Full campaign render is long (~15–20 min)
 - **Observed:** Text pipeline ~6–9 min + six FLUX renders ~9 min. Too long to watch live in a client meeting.
