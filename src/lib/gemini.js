@@ -17,6 +17,11 @@ const LOCAL_LLM_MODEL = import.meta.env.VITE_LOCAL_LLM_MODEL || 'aya-expanse:8b'
 // Separate model for the AdStudio Creative Director (DictaLM = wilder/more original).
 // Jake & all other text AI keep using LOCAL_LLM_MODEL (aya — fast & coherent).
 const CREATIVE_LLM_MODEL = import.meta.env.VITE_CREATIVE_LLM_MODEL || LOCAL_LLM_MODEL;
+// Jake (the CRM assistant) runs on its OWN brain, independent of the frozen
+// Creative Director (aya). This is the model-agnostic seam: swap a stronger model
+// in (qwen3:14b locally, or Kimi K2 / Claude via an OpenAI-compatible API later)
+// without touching the engine. Override with VITE_JAKE_MODEL.
+const JAKE_MODEL = import.meta.env.VITE_JAKE_MODEL || LOCAL_LLM_MODEL;
 export const useLocalLLM = Boolean(LOCAL_LLM_URL);
 
 // Qwen3 supports a "/no_think" soft switch that disables its reasoning trace. We
@@ -25,6 +30,9 @@ export const useLocalLLM = Boolean(LOCAL_LLM_URL);
 // the aya rollback (which would just see stray text). Empirically Ollama's qwen3
 // already defaults to non-thinking here — this makes it deterministic.
 const NO_THINK = /qwen3/i.test(LOCAL_LLM_MODEL) ? '\n\n/no_think' : '';
+// Same soft-switch, keyed to Jake's own model (so qwen3-as-Jake stays non-thinking
+// and emits clean action JSON, even when the engine model isn't qwen3).
+const JAKE_NO_THINK = /qwen3/i.test(JAKE_MODEL) ? '\n\n/no_think' : '';
 
 export const isGeminiConfigured = Boolean(API_KEY) || useLocalLLM;
 
@@ -868,12 +876,12 @@ export async function chatWithLocalModel(history, contextText) {
 ${ACTIONS_GUIDE}
 
 נתוני המערכת (זה מה שיש כרגע, עדכני לרגע זה):
-${contextText}${NO_THINK}`;
+${contextText}${JAKE_NO_THINK}`;
 
   // Local model path (OpenAI-style messages).
   if (useLocalLLM) {
     const messages = [{ role: 'system', content: sys }, ...history.map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.text }))];
-    return localChat(messages, { temperature: 0.7, maxTokens: 1600 });
+    return localChat(messages, { temperature: 0.7, maxTokens: 1600, model: JAKE_MODEL });
   }
 
   // Gemini requires contents to start with a 'user' turn.
@@ -914,12 +922,12 @@ ${ACTIONS_GUIDE}
 נתוני המערכת (השתמש בהם לזיהוי שמות/ערכים מדויקים):
 ${contextText}
 
-החזר אך ורק בלוק \`\`\`actions עם מערך JSON שמבצע את בקשת המשתמש — בלי שום טקסט, הסבר או מילה אחרת לפניו או אחריו. אם הבקשה דורשת לפעול על כמה פריטים (למשל "כל הלקוחות עם שווי 0") — כלול פעולה לכל אחד מהם לפי הנתונים. אם אין פעולה מתאימה החזר: []${NO_THINK}`;
+החזר אך ורק בלוק \`\`\`actions עם מערך JSON שמבצע את בקשת המשתמש — בלי שום טקסט, הסבר או מילה אחרת לפניו או אחריו. אם הבקשה דורשת לפעול על כמה פריטים (למשל "כל הלקוחות עם שווי 0") — כלול פעולה לכל אחד מהם לפי הנתונים. אם אין פעולה מתאימה החזר: []${JAKE_NO_THINK}`;
   const messages = [{ role: 'system', content: sys }, { role: 'user', content: userText }];
   // NOTE: engine/network errors are allowed to PROPAGATE (localChat throws a clear
   // Hebrew message) so the caller can distinguish "engine unreachable" from
   // "model returned but didn't comply". Do not swallow them here.
-  if (useLocalLLM) return localChat(messages, { temperature: 0.1, maxTokens: 1400 });
+  if (useLocalLLM) return localChat(messages, { temperature: 0.1, maxTokens: 1400, model: JAKE_MODEL });
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
   const body = { systemInstruction: { parts: [{ text: sys }] }, contents: [{ role: 'user', parts: [{ text: userText }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 1400, thinkingConfig: { thinkingBudget: 0 } } };
   const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-goog-api-key': API_KEY }, body: JSON.stringify(body) });
