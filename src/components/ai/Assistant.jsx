@@ -7,13 +7,14 @@ import warriorSit from '../../assets/warrior_sit.png';
 import warriorStand from '../../assets/warrior_stand.png';
 import warriorWalk from '../../assets/warrior_walk.png';
 import { chatWithLocalModel, forceActions, isGeminiConfigured } from '../../lib/gemini.js';
-import { extractActions, executeActions, reconcileClaim, detectBulkDelete, buildBulkDeleteGate } from '../../lib/jakeAgent.js';
+import { extractActions, executeActions, reconcileClaim, detectBulkDelete, buildBulkDeleteGate, actionSig } from '../../lib/jakeAgent.js';
 import { dashboardKpis, inventoryTotals } from '../../lib/calc.js';
 import { formatCurrency } from '../../lib/format.js';
 
 const GREETING = 'שלום! אני ג׳יק, העוזר האישי שלך. אני יודע כל מספר במערכת, זוכר את מה שדיברנו, וגם יכול לבצע פעולות — להוסיף לקוח, לעדכן מלאי ועוד. מה נעשה?';
 const SUGGESTIONS = ['כמה לקוחות יש לי?', 'מה המשימות להיום?', 'הוסף פריט מלאי'];
 const CHAT_KEY = 'artvalue_jake_chat';
+const MAX_AGENT_STEPS = 3; // agent-loop cap: extra autonomous steps after the first
 // Authorization code required before any BULK delete (e.g. "מחק את כל המלאי").
 const CONFIRM_CODE = '123456';
 
@@ -119,6 +120,16 @@ function buildContext(data) {
 // boundaries don't work around Hebrew letters, so anchor on start/whitespace.)
 function hasActionVerb(text) {
   return /(?:^|\s)(תעדכן|עדכן|תשנה|שנה|תוסיף|הוסף|תמחק|מחק|תסיר|הסר|תוריד|הורד|תרשום|רשום|רשם|תסמן|סמן|תעביר|העבר|תבנה|בנה)/.test(String(text || ''));
+}
+
+// Does the request plausibly need MORE than one step? (sequence words, "for each",
+// or ≥2 action verbs). Gates the agent loop so simple one-shot commands stay fast
+// and only compound tasks get the autonomous plan→act→observe→repeat treatment.
+const ACTION_VERB_G = /(תעדכן|עדכן|תשנה|שנה|תוסיף|הוסף|תמחק|מחק|תסיר|הסר|תוריד|הורד|תרשום|רשום|תסמן|סמן|תעביר|העבר|תבנה|בנה|תיצור|צור)/g;
+function isMultiStep(text) {
+  const t = String(text || '');
+  if (/(אחר כך|ואז|לאחר מכן|בנוסף|וגם|כשתסיים|לכל ה|לכל לקוח|לכל פריט|אחד אחרי|בזה אחר זה)/.test(t)) return true;
+  return (t.match(ACTION_VERB_G) || []).length >= 2;
 }
 
 // Numbers come from CODE, never from the model. For a recognized computed-number
@@ -442,8 +453,10 @@ export default function Assistant() {
       if (clean) { setMessages((m) => [...m, { role: 'assistant', text: clean }]); speak(clean); }
       let realDone = false;
       let pass1Logs = []; let pass1Pending = [];
+      let workingData = data; // live mirror for the agent loop (updated per executed step)
       if (actions.length) {
-        const { logs, pendingDeletes, codeGates = [] } = executeActions(actions, data, dispatch);
+        const { logs, pendingDeletes, codeGates = [], nextData } = executeActions(actions, data, dispatch);
+        workingData = nextData || data;
         pass1Logs = logs; pass1Pending = [...pendingDeletes, ...codeGates];
         if (logs.length) {
           setMessages((m) => [...m, { role: 'assistant', text: logs.join('\n'), system: true }]);
@@ -474,7 +487,8 @@ export default function Assistant() {
           const forced = await forceActions(text, buildContext(data));
           const r2 = extractActions(forced);
           if (r2.actions.length) {
-            const { logs, pendingDeletes, codeGates = [] } = executeActions(r2.actions, data, dispatch);
+            const { logs, pendingDeletes, codeGates = [], nextData } = executeActions(r2.actions, data, dispatch);
+            workingData = nextData || workingData;
             if (logs.length) {
               setMessages((m) => [...m, { role: 'assistant', text: logs.join('\n'), system: true }]);
               if (logs.some((l) => l.startsWith('✓'))) toast('ג׳יק ביצע פעולה ✓');
@@ -495,6 +509,35 @@ export default function Assistant() {
           ? '⚠️ המנוע המקומי לא זמין כרגע (Ollama כבוי או עדיין עולה אחרי הפעלת המחשב). הפעולה לא בוצעה. ודא ש-Ollama רץ והמתן ~30 שניות, ואז נסה שוב.'
           : '⚠️ ג׳יק לא הצליח לתרגם את הבקשה לפעולה — הפעולה לא בוצעה. נסה לנסח מפורש יותר, למשל: "תעדכן את השווי של מזקקת צפת ל-5000".';
         setMessages((m) => [...m, { role: 'assistant', system: true, text: msg }]);
+      }
+      // ---- AGENT LOOP: finish a multi-step task autonomously — plan→act→OBSERVE
+      // the result→decide next step→repeat. Engages ONLY for plausibly multi-step
+      // requests (so one-shot commands stay fast) and only after a real first step.
+      // Guards: dedup by actionSig (never repeat a step), MAX_AGENT_STEPS cap, stop
+      // on "DONE" / no-new-action / no-✓-progress, and pause on any delete. The
+      // frozen Creative Director engine is untouched — this is pure Jake orchestration.
+      if (realDone && !pass1Pending.length && isMultiStep(text)) {
+        const executed = new Set((actions || []).map(actionSig));
+        const loopConvo = [...convo, { role: 'assistant', text: clean || reply }];
+        for (let step = 0; step < MAX_AGENT_STEPS; step += 1) {
+          const probe = `המשך אוטונומי של המשימה. הבקשה המקורית של נתן: "${text}". אם היא כבר בוצעה במלואה — ענה בדיוק "DONE" ותו לא. אם נשאר שלב קונקרטי אחד שעוד לא בוצע — בצע אותו עכשיו (בלוק actions אחד בלבד). אל תמציא עבודה חדשה ואל תחזור על פעולה שכבר בוצעה.`;
+          let r;
+          try { r = await chatWithLocalModel([...loopConvo, { role: 'user', text: probe }], buildContext(workingData)); } catch { break; }
+          if (/\bDONE\b/i.test(r)) break;
+          const { clean: c2, actions: a2 } = extractActions(r);
+          const fresh = (a2 || []).filter((a) => !executed.has(actionSig(a)));
+          if (!fresh.length) break; // nothing new to do → task is complete
+          fresh.forEach((a) => executed.add(actionSig(a)));
+          loopConvo.push({ role: 'assistant', text: c2 || r });
+          const { logs, pendingDeletes, codeGates = [], nextData } = executeActions(fresh, workingData, dispatch);
+          workingData = nextData || workingData;
+          if (logs.length) setMessages((m) => [...m, { role: 'assistant', system: true, text: `🔄 ${logs.join('\n')}` }]);
+          if (logs.some((l) => l.startsWith('✓'))) toast('ג׳יק ממשיך לבד ✓');
+          pendingDeletes.forEach((d) => setMessages((m) => [...m, { role: 'assistant', confirm: d }]));
+          codeGates.forEach((g) => setMessages((m) => [...m, { role: 'assistant', text: `למחיקת כל ${g.entityLabel} (${g.items.length}) נדרש קוד אישור. 🔒`, system: true }, { role: 'assistant', gate: g }]));
+          if (pendingDeletes.length || codeGates.length) break; // pause for user confirmation
+          if (!logs.some((l) => l.startsWith('✓'))) break; // no real progress → stop
+        }
       }
       // Compound "command + number-question": the command ran above; now append the
       // authoritative figure computed from the live store (never the model's number).

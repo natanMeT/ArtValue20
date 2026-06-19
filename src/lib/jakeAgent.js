@@ -729,5 +729,22 @@ export function executeActions(actions, data, dispatch) {
       logs.push(`⚠️ שגיאה בפעולה ${a.op}: ${err.message}`);
     }
   }
-  return { logs, pendingDeletes, codeGates };
+  // nextData: the live working copy after this batch (adds/updates applied;
+  // deletes are deferred to confirmation so they're NOT reflected here). Lets the
+  // agent loop OBSERVE the result of a step and plan the next one on fresh state.
+  const nextData = {
+    ...data,
+    clients: work.clients, inventory: work.inventory, transactions: work.transactions,
+    quotes: work.quotes, projects: work.projects, tasks: work.tasks, outreachLeads: work.leads,
+  };
+  return { logs, pendingDeletes, codeGates, nextData };
+}
+
+// Stable identity for an action — used by the agent loop to skip re-running a
+// step it already executed (prevents loops repeating the same op).
+export function actionSig(a) {
+  if (!a || !a.op) return '';
+  const ref = (a.client || a.name || a.item || a.task || a.project || a.lead || a.quote || a.tx || a.match || '').toString().trim().toLowerCase();
+  const extra = [a.value, a.amount, a.status, a.stage, a.qty, a.entity].filter((v) => v !== undefined).join('|');
+  return `${a.op}:${ref}:${extra}`;
 }
