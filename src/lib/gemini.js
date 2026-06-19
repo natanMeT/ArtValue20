@@ -6,6 +6,7 @@
 // ===================================================================
 
 import { ACTIONS_GUIDE } from './jakeAgent.js';
+import { activePack, buildJakeSystem } from './jakePack.js';
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.0-flash';
@@ -865,18 +866,9 @@ export async function diagnoseQuote(input) {
 export async function chatWithLocalModel(history, contextText) {
   if (!isGeminiConfigured) return demoChat(history);
 
-  const sys = `אתה ג׳יק — העוזר האישי של נתן, בעל הסטודיו הדיגיטלי Art Value (אתרים, CRM, מיתוג, קמפיינים).
-אם שואלים מי אתה — אתה ג׳יק. אל תזכיר שאתה מבוסס על מודל חיצוני.
-ענה בעברית בלבד, קצר, חברי ותכליתי. עזור עם לקוחות, לידים (מחקר לידים), פרויקטים, משימות, הצעות מחיר, מלאי ופיננסים.
-
-חוק דיוק (קריטי): "נתוני המערכת" שלמטה הם מקור האמת היחיד והמעודכן. כשנשאלת על כמות / מספר / רשימה / סטטוס — שלוף את התשובה ישירות מהנתונים האלה ואל תנחש ואל תמציא. אם נשאלת "כמה לקוחות?" החזר את המספר המדויק שמופיע בנתונים. אם משהו לא קיים — אמור זאת בכנות.
-
-חוק היסטוריה (קריטי): בנתוני המערכת למטה יש "יומן פעילות" — זו ההיסטוריה האמיתית של שינויים (שווי לקוח, סטטוס, הכנסות/הוצאות) עם תאריך ושעה. לשאלות על העבר ("מה היה השווי של הלקוח קודם", "כמה היו ההכנסות לפני השינוי", "מה השתנה היום") — חפש את התשובה ביומן הפעילות וענה לפיו במדויק (למשל אם רשום "שווי X: 2,500 ₪ → 3,500 ₪", אז לפני השינוי השווי היה 2,500 ₪). אם התשובה לא מופיעה ביומן — אמור בכנות "אין לי תיעוד של זה ביומן הפעילות" ואל תמציא מספר או לקוח/הסבר תומך. עדיף "אין לי את הנתון" על פני ניחוש.
-
-${ACTIONS_GUIDE}
-
-נתוני המערכת (זה מה שיש כרגע, עדכני לרגע זה):
-${contextText}${JAKE_NO_THINK}`;
+  // System prompt is assembled from the active BUSINESS PACK (jakePack.js) — swap
+  // the pack to retarget Jake to another business; the engine here stays unchanged.
+  const sys = buildJakeSystem(activePack, contextText, JAKE_NO_THINK);
 
   // Local model path (OpenAI-style messages).
   if (useLocalLLM) {
