@@ -316,6 +316,21 @@ export default function Assistant() {
     return () => { clearTimeout(first); clearInterval(iv); };
   }, [phase]);
 
+  // Proactive MORNING BRIEFING: the first time ג׳יק opens each day, he greets נתן
+  // with the deterministic briefing (overdue / money owed / today) — unprompted.
+  useEffect(() => {
+    if (!open) return;
+    try {
+      const today = new Date().toDateString();
+      if (localStorage.getItem('artvalue_jake_brief_date') === today) return;
+      localStorage.setItem('artvalue_jake_brief_date', today);
+      const h = new Date().getHours();
+      const greet = h < 12 ? 'בוקר טוב' : h < 18 ? 'צהריים טובים' : 'ערב טוב';
+      setMessages((m) => [...m, { role: 'assistant', text: `${greet}, נתן! 👋\n\n${jakeBriefing(data)}` }]);
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   // Click the agent → he stands, walks in, looks around, then the chat opens.
   const handleOpen = () => {
     if (phase !== 'sit') return;
