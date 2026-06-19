@@ -16,6 +16,7 @@ const NAV = [
   { to: '/workflow', label: 'סטודיו Workflow', icon: 'filter' },
   { to: '/fooocus', label: 'Fooocus', icon: 'image' },
   { to: '/finance', label: 'פיננסים', icon: 'wallet' },
+  { to: '/activity', label: 'יומן פעילות', icon: 'clock' },
   { to: '/inventory', label: 'מלאי', icon: 'dashboard' },
   { to: '/assets', label: 'קבצים וקישורים', icon: 'link' },
   { to: '/templates', label: 'תבניות', icon: 'copy' },

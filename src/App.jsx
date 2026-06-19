@@ -28,6 +28,7 @@ import AdStudio from './pages/AdStudio.jsx';
 import Fooocus from './pages/Fooocus.jsx';
 import Finance from './pages/Finance.jsx';
 import Inventory from './pages/Inventory.jsx';
+import Activity from './pages/Activity.jsx';
 import Settings from './pages/Settings.jsx';
 import QuotePrint from './pages/QuotePrint.jsx';
 
@@ -108,6 +109,7 @@ function MainRoutes() {
         <Route path="/fooocus" element={<Fooocus />} />
         <Route path="/finance" element={<Finance />} />
         <Route path="/inventory" element={<Inventory />} />
+        <Route path="/activity" element={<Activity />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
     </Routes>
