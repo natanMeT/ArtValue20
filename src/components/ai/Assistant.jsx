@@ -193,6 +193,48 @@ function buildReminders(data) {
   return [];
 }
 
+// Proactive DAILY BRIEFING — fully deterministic (computed from the live store,
+// never the model) so it's always correct. Surfaces what needs נתן's attention
+// today: overdue work, money owed, today's tasks, quotes & leads to chase.
+function jakeBriefing(data) {
+  const tasks = data.tasks || [];
+  const now = new Date();
+  const todayStr = now.toDateString();
+  const open = tasks.filter((t) => t.status !== 'done');
+  const overdue = open.filter((t) => t.deadline && new Date(t.deadline) < now && new Date(t.deadline).toDateString() !== todayStr);
+  const dueToday = open.filter((t) => t.deadline && new Date(t.deadline).toDateString() === todayStr);
+  // Money owed: work marked done / awaiting payment, value > 0, not yet paid.
+  const owed = (data.clients || []).filter((c) => ['completed', 'await_payment'].includes(c.status) && Number(c.value) > 0);
+  const owedSum = owed.reduce((s, c) => s + (Number(c.value) || 0), 0);
+  const stuckLeads = (data.clients || []).filter((c) => c.status === 'lead' && !c.nextAction);
+  const k = dashboardKpis(data);
+  const names = (arr, key = 'name', n = 3) => arr.slice(0, n).map((x) => x[key]).filter(Boolean).join(', ') + (arr.length > n ? ` ועוד ${arr.length - n}` : '');
+
+  const urgent = [];
+  if (overdue.length) urgent.push(`🔴 ${overdue.length} משימות באיחור — ${names(overdue, 'title')}`);
+  if (owed.length) urgent.push(`💸 ${formatCurrency(owedSum)} ממתין לתשלום מ-${owed.length} לקוחות — ${names(owed)}`);
+  const today = [];
+  if (dueToday.length) today.push(`📋 ${dueToday.length} משימות להיום — ${names(dueToday, 'title')}`);
+  if (k.pendingQuotes) today.push(`📄 ${k.pendingQuotes} הצעות מחיר ממתינות לאישור`);
+  if (stuckLeads.length) today.push(`👥 ${stuckLeads.length} לידים בלי פעולה הבאה — ${names(stuckLeads)}`);
+
+  if (!urgent.length && !today.length) {
+    return `☀️ סיכום היום\nהכל רגוע — אין משימות דחופות או חובות פתוחים. הכנסות החודש: ${formatCurrency(k.revenue)}. 👌`;
+  }
+  const parts = ['☀️ סיכום היום'];
+  if (urgent.length) parts.push('\nדחוף:\n' + urgent.map((l) => `• ${l}`).join('\n'));
+  if (today.length) parts.push('\nלמעקב:\n' + today.map((l) => `• ${l}`).join('\n'));
+  parts.push(`\n💰 החודש: הכנסות ${formatCurrency(k.revenue)} · רווח ${formatCurrency(k.profit)}.`);
+  return parts.join('\n');
+}
+
+// Is the user asking for a proactive briefing / "what's important"? (question-like,
+// never an action command) → answered deterministically by jakeBriefing.
+function isBriefingRequest(text) {
+  const t = String(text || '').trim();
+  return /(סיכום של היום|סיכום יום|סיכום היום|מה חשוב|מה דחוף|מה הכי חשוב|מה יש לי היום|מה על הפרק|תעדכן אותי|מה המצב היום|מה צריך לעשות היום|בריף)/.test(t);
+}
+
 // phases: sit (resting) → walkout → look → idle (reminder) / chatting (chat) → walkback → sit
 export default function Assistant() {
   const { data, dispatch, toast } = useStore();
@@ -432,6 +474,14 @@ export default function Assistant() {
         { role: 'assistant', text: `למחיקת כל ${gate.entityLabel} (${gate.items.length}) נדרש קוד אישור. 🔒` },
         { role: 'assistant', gate },
       ]);
+      return;
+    }
+    // Proactive briefing ("מה חשוב / מה דחוף / סיכום היום") → deterministic, from
+    // the live store. Skipped if it's an action command (let the executor handle it).
+    if (isBriefingRequest(text) && !hasActionVerb(text)) {
+      const brief = jakeBriefing(data);
+      setMessages((m) => [...m, { role: 'assistant', text: brief }]);
+      speak(brief);
       return;
     }
     // Numbers come from CODE. A PURE number-question is answered directly (model
