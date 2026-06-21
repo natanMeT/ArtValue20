@@ -5,7 +5,6 @@
 // demo result so the feature works offline / before a key is added.
 // ===================================================================
 
-import { ACTIONS_GUIDE } from './jakeAgent.js';
 import { activePack, buildJakeSystem } from './jakePack.js';
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
@@ -908,8 +907,8 @@ export async function chatWithLocalModel(history, contextText) {
 // ===================================================================
 export async function forceActions(userText, contextText) {
   if (!isGeminiConfigured) return '';
-  const sys = `אתה מנוע ביצוע פעולות עבור מערכת Art Value. תפקידך היחיד: להמיר את בקשת המשתמש לבלוק פעולות JSON.
-${ACTIONS_GUIDE}
+  const sys = `אתה מנוע ביצוע פעולות עבור מערכת ${activePack.name}. תפקידך היחיד: להמיר את בקשת המשתמש לבלוק פעולות JSON.
+${activePack.actionsGuide}
 
 נתוני המערכת (השתמש בהם לזיהוי שמות/ערכים מדויקים):
 ${contextText}

@@ -8,7 +8,8 @@ import warriorStand from '../../assets/warrior_stand.png';
 import warriorWalk from '../../assets/warrior_walk.png';
 import { chatWithLocalModel, forceActions, isGeminiConfigured } from '../../lib/gemini.js';
 import { extractActions, executeActions, reconcileClaim, detectBulkDelete, buildBulkDeleteGate, actionSig } from '../../lib/jakeAgent.js';
-import { dashboardKpis, inventoryTotals } from '../../lib/calc.js';
+import { activePack } from '../../lib/jakePack.js';
+import { dashboardKpis, inventoryTotals, lowStockItems } from '../../lib/calc.js';
 import { formatCurrency } from '../../lib/format.js';
 
 const GREETING = 'שלום! אני ג׳יק, העוזר האישי שלך. אני יודע כל מספר במערכת, זוכר את מה שדיברנו, וגם יכול לבצע פעולות — להוסיף לקוח, לעדכן מלאי ועוד. מה נעשה?';
@@ -73,46 +74,6 @@ function GateCard({ gate, onDelete, onCancel }) {
       </div>
     </div>
   );
-}
-
-function buildContext(data) {
-  const k = dashboardKpis(data);
-  const tasks = data.tasks || [];
-  const open = tasks.filter((t) => t.status !== 'done');
-  const today = open.filter((t) => t.deadline && new Date(t.deadline).toDateString() === new Date().toDateString());
-  const projects = (data.projects || []).filter((p) => p.status !== 'completed');
-  const byStatus = (s) => data.clients.filter((c) => c.status === s).length;
-  const leads = data.outreachLeads || [];
-  const leadContacted = leads.filter((l) => l.status === 'contacted').length;
-  const leadPending = leads.filter((l) => l.status === 'pending').length;
-  const leadIrrelevant = leads.filter((l) => l.status === 'irrelevant').length;
-  const now = new Date();
-  const lines = [
-    `תאריך היום: ${now.toLocaleDateString('he-IL')}.`,
-    `לקוחות ב-CRM: ${data.clients.length} סה״כ (${byStatus('lead')} לידים, ${byStatus('active')} פעילים).`,
-    `רשימת שמות הלקוחות: ${data.clients.slice(0, 40).map((c) => c.name).join('; ') || 'אין לקוחות עדיין'}.`,
-    `פרטי לקוחות: ${data.clients.slice(0, 14).map((c) => `${c.name} [${c.status}${c.value ? `, ${formatCurrency(c.value)}` : ''}${c.nextAction ? `, הבא: ${c.nextAction}` : ''}]`).join('; ') || 'אין'}.`,
-    `מחקר לידים (עמוד הפניות): ${leads.length} לידים סה״כ — ${leadPending} ממתינים, ${leadContacted} נוצר קשר, ${leadIrrelevant} לא רלוונטי. דוגמאות: ${leads.slice(0, 8).map((l) => l.name).join('; ') || 'אין'}.`,
-    `החודש: הכנסות ${formatCurrency(k.revenue)}, הוצאות ${formatCurrency(k.expenses)}, רווח ${formatCurrency(k.profit)}.`,
-    `משימות: ${open.length} פתוחות, ${today.length} להיום. הצעות מחיר ממתינות: ${k.pendingQuotes}.`,
-    `פרויקטים פעילים: ${projects.slice(0, 6).map((p) => `${p.name} (${p.clientName}, הפעולה הבאה: ${p.nextAction || '—'})`).join('; ') || 'אין'}.`,
-  ];
-  const inv = inventoryTotals(data.inventory || []);
-  if (inv.count) {
-    lines.push(`מלאי: ${inv.count} פריטים, ערך כולל ${formatCurrency(inv.totalValue)}. ${inv.low} במלאי נמוך, ${inv.out} אזלו.`);
-    const itemsList = (data.inventory || []).slice(0, 25).map((i) => `${i.name}: ${Number(i.qty) || 0} ${i.unit || 'יח׳'}${i.unitPrice ? ` (₪${i.unitPrice})` : ''}`).join('; ');
-    lines.push(`פריטי המלאי (שם: כמות): ${itemsList}.`);
-  } else {
-    lines.push('מלאי: ריק (אין פריטים עדיין).');
-  }
-  // Audit-log memory: real recorded history so ג'יק can answer "what changed /
-  // what was X before" from facts instead of guessing.
-  const acts = (data.activity || []).slice(0, 12);
-  if (acts.length) {
-    const fmt = (ts) => { try { return new Date(ts).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
-    lines.push(`יומן פעילות (היסטוריה אמיתית — לשאלות "מה השתנה / מה היה קודם" שלוף מכאן ואל תנחש): ${acts.map((a) => `${fmt(a.ts)} ${a.summary}`).join(' | ')}.`);
-  }
-  return lines.map((l) => `- ${l}`).join('\n');
 }
 
 // Does the text contain an explicit action verb (add/update/delete/…)? If so the
@@ -191,41 +152,6 @@ function buildReminders(data) {
     ];
   }
   return [];
-}
-
-// Proactive DAILY BRIEFING — fully deterministic (computed from the live store,
-// never the model) so it's always correct. Surfaces what needs נתן's attention
-// today: overdue work, money owed, today's tasks, quotes & leads to chase.
-function jakeBriefing(data) {
-  const tasks = data.tasks || [];
-  const now = new Date();
-  const todayStr = now.toDateString();
-  const open = tasks.filter((t) => t.status !== 'done');
-  const overdue = open.filter((t) => t.deadline && new Date(t.deadline) < now && new Date(t.deadline).toDateString() !== todayStr);
-  const dueToday = open.filter((t) => t.deadline && new Date(t.deadline).toDateString() === todayStr);
-  // Money owed: work marked done / awaiting payment, value > 0, not yet paid.
-  const owed = (data.clients || []).filter((c) => ['completed', 'await_payment'].includes(c.status) && Number(c.value) > 0);
-  const owedSum = owed.reduce((s, c) => s + (Number(c.value) || 0), 0);
-  const stuckLeads = (data.clients || []).filter((c) => c.status === 'lead' && !c.nextAction);
-  const k = dashboardKpis(data);
-  const names = (arr, key = 'name', n = 3) => arr.slice(0, n).map((x) => x[key]).filter(Boolean).join(', ') + (arr.length > n ? ` ועוד ${arr.length - n}` : '');
-
-  const urgent = [];
-  if (overdue.length) urgent.push(`🔴 ${overdue.length} משימות באיחור — ${names(overdue, 'title')}`);
-  if (owed.length) urgent.push(`💸 ${formatCurrency(owedSum)} ממתין לתשלום מ-${owed.length} לקוחות — ${names(owed)}`);
-  const today = [];
-  if (dueToday.length) today.push(`📋 ${dueToday.length} משימות להיום — ${names(dueToday, 'title')}`);
-  if (k.pendingQuotes) today.push(`📄 ${k.pendingQuotes} הצעות מחיר ממתינות לאישור`);
-  if (stuckLeads.length) today.push(`👥 ${stuckLeads.length} לידים בלי פעולה הבאה — ${names(stuckLeads)}`);
-
-  if (!urgent.length && !today.length) {
-    return `☀️ סיכום היום\nהכל רגוע — אין משימות דחופות או חובות פתוחים. הכנסות החודש: ${formatCurrency(k.revenue)}. 👌`;
-  }
-  const parts = ['☀️ סיכום היום'];
-  if (urgent.length) parts.push('\nדחוף:\n' + urgent.map((l) => `• ${l}`).join('\n'));
-  if (today.length) parts.push('\nלמעקב:\n' + today.map((l) => `• ${l}`).join('\n'));
-  parts.push(`\n💰 החודש: הכנסות ${formatCurrency(k.revenue)} · רווח ${formatCurrency(k.profit)}.`);
-  return parts.join('\n');
 }
 
 // Is the user asking for a proactive briefing / "what's important"? (question-like,
@@ -326,7 +252,7 @@ export default function Assistant() {
       localStorage.setItem('artvalue_jake_brief_date', today);
       const h = new Date().getHours();
       const greet = h < 12 ? 'בוקר טוב' : h < 18 ? 'צהריים טובים' : 'ערב טוב';
-      setMessages((m) => [...m, { role: 'assistant', text: `${greet}, נתן! 👋\n\n${jakeBriefing(data)}` }]);
+      setMessages((m) => [...m, { role: 'assistant', text: `${greet}, נתן! 👋\n\n${activePack.briefing(data)}` }]);
     } catch { /* ignore */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -478,9 +404,9 @@ export default function Assistant() {
     // Bulk delete ("מחק את כל המלאי") — handled DETERMINISTICALLY (never trust the
     // small model with destructive bulk ops). Pops a code gate (123456) → then a
     // granular checkbox picker. Returns before the model is ever called.
-    const bulkEntity = detectBulkDelete(text);
+    const bulkEntity = detectBulkDelete(text, activePack.entities);
     if (bulkEntity) {
-      const gate = buildBulkDeleteGate(bulkEntity, data);
+      const gate = buildBulkDeleteGate(bulkEntity, data, activePack.entities);
       if (!gate || !gate.items.length) {
         setMessages((m) => [...m, { role: 'assistant', system: true, text: `אין ${gate ? gate.entityLabel : 'פריטים'} למחיקה — הרשימה ריקה.` }]);
         return;
@@ -494,7 +420,7 @@ export default function Assistant() {
     // Proactive briefing ("מה חשוב / מה דחוף / סיכום היום") → deterministic, from
     // the live store. Skipped if it's an action command (let the executor handle it).
     if (isBriefingRequest(text) && !hasActionVerb(text)) {
-      const brief = jakeBriefing(data);
+      const brief = activePack.briefing(data);
       setMessages((m) => [...m, { role: 'assistant', text: brief }]);
       speak(brief);
       return;
@@ -513,14 +439,14 @@ export default function Assistant() {
     try {
       // Send only the recent text turns (bounded history) + the live data snapshot.
       const convo = next.filter((m) => m.text && !m.system).slice(-14);
-      const reply = await chatWithLocalModel(convo, buildContext(data));
+      const reply = await chatWithLocalModel(convo, activePack.buildContext(data));
       const { clean, actions } = extractActions(reply);
       if (clean) { setMessages((m) => [...m, { role: 'assistant', text: clean }]); speak(clean); }
       let realDone = false;
       let pass1Logs = []; let pass1Pending = [];
       let workingData = data; // live mirror for the agent loop (updated per executed step)
       if (actions.length) {
-        const { logs, pendingDeletes, codeGates = [], nextData } = executeActions(actions, data, dispatch);
+        const { logs, pendingDeletes, codeGates = [], nextData } = executeActions(actions, data, dispatch, activePack.actions, activePack.entities);
         workingData = nextData || data;
         pass1Logs = logs; pass1Pending = [...pendingDeletes, ...codeGates];
         if (logs.length) {
@@ -549,10 +475,10 @@ export default function Assistant() {
       if (!realDone && claimsAction) {
         // Second pass: force the model to emit ONLY the actions JSON, then run it.
         try {
-          const forced = await forceActions(text, buildContext(data));
+          const forced = await forceActions(text, activePack.buildContext(data));
           const r2 = extractActions(forced);
           if (r2.actions.length) {
-            const { logs, pendingDeletes, codeGates = [], nextData } = executeActions(r2.actions, data, dispatch);
+            const { logs, pendingDeletes, codeGates = [], nextData } = executeActions(r2.actions, data, dispatch, activePack.actions, activePack.entities);
             workingData = nextData || workingData;
             if (logs.length) {
               setMessages((m) => [...m, { role: 'assistant', text: logs.join('\n'), system: true }]);
@@ -587,14 +513,14 @@ export default function Assistant() {
         for (let step = 0; step < MAX_AGENT_STEPS; step += 1) {
           const probe = `המשך אוטונומי של המשימה. הבקשה המקורית של נתן: "${text}". אם היא כבר בוצעה במלואה — ענה בדיוק "DONE" ותו לא. אם נשאר שלב קונקרטי אחד שעוד לא בוצע — בצע אותו עכשיו (בלוק actions אחד בלבד). אל תמציא עבודה חדשה ואל תחזור על פעולה שכבר בוצעה.`;
           let r;
-          try { r = await chatWithLocalModel([...loopConvo, { role: 'user', text: probe }], buildContext(workingData)); } catch { break; }
+          try { r = await chatWithLocalModel([...loopConvo, { role: 'user', text: probe }], activePack.buildContext(workingData)); } catch { break; }
           if (/\bDONE\b/i.test(r)) break;
           const { clean: c2, actions: a2 } = extractActions(r);
           const fresh = (a2 || []).filter((a) => !executed.has(actionSig(a)));
           if (!fresh.length) break; // nothing new to do → task is complete
           fresh.forEach((a) => executed.add(actionSig(a)));
           loopConvo.push({ role: 'assistant', text: c2 || r });
-          const { logs, pendingDeletes, codeGates = [], nextData } = executeActions(fresh, workingData, dispatch);
+          const { logs, pendingDeletes, codeGates = [], nextData } = executeActions(fresh, workingData, dispatch, activePack.actions, activePack.entities);
           workingData = nextData || workingData;
           if (logs.length) setMessages((m) => [...m, { role: 'assistant', system: true, text: `🔄 ${logs.join('\n')}` }]);
           if (logs.some((l) => l.startsWith('✓'))) toast('ג׳יק ממשיך לבד ✓');

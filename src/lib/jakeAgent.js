@@ -117,45 +117,49 @@ function findTx(work, q) {
   return (work.transactions || []).find((t) => { const d = (t.description || '').toLowerCase(); return d && (d.includes(s) || s.includes(d)); }) || null;
 }
 
-// ---- Bulk-delete (code-gated) ----
-// Registry mapping an entity key → its data source, the store DELETE action type,
-// and a human row label for the picker. Used by both the deterministic intent
-// detector and the delete_all op.
-const BULK_ENTITIES = {
-  inventory: { label: 'פריטי המלאי', src: (d) => d.inventory || [], type: 'DELETE_ITEM', row: (x) => `${x.name || 'פריט'} · ${Number(x.qty) || 0} ${x.unit || 'יח׳'}` },
-  clients: { label: 'הלקוחות', src: (d) => d.clients || [], type: 'DELETE_CLIENT', row: (x) => x.name || 'לקוח' },
-  leads: { label: 'הלידים', src: (d) => d.outreachLeads || [], type: 'DELETE_LEAD', row: (x) => x.name || 'ליד' },
-  tasks: { label: 'המשימות', src: (d) => d.tasks || [], type: 'DELETE_TASK', row: (x) => x.title || 'משימה' },
-  projects: { label: 'הפרויקטים', src: (d) => d.projects || [], type: 'DELETE_PROJECT', row: (x) => x.name || 'פרויקט' },
-  quotes: { label: 'הצעות המחיר', src: (d) => d.quotes || [], type: 'DELETE_QUOTE', row: (x) => `${x.number || 'הצעה'}` },
-  transactions: { label: 'התנועות הכספיות', src: (d) => d.transactions || [], type: 'DELETE_TX', row: (x) => `${x.description || x.category || 'תנועה'} · ${Number(x.amount) || 0} ₪` },
-};
+// ===================================================================
+// Business ENTITIES — the data-shape declaration for this business. ONE ordered
+// descriptor per collection drives three things at once:
+//   1. executeActions' working-copy keys (key ↔ store dataKey; only `leads`
+//      differs: it lives under `outreachLeads` in the store),
+//   2. the bulk-delete picker (label + per-row text + DELETE dispatch type),
+//   3. the deterministic bulk-delete intent detector (`match` = NL keywords).
+// This is the Art Value reference set. A new business swaps it (jakePack.js owns
+// it as `pack.entities`) — the engine reads it, never hardcodes a collection.
+// Order = precedence for detectBulkDelete (first matching keyword wins).
+// ===================================================================
+export const BUSINESS_ENTITIES = [
+  { key: 'inventory', dataKey: 'inventory', label: 'פריטי המלאי', deleteType: 'DELETE_ITEM', match: /(מלאי|פריט|מוצר)/, row: (x) => `${x.name || 'פריט'} · ${Number(x.qty) || 0} ${x.unit || 'יח׳'}` },
+  { key: 'clients', dataKey: 'clients', label: 'הלקוחות', deleteType: 'DELETE_CLIENT', match: /(לקוח)/, row: (x) => x.name || 'לקוח' },
+  { key: 'leads', dataKey: 'outreachLeads', label: 'הלידים', deleteType: 'DELETE_LEAD', match: /(ליד|הפני)/, row: (x) => x.name || 'ליד' },
+  { key: 'tasks', dataKey: 'tasks', label: 'המשימות', deleteType: 'DELETE_TASK', match: /(משימ)/, row: (x) => x.title || 'משימה' },
+  { key: 'projects', dataKey: 'projects', label: 'הפרויקטים', deleteType: 'DELETE_PROJECT', match: /(פרויקט|פרוייקט)/, row: (x) => x.name || 'פרויקט' },
+  { key: 'quotes', dataKey: 'quotes', label: 'הצעות המחיר', deleteType: 'DELETE_QUOTE', match: /(הצע)/, row: (x) => `${x.number || 'הצעה'}` },
+  { key: 'transactions', dataKey: 'transactions', label: 'התנועות הכספיות', deleteType: 'DELETE_TX', match: /(תנוע|הכנס|הוצא|פיננס|כספ)/, row: (x) => `${x.description || x.category || 'תנועה'} · ${Number(x.amount) || 0} ₪` },
+];
+
+const entityByKey = (entities, key) => (entities || []).find((e) => e.key === key) || null;
 
 // Build the picker payload for a bulk delete: { entity, entityLabel, dispatchType, items:[{id,label}] }.
-export function buildBulkDeleteGate(entity, data) {
-  const e = BULK_ENTITIES[entity];
+export function buildBulkDeleteGate(entity, data, entities = BUSINESS_ENTITIES) {
+  const e = entityByKey(entities, entity);
   if (!e) return null;
-  const items = e.src(data || {}).map((x) => ({ id: x.id, label: e.row(x) })).filter((x) => x.id);
-  return { entity, entityLabel: e.label, dispatchType: e.type, items };
+  const items = (data?.[e.dataKey] || []).map((x) => ({ id: x.id, label: e.row(x) })).filter((x) => x.id);
+  return { entity, entityLabel: e.label, dispatchType: e.deleteType, items };
 }
 
 // Deterministic bulk-delete intent — does NOT rely on the LLM (small models fake
-// destructive ops). Matches "מחק/תמחק/למחוק/תרוקן ... כל ... <entity>". Returns the
+// destructive ops). Matches "מחק/תמחק/למחוק/תרוקן ... כל ... <entity>", then picks
+// the entity by its `match` keywords (first in entities order wins). Returns the
 // entity key or null. (\b doesn't work around Hebrew, so we match substrings.)
-export function detectBulkDelete(text) {
+export function detectBulkDelete(text, entities = BUSINESS_ENTITIES) {
   const t = String(text || '');
   const delVerb = /(תמחק|מחק|למחוק|תנקה|נקה)/.test(t);
   const clearVerb = /(תרוקן|רוקן)/.test(t);
   const hasAll = /(כל|הכל|הכול)/.test(t);
   if (!((delVerb && hasAll) || clearVerb)) return null;
-  if (/(מלאי|פריט|מוצר)/.test(t)) return 'inventory';
-  if (/(לקוח)/.test(t)) return 'clients';
-  if (/(ליד|הפני)/.test(t)) return 'leads';
-  if (/(משימ)/.test(t)) return 'tasks';
-  if (/(פרויקט|פרוייקט)/.test(t)) return 'projects';
-  if (/(הצע)/.test(t)) return 'quotes';
-  if (/(תנוע|הכנס|הוצא|פיננס|כספ)/.test(t)) return 'transactions';
-  return null;
+  const hit = (entities || []).find((e) => e.match && e.match.test(t));
+  return hit ? hit.key : null;
 }
 
 // ---- value normalizers for the new modules ----
@@ -227,22 +231,377 @@ export const ACTIONS_GUIDE = `## יכולת ביצוע פעולות (חשוב מ
 - אפשר לכלול כמה פעולות במערך אחד.
 - אל תמציא מספרים או שמות. הנתונים שניתנו לך הם מקור האמת היחיד.`;
 
-// The set of real ops. Used to gate the parser so a stray {type:"income"} or
-// other JSON isn't mistaken for an action (small models name the key "op",
-// "type" or "action" inconsistently — we accept all three).
-const KNOWN_OPS = new Set([
-  'add_client', 'update_client', 'delete_client',
-  'add_item', 'update_item', 'add_stock', 'remove_stock', 'delete_item',
-  'add_quote', 'mark_paid', 'add_income', 'add_expense', 'move_pipeline',
-  'add_income_from_clients', 'remove_duplicate_clients',
-  // module coverage (1.1)
-  'add_project', 'update_project', 'delete_project',
-  'add_task', 'update_task', 'delete_task',
-  'add_lead', 'update_lead', 'delete_lead',
-  'update_quote_status', 'delete_quote',
-  'update_tx', 'delete_tx',
-  'delete_all',
-]);
+// ---- action refs (which field names a model used to point at an entity) ----
+const clientRef = (a) => a.client || a.name || a.match;
+const itemRef = (a) => a.item || a.name || a.match;
+
+// ===================================================================
+// Modular action registry — each op is a self-contained handler
+//   (a, ctx) => void
+// where ctx = { work, data, dispatch, logs, pendingDeletes, codeGates }.
+// A handler pushes human logs / deferred deletes / code-gates into ctx and
+// mutates ctx.work in place, so later actions in the SAME batch observe the
+// entities earlier ones created/updated (e.g. add_client → mark_paid).
+//
+// This registry is the single source of truth for which ops exist: KNOWN_OPS
+// (the parser gate) is DERIVED from its keys, so adding an action is one entry
+// here — no second list to keep in sync. A business pack can extend or override
+// the set by passing its own registry to executeActions(actions,data,dispatch,registry).
+// ===================================================================
+export const ACTION_HANDLERS = {
+  // ---- Clients ----
+  add_client(a, { work, dispatch, logs }) {
+    if (!a.name) { logs.push('⚠️ לא צוין שם לקוח להוספה'); return; }
+    const dup = work.clients.find((c) => (c.name || '').trim().toLowerCase() === String(a.name).trim().toLowerCase());
+    if (dup) { logs.push(`⚠️ הלקוח "${dup.name}" כבר קיים — לא נוצר כפול`); return; }
+    const payload = {
+      id: genId(),
+      name: String(a.name).trim(),
+      status: normClientStatus(a.status) || 'lead',
+      projectType: normProjectType(a.projectType) || 'website',
+      value: Number(a.value) || 0,
+      phone: a.phone || '', email: a.email || '',
+      nextAction: a.nextAction || '',
+      date: today(), pipelineStage: 'lead',
+    };
+    dispatch({ type: 'ADD_CLIENT', payload });
+    work.clients.unshift(payload);
+    logs.push(`✓ נוסף לקוח: ${payload.name}`);
+  },
+
+  update_client(a, { work, dispatch, logs }) {
+    const c = findClient(work, clientRef(a));
+    if (!c) { logs.push(`⚠️ לא נמצא לקוח בשם "${clientRef(a) || ''}"`); return; }
+    // Accept fields directly OR wrapped in a "set" object, plus value aliases.
+    const s = (a.set && typeof a.set === 'object') ? { ...a, ...a.set } : a;
+    const newVal = s.value ?? s.newValue ?? s.amount;
+    const patch = { id: c.id };
+    if (s.status !== undefined) patch.status = normClientStatus(s.status);
+    if (newVal !== undefined) patch.value = Number(newVal) || 0;
+    if (s.nextAction !== undefined) patch.nextAction = s.nextAction;
+    if (s.phone !== undefined) patch.phone = s.phone;
+    if (s.email !== undefined) patch.email = s.email;
+    if (s.projectType !== undefined) patch.projectType = normProjectType(s.projectType);
+    if (s.newName) patch.name = String(s.newName).trim();
+    dispatch({ type: 'UPDATE_CLIENT', payload: patch });
+    Object.assign(c, patch);
+    const changed = patch.value !== undefined ? ` (שווי → ${patch.value.toLocaleString('he-IL')} ₪)` : '';
+    logs.push(`✓ עודכן לקוח: ${c.name}${changed}`);
+  },
+
+  delete_client(a, { work, pendingDeletes, logs }) {
+    const c = findClient(work, clientRef(a));
+    if (!c) { logs.push(`⚠️ לא נמצא לקוח בשם "${clientRef(a) || ''}"`); return; }
+    pendingDeletes.push({ label: `למחוק את הלקוח "${c.name}"?`, action: { type: 'DELETE_CLIENT', id: c.id } });
+  },
+
+  // ---- Inventory ----
+  add_item(a, { work, dispatch, logs }) {
+    if (!a.name) { logs.push('⚠️ לא צוין שם פריט להוספה'); return; }
+    const payload = {
+      id: genId(),
+      name: String(a.name).trim(),
+      category: normCategory(a.category),
+      sku: a.sku || '',
+      qty: Math.round(Number(a.qty) || 0),
+      unit: a.unit || 'יח׳',
+      unitPrice: Number(a.unitPrice) || 0,
+      cost: Number(a.cost) || 0,
+      lowThreshold: Math.round(Number(a.lowThreshold) || 5),
+      supplier: a.supplier || '', note: a.note || '',
+      updatedAt: today(),
+    };
+    dispatch({ type: 'ADD_ITEM', payload });
+    work.inventory.unshift(payload);
+    logs.push(`✓ נוסף פריט מלאי: ${payload.name} (${payload.qty} ${payload.unit})`);
+  },
+
+  update_item(a, { work, dispatch, logs }) {
+    const it = findItem(work, itemRef(a));
+    if (!it) { logs.push(`⚠️ לא נמצא פריט "${itemRef(a) || ''}"`); return; }
+    const patch = { id: it.id, updatedAt: today() };
+    ['name', 'sku', 'unit', 'supplier', 'note'].forEach((f) => { if (a[f] !== undefined) patch[f] = a[f]; });
+    if (a.category !== undefined) patch.category = normCategory(a.category);
+    if (a.qty !== undefined) patch.qty = Math.round(Number(a.qty) || 0);
+    if (a.unitPrice !== undefined) patch.unitPrice = Number(a.unitPrice) || 0;
+    if (a.cost !== undefined) patch.cost = Number(a.cost) || 0;
+    if (a.lowThreshold !== undefined) patch.lowThreshold = Math.round(Number(a.lowThreshold) || 0);
+    dispatch({ type: 'UPDATE_ITEM', payload: patch });
+    Object.assign(it, patch);
+    logs.push(`✓ עודכן פריט: ${it.name}`);
+  },
+
+  add_stock(a, ctx) { adjustStock(a, ctx); },
+  remove_stock(a, ctx) { adjustStock(a, ctx); },
+
+  delete_item(a, { work, pendingDeletes, logs }) {
+    const it = findItem(work, itemRef(a));
+    if (!it) { logs.push(`⚠️ לא נמצא פריט "${itemRef(a) || ''}"`); return; }
+    pendingDeletes.push({ label: `למחוק את הפריט "${it.name}"?`, action: { type: 'DELETE_ITEM', id: it.id } });
+  },
+
+  // ---- Quotes ----
+  add_quote(a, { work, dispatch, logs }) {
+    const c = findClient(work, clientRef(a));
+    if (!c) { logs.push(`⚠️ לא נמצא לקוח בשם "${clientRef(a) || ''}"`); return; }
+    const raw = Array.isArray(a.items) ? a.items : [];
+    const items = raw
+      .filter((it) => it && (it.desc || it.description))
+      .map((it) => ({
+        id: 'li' + Math.random().toString(36).slice(2, 9),
+        desc: String(it.desc || it.description).trim(),
+        qty: Math.round(Number(it.qty) || 1) || 1,
+        price: Number(it.price) || 0,
+      }));
+    if (!items.length) { logs.push('⚠️ הצעת מחיר חייבת לפחות שורה אחת עם תיאור'); return; }
+    const vatRate = a.vatRate !== undefined ? Number(a.vatRate) || 0 : 18;
+    const subtotal = items.reduce((s, it) => s + it.qty * it.price, 0);
+    const total = Math.round(subtotal * (1 + vatRate / 100));
+    const nums = work.quotes.map((q) => parseInt(String(q.number).replace(/\D/g, ''), 10)).filter((n) => !Number.isNaN(n));
+    const number = `AV-${(nums.length ? Math.max(...nums) : 1040) + 1}`;
+    const qPayload = { id: genId(), number, clientId: c.id, date: today(), validDays: Number(a.validDays) || 30, vatRate, status: normQuoteStatus(a.status) || 'draft', notes: a.notes || '', items };
+    dispatch({ type: 'ADD_QUOTE', payload: qPayload });
+    work.quotes.unshift(qPayload);
+    logs.push(`✓ נוצרה הצעת מחיר ${number} ל-${c.name} · ${items.length} שורות · סה״כ ${total.toLocaleString('he-IL')} ₪`);
+  },
+
+  update_quote_status(a, { work, dispatch, logs }) {
+    const ref = a.quote || a.number || a.client || a.match;
+    const qt = findQuote(work, ref);
+    if (!qt || !qt.id) { logs.push(`⚠️ לא נמצאה הצעת מחיר "${ref || ''}"`); return; }
+    const st = normQuoteStatus(a.status);
+    if (!st) { logs.push('⚠️ לא צוין סטטוס (טיוטה/נשלחה/אושרה/נדחתה)'); return; }
+    dispatch({ type: 'UPDATE_QUOTE', payload: { id: qt.id, status: st } }); qt.status = st;
+    logs.push(`✓ הצעת מחיר ${qt.number || ''} → ${st}`);
+  },
+
+  delete_quote(a, { work, pendingDeletes, logs }) {
+    const ref = a.quote || a.number || a.client || a.match;
+    const qt = findQuote(work, ref);
+    if (!qt || !qt.id) { logs.push(`⚠️ לא נמצאה הצעת מחיר "${ref || ''}"`); return; }
+    pendingDeletes.push({ label: `למחוק את הצעת המחיר ${qt.number || ''}?`, action: { type: 'DELETE_QUOTE', id: qt.id } });
+  },
+
+  // ---- Finance ----
+  mark_paid(a, { work, dispatch, logs }) {
+    const c = findClient(work, clientRef(a));
+    if (!c) { logs.push(`⚠️ לא נמצא לקוח בשם "${clientRef(a) || ''}"`); return; }
+    const amount = a.amount !== undefined ? Number(a.amount) || 0 : (Number(c.value) || 0);
+    dispatch({ type: 'UPDATE_CLIENT', payload: { id: c.id, status: 'completed_paid', value: amount, paidDate: today() } });
+    c.status = 'completed_paid'; c.value = amount;
+    work.transactions.unshift({ type: 'income', clientId: c.id, amount });
+    logs.push(`✓ ${c.name} סומן כשולם — נרשמה הכנסה של ${amount.toLocaleString('he-IL')} ₪`);
+  },
+
+  add_income(a, { work, dispatch, logs }) {
+    const amount = Number(a.amount) || 0;
+    if (!amount) { logs.push('⚠️ לא צוין סכום הכנסה'); return; }
+    const c = a.client ? findClient(work, a.client) : null;
+    dispatch({ type: 'ADD_TX', payload: { type: 'income', amount, category: a.category || 'תשלום לקוח', date: a.date || today(), description: a.description || (c ? `תשלום · ${c.name}` : 'הכנסה'), clientId: c?.id || null } });
+    work.transactions.unshift({ type: 'income', clientId: c?.id || null, amount });
+    logs.push(`✓ נרשמה הכנסה: ${amount.toLocaleString('he-IL')} ₪${c ? ` (${c.name})` : ''}`);
+  },
+
+  add_expense(a, { dispatch, logs }) {
+    const amount = Number(a.amount) || 0;
+    if (!amount) { logs.push('⚠️ לא צוין סכום הוצאה'); return; }
+    dispatch({ type: 'ADD_TX', payload: { type: 'expense', amount, category: a.category || 'הוצאה', date: a.date || today(), description: a.description || 'הוצאה' } });
+    logs.push(`✓ נרשמה הוצאה: ${amount.toLocaleString('he-IL')} ₪`);
+  },
+
+  move_pipeline(a, { work, dispatch, logs }) {
+    const c = findClient(work, clientRef(a));
+    if (!c) { logs.push(`⚠️ לא נמצא לקוח בשם "${clientRef(a) || ''}"`); return; }
+    const stage = normPipeline(a.stage);
+    if (!stage) { logs.push('⚠️ לא צוין שלב בפייפליין'); return; }
+    dispatch({ type: 'UPDATE_CLIENT', payload: { id: c.id, pipelineStage: stage } });
+    c.pipelineStage = stage;
+    logs.push(`✓ ${c.name} הועבר בפייפליין → ${stage}`);
+  },
+
+  add_income_from_clients(a, { work, dispatch, logs }) {
+    // Deterministic: record each client's recorded value as income.
+    // Amounts come from the DATA (never invented), idempotent (no dupes).
+    const scope = a.scope || 'all';
+    const cls = work.clients.filter((c) => {
+      const v = Number(c.value) || 0;
+      if (v <= 0) return false;
+      if (scope === 'paid') return c.status === 'completed_paid';
+      if (scope === 'active') return c.status === 'active' || c.status === 'completed_paid';
+      return true;
+    });
+    if (!cls.length) { logs.push('⚠️ אין לקוחות עם שווי לרישום הכנסה'); return; }
+    let added = 0; let skipped = 0; let total = 0;
+    for (const c of cls) {
+      const already = work.transactions.some((t) => t.type === 'income' && t.clientId === c.id);
+      if (already) { skipped += 1; continue; }
+      const amt = Number(c.value) || 0;
+      dispatch({ type: 'ADD_TX', payload: { type: 'income', amount: amt, category: 'פרויקט', date: today(), description: `תשלום פרויקט · ${c.name}`, clientId: c.id, fromClient: true } });
+      work.transactions.unshift({ type: 'income', clientId: c.id, amount: amt });
+      added += 1; total += amt;
+    }
+    logs.push(`✓ נרשמו ${added} הכנסות מלקוחות · סה״כ ${total.toLocaleString('he-IL')} ₪${skipped ? ` (${skipped} כבר היו רשומים — לא שוכפלו)` : ''}`);
+  },
+
+  remove_duplicate_clients(a, { work, pendingDeletes, logs }) {
+    const groups = new Map();
+    for (const c of work.clients) {
+      const k = (c.name || '').trim().toLowerCase();
+      if (!k) continue;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(c);
+    }
+    const scoreOf = (c) => (Number(c.value) > 0 ? 2 : 0) + (c.phone ? 1 : 0) + (c.email ? 1 : 0) + (c.nextAction ? 1 : 0);
+    let found = 0;
+    for (const arr of groups.values()) {
+      if (arr.length < 2) continue;
+      arr.sort((x, y) => scoreOf(y) - scoreOf(x)); // keep the most complete copy
+      for (const d of arr.slice(1)) {
+        found += 1;
+        pendingDeletes.push({ label: `למחוק כפילות של "${d.name}"? (נשמר העותק עם הנתונים)`, action: { type: 'DELETE_CLIENT', id: d.id } });
+      }
+    }
+    if (!found) logs.push('אין לקוחות כפולים — הכל נקי ✓');
+  },
+
+  // ---- Projects ----
+  add_project(a, { work, dispatch, logs }) {
+    if (!a.name) { logs.push('⚠️ לא צוין שם פרויקט'); return; }
+    const c = a.client ? findClient(work, a.client) : null;
+    const payload = { id: genId(), name: String(a.name).trim(), clientId: c?.id || null, clientName: c?.name || 'לקוח', serviceType: normProjectType(a.serviceType) || 'website', value: Number(a.value) || 0, status: normProjectStatus(a.status) || 'active', deadline: a.deadline || '', nextAction: a.nextAction || '', description: a.description || '', missing: '', deliverables: '' };
+    dispatch({ type: 'ADD_PROJECT', payload }); work.projects.unshift(payload);
+    logs.push(`✓ נוסף פרויקט: ${payload.name}${c ? ` (${c.name})` : ''}`);
+  },
+
+  update_project(a, { work, dispatch, logs }) {
+    const p = findProject(work, a.project || a.name || a.match);
+    if (!p) { logs.push(`⚠️ לא נמצא פרויקט "${a.project || a.name || a.match || ''}"`); return; }
+    const s = (a.set && typeof a.set === 'object') ? { ...a, ...a.set } : a;
+    const patch = { id: p.id };
+    if (s.status !== undefined) patch.status = normProjectStatus(s.status);
+    if (s.value !== undefined) patch.value = Number(s.value) || 0;
+    if (s.nextAction !== undefined) patch.nextAction = s.nextAction;
+    if (s.deadline !== undefined) patch.deadline = s.deadline;
+    if (s.serviceType !== undefined) patch.serviceType = normProjectType(s.serviceType);
+    if (s.description !== undefined) patch.description = s.description;
+    if (s.newName) patch.name = String(s.newName).trim();
+    dispatch({ type: 'UPDATE_PROJECT', payload: patch }); Object.assign(p, patch);
+    logs.push(`✓ עודכן פרויקט: ${p.name}`);
+  },
+
+  delete_project(a, { work, pendingDeletes, logs }) {
+    const p = findProject(work, a.project || a.name || a.match);
+    if (!p) { logs.push(`⚠️ לא נמצא פרויקט "${a.project || a.name || a.match || ''}"`); return; }
+    pendingDeletes.push({ label: `למחוק את הפרויקט "${p.name}"? (יימחקו גם המשימות והקבצים שלו)`, action: { type: 'DELETE_PROJECT', id: p.id } });
+  },
+
+  // ---- Tasks ----
+  add_task(a, { work, dispatch, logs }) {
+    const title = a.title || a.name;
+    if (!title) { logs.push('⚠️ לא צוין שם משימה'); return; }
+    const p = a.project ? findProject(work, a.project) : null;
+    const payload = { id: genId(), title: String(title).trim(), projectId: p?.id || null, clientId: p?.clientId || null, status: normTaskStatus(a.status) || 'new', priority: normTaskPriority(a.priority) || 'normal', deadline: a.deadline || '', assignee: a.assignee || 'נתן', linkRef: '', notes: a.notes || '' };
+    dispatch({ type: 'ADD_TASK', payload }); work.tasks.unshift(payload);
+    logs.push(`✓ נוספה משימה: ${payload.title}`);
+  },
+
+  update_task(a, { work, dispatch, logs }) {
+    const t = findTask(work, a.task || a.title || a.name || a.match);
+    if (!t) { logs.push(`⚠️ לא נמצאה משימה "${a.task || a.title || a.name || a.match || ''}"`); return; }
+    const s = (a.set && typeof a.set === 'object') ? { ...a, ...a.set } : a;
+    const patch = { id: t.id };
+    if (s.status !== undefined) patch.status = normTaskStatus(s.status);
+    if (s.priority !== undefined) patch.priority = normTaskPriority(s.priority);
+    if (s.deadline !== undefined) patch.deadline = s.deadline;
+    if (s.notes !== undefined) patch.notes = s.notes;
+    if (s.newTitle || s.newName) patch.title = String(s.newTitle || s.newName).trim();
+    dispatch({ type: 'UPDATE_TASK', payload: patch }); Object.assign(t, patch);
+    logs.push(`✓ עודכנה משימה: ${t.title}`);
+  },
+
+  delete_task(a, { work, pendingDeletes, logs }) {
+    const t = findTask(work, a.task || a.title || a.name || a.match);
+    if (!t) { logs.push(`⚠️ לא נמצאה משימה "${a.task || a.title || a.name || a.match || ''}"`); return; }
+    pendingDeletes.push({ label: `למחוק את המשימה "${t.title}"?`, action: { type: 'DELETE_TASK', id: t.id } });
+  },
+
+  // ---- Leads (outreach) ----
+  add_lead(a, { work, dispatch, logs }) {
+    if (!a.name) { logs.push('⚠️ לא צוין שם ליד'); return; }
+    const payload = { id: genId(), name: String(a.name).trim(), category: a.category || 'other', status: normLeadStatus(a.status) || 'pending', clientId: null, need: a.need || '' };
+    dispatch({ type: 'ADD_LEAD', payload }); work.leads.unshift(payload);
+    logs.push(`✓ נוסף ליד: ${payload.name}`);
+  },
+
+  update_lead(a, { work, dispatch, logs }) {
+    const l = findLead(work, a.lead || a.name || a.match);
+    if (!l) { logs.push(`⚠️ לא נמצא ליד "${a.lead || a.name || a.match || ''}"`); return; }
+    const s = (a.set && typeof a.set === 'object') ? { ...a, ...a.set } : a;
+    const patch = { id: l.id };
+    if (s.status !== undefined) patch.status = normLeadStatus(s.status);
+    if (s.category !== undefined) patch.category = s.category;
+    if (s.need !== undefined) patch.need = s.need;
+    if (s.newName) patch.name = String(s.newName).trim();
+    dispatch({ type: 'UPDATE_LEAD', payload: patch }); Object.assign(l, patch);
+    logs.push(`✓ עודכן ליד: ${l.name}`);
+  },
+
+  delete_lead(a, { work, pendingDeletes, logs }) {
+    const l = findLead(work, a.lead || a.name || a.match);
+    if (!l) { logs.push(`⚠️ לא נמצא ליד "${a.lead || a.name || a.match || ''}"`); return; }
+    pendingDeletes.push({ label: `למחוק את הליד "${l.name}"?`, action: { type: 'DELETE_LEAD', id: l.id } });
+  },
+
+  // ---- Transaction edit / delete ----
+  update_tx(a, { work, dispatch, logs }) {
+    const tx = findTx(work, a.tx || a.description || a.match);
+    if (!tx || !tx.id) { logs.push(`⚠️ לא נמצאה תנועה כספית "${a.tx || a.description || a.match || ''}"`); return; }
+    const s = (a.set && typeof a.set === 'object') ? { ...a, ...a.set } : a;
+    const patch = { id: tx.id };
+    if (s.amount !== undefined) patch.amount = Number(s.amount) || 0;
+    if (s.category !== undefined) patch.category = s.category;
+    if (s.date !== undefined) patch.date = s.date;
+    if (s.description !== undefined) patch.description = s.description;
+    dispatch({ type: 'UPDATE_TX', payload: patch }); Object.assign(tx, patch);
+    logs.push(`✓ עודכנה תנועה: ${tx.description || tx.id}`);
+  },
+
+  delete_tx(a, { work, pendingDeletes, logs }) {
+    const tx = findTx(work, a.tx || a.description || a.match);
+    if (!tx || !tx.id) { logs.push(`⚠️ לא נמצאה תנועה כספית "${a.tx || a.description || a.match || ''}"`); return; }
+    pendingDeletes.push({ label: `למחוק את התנועה "${tx.description || tx.id}"?`, action: { type: 'DELETE_TX', id: tx.id } });
+  },
+
+  // ---- Bulk delete (code-gated, granular pick happens in the UI) ----
+  delete_all(a, { data, codeGates, logs, entities }) {
+    const entity = a.entity || a.scope || a.type2 || 'inventory';
+    const gate = buildBulkDeleteGate(entity, data, entities);
+    if (!gate) { logs.push(`⚠️ לא ניתן למחוק "${entity}" — ישות לא מוכרת`); return; }
+    if (!gate.items.length) { logs.push(`אין ${gate.entityLabel} למחיקה — הרשימה ריקה.`); return; }
+    codeGates.push(gate);
+  },
+};
+
+// add_stock / remove_stock share a body — direction comes from a.op. A degenerate
+// op (no amount, or qty unchanged) must NOT report success, otherwise a ✓ no-op
+// masquerades as a real change to the lie-detector (reconcileClaim).
+function adjustStock(a, { work, dispatch, logs }) {
+  const it = findItem(work, itemRef(a));
+  if (!it) { logs.push(`⚠️ לא נמצא פריט "${itemRef(a) || ''}"`); return; }
+  const amt = Math.abs(Math.round(Number(a.amount ?? a.qty ?? a.delta) || 0));
+  const cur = Math.round(Number(it.qty) || 0);
+  const next = a.op === 'add_stock' ? cur + amt : Math.max(0, cur - amt);
+  if (amt === 0) { logs.push(`⚠️ ${it.name}: לא צוינה כמות לשינוי — לא בוצע`); return; }
+  if (next === cur) { logs.push(`⚠️ ${it.name}: ללא שינוי (${cur} ${it.unit || ''})`.trim()); return; }
+  dispatch({ type: 'UPDATE_ITEM', payload: { id: it.id, qty: next, updatedAt: today() } });
+  it.qty = next;
+  logs.push(`✓ ${it.name}: ${cur} → ${next} ${it.unit || ''}`.trim());
+}
+
+// The set of real ops, DERIVED from the registry. Used to gate the parser so a
+// stray {type:"income"} or other JSON isn't mistaken for an action (small models
+// name the key "op", "type" or "action" inconsistently — we accept all three).
+const KNOWN_OPS = new Set(Object.keys(ACTION_HANDLERS));
 
 // Small models often add // comments, /* */ blocks, or trailing commas inside
 // the JSON block — all of which break JSON.parse and silently drop the action.
@@ -349,394 +708,38 @@ export function reconcileClaim(prose, actions = [], pendingDeletes = [], logs = 
   return { mismatch: false, note: '' };
 }
 
-// ---- execute: dispatch each action; collect human logs + pending deletes ----
-// returns { logs: string[], pendingDeletes: [{ label, action }] }
-export function executeActions(actions, data, dispatch) {
+// ---- execute: dispatch each action via the registry; collect logs + deletes ----
+// returns { logs, pendingDeletes, codeGates, nextData }. A pack may pass its own
+// `registry` (extending/overriding ACTION_HANDLERS) to retarget Jake's toolbox.
+export function executeActions(actions, data, dispatch, registry = ACTION_HANDLERS, entities = BUSINESS_ENTITIES) {
   const logs = [];
   const pendingDeletes = [];
   const codeGates = []; // bulk deletes: require an auth code + granular pick in the UI
-  // Live working copy: actions in the SAME batch see entities created/updated by
-  // earlier actions (e.g. add_client → then mark_paid / add_quote on that client).
-  const work = {
-    clients: [...(data.clients || [])],
-    inventory: [...(data.inventory || [])],
-    transactions: [...(data.transactions || [])],
-    quotes: [...(data.quotes || [])],
-    projects: [...(data.projects || [])],
-    tasks: [...(data.tasks || [])],
-    leads: [...(data.outreachLeads || [])],
-  };
-  const clientRef = (a) => a.client || a.name || a.match;
-  const itemRef = (a) => a.item || a.name || a.match;
+  // Live working copy, built from the pack's entity declaration (key ↔ store
+  // dataKey). Actions in the SAME batch see entities created/updated by earlier
+  // ones (e.g. add_client → then mark_paid / add_quote on that client).
+  const work = {};
+  for (const e of entities) work[e.key] = [...(data[e.dataKey] || [])];
+  // Shared context handed to every handler. Mutating work/logs/etc. is the contract.
+  const ctx = { work, data, dispatch, logs, pendingDeletes, codeGates, entities };
 
   for (const a of actions || []) {
+    const handler = a && registry[a.op];
+    // Unknown op (e.g. a model hallucinated `show_clients` on an info question) —
+    // skip silently so no spurious message appears.
+    if (typeof handler !== 'function') continue;
     try {
-      switch (a.op) {
-        case 'add_client': {
-          if (!a.name) { logs.push('⚠️ לא צוין שם לקוח להוספה'); break; }
-          const dup = work.clients.find((c) => (c.name || '').trim().toLowerCase() === String(a.name).trim().toLowerCase());
-          if (dup) { logs.push(`⚠️ הלקוח "${dup.name}" כבר קיים — לא נוצר כפול`); break; }
-          const payload = {
-            id: genId(),
-            name: String(a.name).trim(),
-            status: normClientStatus(a.status) || 'lead',
-            projectType: normProjectType(a.projectType) || 'website',
-            value: Number(a.value) || 0,
-            phone: a.phone || '', email: a.email || '',
-            nextAction: a.nextAction || '',
-            date: today(), pipelineStage: 'lead',
-          };
-          dispatch({ type: 'ADD_CLIENT', payload });
-          work.clients.unshift(payload);
-          logs.push(`✓ נוסף לקוח: ${payload.name}`);
-          break;
-        }
-        case 'update_client': {
-          const c = findClient(work, clientRef(a));
-          if (!c) { logs.push(`⚠️ לא נמצא לקוח בשם "${clientRef(a) || ''}"`); break; }
-          // Accept fields directly OR wrapped in a "set" object, plus value aliases.
-          const s = (a.set && typeof a.set === 'object') ? { ...a, ...a.set } : a;
-          const newVal = s.value ?? s.newValue ?? s.amount;
-          const patch = { id: c.id };
-          if (s.status !== undefined) patch.status = normClientStatus(s.status);
-          if (newVal !== undefined) patch.value = Number(newVal) || 0;
-          if (s.nextAction !== undefined) patch.nextAction = s.nextAction;
-          if (s.phone !== undefined) patch.phone = s.phone;
-          if (s.email !== undefined) patch.email = s.email;
-          if (s.projectType !== undefined) patch.projectType = normProjectType(s.projectType);
-          if (s.newName) patch.name = String(s.newName).trim();
-          dispatch({ type: 'UPDATE_CLIENT', payload: patch });
-          Object.assign(c, patch);
-          const changed = patch.value !== undefined ? ` (שווי → ${patch.value.toLocaleString('he-IL')} ₪)` : '';
-          logs.push(`✓ עודכן לקוח: ${c.name}${changed}`);
-          break;
-        }
-        case 'delete_client': {
-          const c = findClient(work, clientRef(a));
-          if (!c) { logs.push(`⚠️ לא נמצא לקוח בשם "${clientRef(a) || ''}"`); break; }
-          pendingDeletes.push({ label: `למחוק את הלקוח "${c.name}"?`, action: { type: 'DELETE_CLIENT', id: c.id } });
-          break;
-        }
-        case 'add_item': {
-          if (!a.name) { logs.push('⚠️ לא צוין שם פריט להוספה'); break; }
-          const payload = {
-            id: genId(),
-            name: String(a.name).trim(),
-            category: normCategory(a.category),
-            sku: a.sku || '',
-            qty: Math.round(Number(a.qty) || 0),
-            unit: a.unit || 'יח׳',
-            unitPrice: Number(a.unitPrice) || 0,
-            cost: Number(a.cost) || 0,
-            lowThreshold: Math.round(Number(a.lowThreshold) || 5),
-            supplier: a.supplier || '', note: a.note || '',
-            updatedAt: today(),
-          };
-          dispatch({ type: 'ADD_ITEM', payload });
-          work.inventory.unshift(payload);
-          logs.push(`✓ נוסף פריט מלאי: ${payload.name} (${payload.qty} ${payload.unit})`);
-          break;
-        }
-        case 'update_item': {
-          const it = findItem(work, itemRef(a));
-          if (!it) { logs.push(`⚠️ לא נמצא פריט "${itemRef(a) || ''}"`); break; }
-          const patch = { id: it.id, updatedAt: today() };
-          ['name', 'sku', 'unit', 'supplier', 'note'].forEach((f) => { if (a[f] !== undefined) patch[f] = a[f]; });
-          if (a.category !== undefined) patch.category = normCategory(a.category);
-          if (a.qty !== undefined) patch.qty = Math.round(Number(a.qty) || 0);
-          if (a.unitPrice !== undefined) patch.unitPrice = Number(a.unitPrice) || 0;
-          if (a.cost !== undefined) patch.cost = Number(a.cost) || 0;
-          if (a.lowThreshold !== undefined) patch.lowThreshold = Math.round(Number(a.lowThreshold) || 0);
-          dispatch({ type: 'UPDATE_ITEM', payload: patch });
-          Object.assign(it, patch);
-          logs.push(`✓ עודכן פריט: ${it.name}`);
-          break;
-        }
-        case 'add_stock':
-        case 'remove_stock': {
-          const it = findItem(work, itemRef(a));
-          if (!it) { logs.push(`⚠️ לא נמצא פריט "${itemRef(a) || ''}"`); break; }
-          const amt = Math.abs(Math.round(Number(a.amount ?? a.qty ?? a.delta) || 0));
-          const cur = Math.round(Number(it.qty) || 0);
-          const next = a.op === 'add_stock' ? cur + amt : Math.max(0, cur - amt);
-          // A degenerate op (no amount, or qty unchanged) must NOT report success —
-          // otherwise a ✓ no-op masquerades as a real change to the lie-detector.
-          if (amt === 0) { logs.push(`⚠️ ${it.name}: לא צוינה כמות לשינוי — לא בוצע`); break; }
-          if (next === cur) { logs.push(`⚠️ ${it.name}: ללא שינוי (${cur} ${it.unit || ''})`.trim()); break; }
-          dispatch({ type: 'UPDATE_ITEM', payload: { id: it.id, qty: next, updatedAt: today() } });
-          it.qty = next;
-          logs.push(`✓ ${it.name}: ${cur} → ${next} ${it.unit || ''}`.trim());
-          break;
-        }
-        case 'delete_item': {
-          const it = findItem(work, itemRef(a));
-          if (!it) { logs.push(`⚠️ לא נמצא פריט "${itemRef(a) || ''}"`); break; }
-          pendingDeletes.push({ label: `למחוק את הפריט "${it.name}"?`, action: { type: 'DELETE_ITEM', id: it.id } });
-          break;
-        }
-        case 'add_quote': {
-          const c = findClient(work, clientRef(a));
-          if (!c) { logs.push(`⚠️ לא נמצא לקוח בשם "${clientRef(a) || ''}"`); break; }
-          const raw = Array.isArray(a.items) ? a.items : [];
-          const items = raw
-            .filter((it) => it && (it.desc || it.description))
-            .map((it) => ({
-              id: 'li' + Math.random().toString(36).slice(2, 9),
-              desc: String(it.desc || it.description).trim(),
-              qty: Math.round(Number(it.qty) || 1) || 1,
-              price: Number(it.price) || 0,
-            }));
-          if (!items.length) { logs.push('⚠️ הצעת מחיר חייבת לפחות שורה אחת עם תיאור'); break; }
-          const vatRate = a.vatRate !== undefined ? Number(a.vatRate) || 0 : 18;
-          const subtotal = items.reduce((s, it) => s + it.qty * it.price, 0);
-          const total = Math.round(subtotal * (1 + vatRate / 100));
-          const nums = work.quotes.map((q) => parseInt(String(q.number).replace(/\D/g, ''), 10)).filter((n) => !Number.isNaN(n));
-          const number = `AV-${(nums.length ? Math.max(...nums) : 1040) + 1}`;
-          const qPayload = { id: genId(), number, clientId: c.id, date: today(), validDays: Number(a.validDays) || 30, vatRate, status: normQuoteStatus(a.status) || 'draft', notes: a.notes || '', items };
-          dispatch({ type: 'ADD_QUOTE', payload: qPayload });
-          work.quotes.unshift(qPayload);
-          logs.push(`✓ נוצרה הצעת מחיר ${number} ל-${c.name} · ${items.length} שורות · סה״כ ${total.toLocaleString('he-IL')} ₪`);
-          break;
-        }
-        case 'mark_paid': {
-          const c = findClient(work, clientRef(a));
-          if (!c) { logs.push(`⚠️ לא נמצא לקוח בשם "${clientRef(a) || ''}"`); break; }
-          const amount = a.amount !== undefined ? Number(a.amount) || 0 : (Number(c.value) || 0);
-          dispatch({ type: 'UPDATE_CLIENT', payload: { id: c.id, status: 'completed_paid', value: amount, paidDate: today() } });
-          c.status = 'completed_paid'; c.value = amount;
-          work.transactions.unshift({ type: 'income', clientId: c.id, amount });
-          logs.push(`✓ ${c.name} סומן כשולם — נרשמה הכנסה של ${amount.toLocaleString('he-IL')} ₪`);
-          break;
-        }
-        case 'add_income': {
-          const amount = Number(a.amount) || 0;
-          if (!amount) { logs.push('⚠️ לא צוין סכום הכנסה'); break; }
-          const c = a.client ? findClient(work, a.client) : null;
-          dispatch({ type: 'ADD_TX', payload: { type: 'income', amount, category: a.category || 'תשלום לקוח', date: a.date || today(), description: a.description || (c ? `תשלום · ${c.name}` : 'הכנסה'), clientId: c?.id || null } });
-          work.transactions.unshift({ type: 'income', clientId: c?.id || null, amount });
-          logs.push(`✓ נרשמה הכנסה: ${amount.toLocaleString('he-IL')} ₪${c ? ` (${c.name})` : ''}`);
-          break;
-        }
-        case 'add_expense': {
-          const amount = Number(a.amount) || 0;
-          if (!amount) { logs.push('⚠️ לא צוין סכום הוצאה'); break; }
-          dispatch({ type: 'ADD_TX', payload: { type: 'expense', amount, category: a.category || 'הוצאה', date: a.date || today(), description: a.description || 'הוצאה' } });
-          logs.push(`✓ נרשמה הוצאה: ${amount.toLocaleString('he-IL')} ₪`);
-          break;
-        }
-        case 'move_pipeline': {
-          const c = findClient(work, clientRef(a));
-          if (!c) { logs.push(`⚠️ לא נמצא לקוח בשם "${clientRef(a) || ''}"`); break; }
-          const stage = normPipeline(a.stage);
-          if (!stage) { logs.push('⚠️ לא צוין שלב בפייפליין'); break; }
-          dispatch({ type: 'UPDATE_CLIENT', payload: { id: c.id, pipelineStage: stage } });
-          c.pipelineStage = stage;
-          logs.push(`✓ ${c.name} הועבר בפייפליין → ${stage}`);
-          break;
-        }
-        case 'add_income_from_clients': {
-          // Deterministic: record each client's recorded value as income.
-          // Amounts come from the DATA (never invented), idempotent (no dupes).
-          const scope = a.scope || 'all';
-          const cls = work.clients.filter((c) => {
-            const v = Number(c.value) || 0;
-            if (v <= 0) return false;
-            if (scope === 'paid') return c.status === 'completed_paid';
-            if (scope === 'active') return c.status === 'active' || c.status === 'completed_paid';
-            return true;
-          });
-          if (!cls.length) { logs.push('⚠️ אין לקוחות עם שווי לרישום הכנסה'); break; }
-          let added = 0; let skipped = 0; let total = 0;
-          for (const c of cls) {
-            const already = work.transactions.some((t) => t.type === 'income' && t.clientId === c.id);
-            if (already) { skipped += 1; continue; }
-            const amt = Number(c.value) || 0;
-            dispatch({ type: 'ADD_TX', payload: { type: 'income', amount: amt, category: 'פרויקט', date: today(), description: `תשלום פרויקט · ${c.name}`, clientId: c.id, fromClient: true } });
-            work.transactions.unshift({ type: 'income', clientId: c.id, amount: amt });
-            added += 1; total += amt;
-          }
-          logs.push(`✓ נרשמו ${added} הכנסות מלקוחות · סה״כ ${total.toLocaleString('he-IL')} ₪${skipped ? ` (${skipped} כבר היו רשומים — לא שוכפלו)` : ''}`);
-          break;
-        }
-        case 'remove_duplicate_clients': {
-          const groups = new Map();
-          for (const c of work.clients) {
-            const k = (c.name || '').trim().toLowerCase();
-            if (!k) continue;
-            if (!groups.has(k)) groups.set(k, []);
-            groups.get(k).push(c);
-          }
-          const scoreOf = (c) => (Number(c.value) > 0 ? 2 : 0) + (c.phone ? 1 : 0) + (c.email ? 1 : 0) + (c.nextAction ? 1 : 0);
-          let found = 0;
-          for (const arr of groups.values()) {
-            if (arr.length < 2) continue;
-            arr.sort((x, y) => scoreOf(y) - scoreOf(x)); // keep the most complete copy
-            for (const d of arr.slice(1)) {
-              found += 1;
-              pendingDeletes.push({ label: `למחוק כפילות של "${d.name}"? (נשמר העותק עם הנתונים)`, action: { type: 'DELETE_CLIENT', id: d.id } });
-            }
-          }
-          if (!found) logs.push('אין לקוחות כפולים — הכל נקי ✓');
-          break;
-        }
-        // ---- Projects ----
-        case 'add_project': {
-          if (!a.name) { logs.push('⚠️ לא צוין שם פרויקט'); break; }
-          const c = a.client ? findClient(work, a.client) : null;
-          const payload = { id: genId(), name: String(a.name).trim(), clientId: c?.id || null, clientName: c?.name || 'לקוח', serviceType: normProjectType(a.serviceType) || 'website', value: Number(a.value) || 0, status: normProjectStatus(a.status) || 'active', deadline: a.deadline || '', nextAction: a.nextAction || '', description: a.description || '', missing: '', deliverables: '' };
-          dispatch({ type: 'ADD_PROJECT', payload }); work.projects.unshift(payload);
-          logs.push(`✓ נוסף פרויקט: ${payload.name}${c ? ` (${c.name})` : ''}`);
-          break;
-        }
-        case 'update_project': {
-          const p = findProject(work, a.project || a.name || a.match);
-          if (!p) { logs.push(`⚠️ לא נמצא פרויקט "${a.project || a.name || a.match || ''}"`); break; }
-          const s = (a.set && typeof a.set === 'object') ? { ...a, ...a.set } : a;
-          const patch = { id: p.id };
-          if (s.status !== undefined) patch.status = normProjectStatus(s.status);
-          if (s.value !== undefined) patch.value = Number(s.value) || 0;
-          if (s.nextAction !== undefined) patch.nextAction = s.nextAction;
-          if (s.deadline !== undefined) patch.deadline = s.deadline;
-          if (s.serviceType !== undefined) patch.serviceType = normProjectType(s.serviceType);
-          if (s.description !== undefined) patch.description = s.description;
-          if (s.newName) patch.name = String(s.newName).trim();
-          dispatch({ type: 'UPDATE_PROJECT', payload: patch }); Object.assign(p, patch);
-          logs.push(`✓ עודכן פרויקט: ${p.name}`);
-          break;
-        }
-        case 'delete_project': {
-          const p = findProject(work, a.project || a.name || a.match);
-          if (!p) { logs.push(`⚠️ לא נמצא פרויקט "${a.project || a.name || a.match || ''}"`); break; }
-          pendingDeletes.push({ label: `למחוק את הפרויקט "${p.name}"? (יימחקו גם המשימות והקבצים שלו)`, action: { type: 'DELETE_PROJECT', id: p.id } });
-          break;
-        }
-
-        // ---- Tasks ----
-        case 'add_task': {
-          const title = a.title || a.name;
-          if (!title) { logs.push('⚠️ לא צוין שם משימה'); break; }
-          const p = a.project ? findProject(work, a.project) : null;
-          const payload = { id: genId(), title: String(title).trim(), projectId: p?.id || null, clientId: p?.clientId || null, status: normTaskStatus(a.status) || 'new', priority: normTaskPriority(a.priority) || 'normal', deadline: a.deadline || '', assignee: a.assignee || 'נתן', linkRef: '', notes: a.notes || '' };
-          dispatch({ type: 'ADD_TASK', payload }); work.tasks.unshift(payload);
-          logs.push(`✓ נוספה משימה: ${payload.title}`);
-          break;
-        }
-        case 'update_task': {
-          const t = findTask(work, a.task || a.title || a.name || a.match);
-          if (!t) { logs.push(`⚠️ לא נמצאה משימה "${a.task || a.title || a.name || a.match || ''}"`); break; }
-          const s = (a.set && typeof a.set === 'object') ? { ...a, ...a.set } : a;
-          const patch = { id: t.id };
-          if (s.status !== undefined) patch.status = normTaskStatus(s.status);
-          if (s.priority !== undefined) patch.priority = normTaskPriority(s.priority);
-          if (s.deadline !== undefined) patch.deadline = s.deadline;
-          if (s.notes !== undefined) patch.notes = s.notes;
-          if (s.newTitle || s.newName) patch.title = String(s.newTitle || s.newName).trim();
-          dispatch({ type: 'UPDATE_TASK', payload: patch }); Object.assign(t, patch);
-          logs.push(`✓ עודכנה משימה: ${t.title}`);
-          break;
-        }
-        case 'delete_task': {
-          const t = findTask(work, a.task || a.title || a.name || a.match);
-          if (!t) { logs.push(`⚠️ לא נמצאה משימה "${a.task || a.title || a.name || a.match || ''}"`); break; }
-          pendingDeletes.push({ label: `למחוק את המשימה "${t.title}"?`, action: { type: 'DELETE_TASK', id: t.id } });
-          break;
-        }
-
-        // ---- Leads (outreach) ----
-        case 'add_lead': {
-          if (!a.name) { logs.push('⚠️ לא צוין שם ליד'); break; }
-          const payload = { id: genId(), name: String(a.name).trim(), category: a.category || 'other', status: normLeadStatus(a.status) || 'pending', clientId: null, need: a.need || '' };
-          dispatch({ type: 'ADD_LEAD', payload }); work.leads.unshift(payload);
-          logs.push(`✓ נוסף ליד: ${payload.name}`);
-          break;
-        }
-        case 'update_lead': {
-          const l = findLead(work, a.lead || a.name || a.match);
-          if (!l) { logs.push(`⚠️ לא נמצא ליד "${a.lead || a.name || a.match || ''}"`); break; }
-          const s = (a.set && typeof a.set === 'object') ? { ...a, ...a.set } : a;
-          const patch = { id: l.id };
-          if (s.status !== undefined) patch.status = normLeadStatus(s.status);
-          if (s.category !== undefined) patch.category = s.category;
-          if (s.need !== undefined) patch.need = s.need;
-          if (s.newName) patch.name = String(s.newName).trim();
-          dispatch({ type: 'UPDATE_LEAD', payload: patch }); Object.assign(l, patch);
-          logs.push(`✓ עודכן ליד: ${l.name}`);
-          break;
-        }
-        case 'delete_lead': {
-          const l = findLead(work, a.lead || a.name || a.match);
-          if (!l) { logs.push(`⚠️ לא נמצא ליד "${a.lead || a.name || a.match || ''}"`); break; }
-          pendingDeletes.push({ label: `למחוק את הליד "${l.name}"?`, action: { type: 'DELETE_LEAD', id: l.id } });
-          break;
-        }
-
-        // ---- Quote status / delete ----
-        case 'update_quote_status': {
-          const ref = a.quote || a.number || a.client || a.match;
-          const qt = findQuote(work, ref);
-          if (!qt || !qt.id) { logs.push(`⚠️ לא נמצאה הצעת מחיר "${ref || ''}"`); break; }
-          const st = normQuoteStatus(a.status);
-          if (!st) { logs.push('⚠️ לא צוין סטטוס (טיוטה/נשלחה/אושרה/נדחתה)'); break; }
-          dispatch({ type: 'UPDATE_QUOTE', payload: { id: qt.id, status: st } }); qt.status = st;
-          logs.push(`✓ הצעת מחיר ${qt.number || ''} → ${st}`);
-          break;
-        }
-        case 'delete_quote': {
-          const ref = a.quote || a.number || a.client || a.match;
-          const qt = findQuote(work, ref);
-          if (!qt || !qt.id) { logs.push(`⚠️ לא נמצאה הצעת מחיר "${ref || ''}"`); break; }
-          pendingDeletes.push({ label: `למחוק את הצעת המחיר ${qt.number || ''}?`, action: { type: 'DELETE_QUOTE', id: qt.id } });
-          break;
-        }
-
-        // ---- Transaction edit / delete ----
-        case 'update_tx': {
-          const tx = findTx(work, a.tx || a.description || a.match);
-          if (!tx || !tx.id) { logs.push(`⚠️ לא נמצאה תנועה כספית "${a.tx || a.description || a.match || ''}"`); break; }
-          const s = (a.set && typeof a.set === 'object') ? { ...a, ...a.set } : a;
-          const patch = { id: tx.id };
-          if (s.amount !== undefined) patch.amount = Number(s.amount) || 0;
-          if (s.category !== undefined) patch.category = s.category;
-          if (s.date !== undefined) patch.date = s.date;
-          if (s.description !== undefined) patch.description = s.description;
-          dispatch({ type: 'UPDATE_TX', payload: patch }); Object.assign(tx, patch);
-          logs.push(`✓ עודכנה תנועה: ${tx.description || tx.id}`);
-          break;
-        }
-        case 'delete_tx': {
-          const tx = findTx(work, a.tx || a.description || a.match);
-          if (!tx || !tx.id) { logs.push(`⚠️ לא נמצאה תנועה כספית "${a.tx || a.description || a.match || ''}"`); break; }
-          pendingDeletes.push({ label: `למחוק את התנועה "${tx.description || tx.id}"?`, action: { type: 'DELETE_TX', id: tx.id } });
-          break;
-        }
-
-        // ---- Bulk delete (code-gated, granular pick happens in the UI) ----
-        case 'delete_all': {
-          const entity = a.entity || a.scope || a.type2 || 'inventory';
-          const gate = buildBulkDeleteGate(entity, data);
-          if (!gate) { logs.push(`⚠️ לא ניתן למחוק "${entity}" — ישות לא מוכרת`); break; }
-          if (!gate.items.length) { logs.push(`אין ${gate.entityLabel} למחיקה — הרשימה ריקה.`); break; }
-          codeGates.push(gate);
-          break;
-        }
-
-        default:
-          // Unknown op (e.g. a model hallucinated `show_clients` on an info
-          // question) — skip silently so no spurious message appears.
-          break;
-      }
+      handler(a, ctx);
     } catch (err) {
       logs.push(`⚠️ שגיאה בפעולה ${a.op}: ${err.message}`);
     }
   }
   // nextData: the live working copy after this batch (adds/updates applied;
-  // deletes are deferred to confirmation so they're NOT reflected here). Lets the
-  // agent loop OBSERVE the result of a step and plan the next one on fresh state.
-  const nextData = {
-    ...data,
-    clients: work.clients, inventory: work.inventory, transactions: work.transactions,
-    quotes: work.quotes, projects: work.projects, tasks: work.tasks, outreachLeads: work.leads,
-  };
+  // deletes are deferred to confirmation so they're NOT reflected here), mapped
+  // back to store dataKeys. Lets the agent loop OBSERVE the result of a step and
+  // plan the next one on fresh state.
+  const nextData = { ...data };
+  for (const e of entities) nextData[e.dataKey] = work[e.key];
   return { logs, pendingDeletes, codeGates, nextData };
 }
 
