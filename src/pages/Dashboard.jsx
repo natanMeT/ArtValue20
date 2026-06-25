@@ -94,6 +94,7 @@ export default function Dashboard() {
         <div className="row gap-3 wrap">
           <button className="btn btn-primary" onClick={() => navigate('/intake')}><Icon name="userPlus" size={18} /> ליד חדש</button>
           <button className="btn btn-ghost" onClick={() => navigate('/finance')}><Icon name="download" size={17} /> הפקת דוח</button>
+          <button className="btn btn-ghost" onClick={() => window.dispatchEvent(new CustomEvent('artvalue:demo:open'))}><Icon name="spark" size={17} /> מצב הדגמה</button>
         </div>
       </motion.section>
 

@@ -5,7 +5,7 @@
 // demo result so the feature works offline / before a key is added.
 // ===================================================================
 
-import { activePack, buildJakeSystem } from './jakePack.js';
+import { activePack, buildJakeSystem, buildJakeDraftSystem } from './jakePack.js';
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.0-flash';
@@ -831,7 +831,10 @@ export async function diagnoseQuote(input) {
     return parseJsonLoose(await localChat(messages, { json: true, temperature: 0.7, maxTokens: 2048 }));
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
+  // Key goes ONLY in the X-goog-api-key header (below) — never in the URL query
+  // string, which would leak it into history / Referer / proxy logs. Matches every
+  // other Gemini call site in this file.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
   const body = {
     systemInstruction: { parts: [{ text: SYSTEM }] },
     contents: [{ role: 'user', parts: [{ text: buildPrompt(input) }] }],
@@ -925,6 +928,124 @@ ${contextText}
   if (!res.ok) throw new Error(`שגיאת מודל (${res.status})`);
   const j = await res.json();
   return (j?.candidates?.[0]?.content?.parts || []).map((p) => p.text).filter(Boolean).join('').trim();
+}
+
+// ===================================================================
+// JAKE BRAIN ROUTER — "the smartest brain always wins" (gen-2).
+// Unifies Art Value's Jake with the 6 cloud embeddings: a single seam that
+// prefers the strongest available brain and gracefully FALLS BACK to the other
+// (then to a calm message) so a client never sees a raw error. The Creative
+// Director engine's brain (DictaLM/aya, FROZEN) is untouched — this is Jake-only.
+//
+// Preference: 'auto' (default) | 'cloud' | 'local'. 'auto' = cloud Gemini first
+// (smartest), local Ollama as fallback. Override via VITE_JAKE_BRAIN, or live via
+// setJakeBrain() (localStorage) so the user can flip cloud↔local from the UI.
+// Jake's cloud model is isolated from the creative one (VITE_JAKE_CLOUD_MODEL).
+// ===================================================================
+const JAKE_BRAIN_KEY = 'artvalue_jake_brain';
+const JAKE_CLOUD_MODEL = import.meta.env.VITE_JAKE_CLOUD_MODEL || 'gemini-2.5-flash';
+
+export function jakeBrainPref() {
+  try { const v = (localStorage.getItem(JAKE_BRAIN_KEY) || '').toLowerCase(); if (v === 'cloud' || v === 'local' || v === 'auto') return v; } catch { /* ignore */ }
+  return (import.meta.env.VITE_JAKE_BRAIN || 'auto').toLowerCase();
+}
+export function setJakeBrain(v) { try { localStorage.setItem(JAKE_BRAIN_KEY, String(v || 'auto').toLowerCase()); } catch { /* ignore */ } }
+
+// The ordered list of brains to try, filtered to what's actually configured.
+function jakeBrainOrder() {
+  const pref = jakeBrainPref();
+  const haveCloud = Boolean(API_KEY);
+  const haveLocal = useLocalLLM;
+  // 'auto' & 'cloud' → cloud first (smartest); 'local' → local first. The other is the fallback.
+  const order = pref === 'local' ? ['local', 'cloud'] : ['cloud', 'local'];
+  return order.filter((b) => (b === 'cloud' ? haveCloud : haveLocal));
+}
+
+// What brain is live right now (for the UI badge): resolves the primary choice.
+export function jakeBrainLabel() {
+  const order = jakeBrainOrder();
+  if (!order.length) return { brain: 'demo', label: 'מצב הדגמה', cloud: false };
+  return order[0] === 'cloud'
+    ? { brain: 'cloud', label: `${JAKE_CLOUD_MODEL} · ענן`, cloud: true }
+    : { brain: 'local', label: `${JAKE_MODEL} · מקומי`, cloud: false };
+}
+
+// Low-level cloud (Gemini) chat for Jake — its OWN model, separate from creative.
+async function jakeCloudChat(history, sys, { temperature = 0.7, maxTokens = 1800 } = {}) {
+  const firstUser = history.findIndex((m) => m.role === 'user');
+  const trimmed = firstUser >= 0 ? history.slice(firstUser) : [];
+  const contents = trimmed.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.text }] }));
+  if (!contents.length) throw new Error('EMPTY_HISTORY');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${JAKE_CLOUD_MODEL}:generateContent`;
+  const body = { systemInstruction: { parts: [{ text: sys }] }, contents, generationConfig: { temperature, maxOutputTokens: maxTokens, thinkingConfig: { thinkingBudget: 0 } } };
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-goog-api-key': API_KEY }, body: JSON.stringify(body) });
+  if (!res.ok) { let msg = `Gemini ${res.status}`; try { const e = await res.json(); msg = e?.error?.message || msg; } catch { /* ignore */ } throw new Error(msg); }
+  const j = await res.json();
+  const text = (j?.candidates?.[0]?.content?.parts || []).map((p) => p.text).filter(Boolean).join('').trim();
+  if (!text) throw new Error('EMPTY_RESPONSE');
+  return text;
+}
+// Low-level local (Ollama) chat for Jake.
+function jakeLocalChat(history, sys, { temperature = 0.7, maxTokens = 1600 } = {}) {
+  const messages = [{ role: 'system', content: sys }, ...history.map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.text }))];
+  return localChat(messages, { temperature, maxTokens, model: JAKE_MODEL });
+}
+
+// PUBLIC — multi-turn Jake chat with smartest-brain routing + graceful fallback.
+// Returns { text, brain }. Throws only if EVERY configured brain failed (the
+// caller shows a calm message — never the raw error).
+export async function chatJake(history, contextText) {
+  if (!isGeminiConfigured) return { text: await demoChat(history), brain: 'demo' };
+  const sys = buildJakeSystem(activePack, contextText, JAKE_NO_THINK);
+  const order = jakeBrainOrder();
+  if (!order.length) return { text: await demoChat(history), brain: 'demo' };
+  let lastErr;
+  for (const b of order) {
+    try {
+      const text = b === 'cloud' ? await jakeCloudChat(history, sys) : await jakeLocalChat(history, sys);
+      return { text, brain: b };
+    } catch (e) { lastErr = e; } // eslint-disable-line no-await-in-loop
+  }
+  throw lastErr || new Error('NO_BRAIN');
+}
+
+// PUBLIC — force ONLY an actions block (second pass), smart-routed with fallback.
+export async function forceActionsJake(userText, contextText) {
+  if (!isGeminiConfigured) return '';
+  const sys = `אתה מנוע ביצוע פעולות עבור מערכת ${activePack.name}. תפקידך היחיד: להמיר את בקשת המשתמש לבלוק פעולות JSON.
+${activePack.actionsGuide}
+
+נתוני המערכת (השתמש בהם לזיהוי שמות/ערכים מדויקים):
+${contextText}
+
+החזר אך ורק בלוק \`\`\`actions עם מערך JSON שמבצע את בקשת המשתמש — בלי שום טקסט, הסבר או מילה אחרת. אם אין פעולה מתאימה החזר: []${JAKE_NO_THINK}`;
+  const order = jakeBrainOrder();
+  let lastErr;
+  for (const b of order) {
+    try {
+      return b === 'cloud'
+        ? await jakeCloudChat([{ role: 'user', text: userText }], sys, { temperature: 0.1, maxTokens: 1400 })
+        : await jakeLocalChat([{ role: 'user', text: userText }], sys, { temperature: 0.1, maxTokens: 1400 });
+    } catch (e) { lastErr = e; } // eslint-disable-line no-await-in-loop
+  }
+  throw lastErr || new Error('NO_BRAIN');
+}
+
+// PUBLIC — drafting lane: write a letter / WhatsApp / email / reply from real
+// data. Prose ONLY (no actions block). Smart-routed with fallback. { text, brain }.
+export async function draftWithJake(history, contextText) {
+  if (!isGeminiConfigured) return { text: await demoChat(history), brain: 'demo' };
+  const sys = buildJakeDraftSystem(activePack, contextText);
+  const order = jakeBrainOrder();
+  if (!order.length) return { text: await demoChat(history), brain: 'demo' };
+  let lastErr;
+  for (const b of order) {
+    try {
+      const text = b === 'cloud' ? await jakeCloudChat(history, sys, { temperature: 0.85 }) : await jakeLocalChat(history, sys, { temperature: 0.85 });
+      return { text, brain: b };
+    } catch (e) { lastErr = e; } // eslint-disable-line no-await-in-loop
+  }
+  throw lastErr || new Error('NO_BRAIN');
 }
 
 // ===================================================================

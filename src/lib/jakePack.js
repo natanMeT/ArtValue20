@@ -110,7 +110,25 @@ export const artValuePack = {
   // business swaps both: its own guide text and its own ACTION_HANDLERS set
   // (or spread these and override/add entries).
   actionsGuide: ACTIONS_GUIDE,
+  // CONFIRM MODE (gen-2): every proposed action is shown to the user as an approval
+  // card and runs ONLY after the user approves. So phrase actions as PROPOSALS, not
+  // done deeds — this is what unifies Jake here with the live cloud embeddings.
+  confirmGuide: `## מצב אישור (חשוב מאוד)
+כל פעולה שתציע תוצג למשתמש ככרטיס אישור, ותתבצע אך ורק אחרי שהמשתמש לוחץ "אשר ובצע".
+- נסח פעולות כהצעה בלשון עתיד: "אוסיף את דני כהן", "אעדכן את השווי ל-5,000 ₪", "אמחק את הפריט" — לא כעובדה מוגמרת ("הוספתי", "עדכנתי", "מחקתי").
+- אל תכתוב "✓" או "בוצע" בעצמך — המערכת מוסיפה אישור משלה רק אחרי הביצוע בפועל.
+- עדיין כלול תמיד את בלוק ה-actions כרגיל (המערכת קוראת ממנו את הפעולות שתבצע אחרי האישור).
+- אם זו שאלת מידע בלבד — אל תכלול בלוק actions, פשוט ענה.`,
   actions: ACTION_HANDLERS,
+  // DRAFTING (gen-2): the writing lane — letters / WhatsApp / email / replies, built
+  // from real CRM data. No actions; just clean, ready-to-send Hebrew prose.
+  draftingGuide: `## משימת ניסוח
+המשתמש ביקש שתנסח עבורו טקסט (מכתב, הודעת וואטסאפ, מייל, תשובה ללקוח, פוסט וכד׳).
+- כתוב עברית נקייה, חמה ומקצועית — מוכן להעתק-הדבק, בלי שגיאות, בלי מליצות מיותרות.
+- התאם את האורך והטון לערוץ: וואטסאפ = קצר וידידותי; מייל = מסודר עם פנייה וסגירה; מכתב = רשמי יותר.
+- השתמש בפרטים אמיתיים מנתוני המערכת (שם הלקוח, סכום, שלב, מה שסוכם) כשהם רלוונטיים — אל תמציא עובדות.
+- חתום בשם נתן / סטודיו Art Value כשמתאים.
+- אל תכלול בלוק actions ואל תבצע פעולות — זו משימת כתיבה בלבד. החזר את הטקסט המוכן בלבד.`,
   // The business data-shape: collections + how to read/summarize them. Drives the
   // executor's working-copy, the bulk-delete picker, the live context snapshot,
   // and the daily briefing. A new business swaps all of these together.
@@ -131,7 +149,19 @@ export function buildJakeSystem(pack, contextText, noThink = '') {
 ${pack.rules}
 
 ${pack.actionsGuide}
-
+${pack.confirmGuide ? `\n${pack.confirmGuide}\n` : ''}
 נתוני המערכת (זה מה שיש כרגע, עדכני לרגע זה):
+${contextText}${noThink}`;
+}
+
+// The DRAFTING system prompt — persona + drafting guide + live data, NO actions.
+// Used by the writing lane (draftWithJake) so letters/messages read naturally and
+// are grounded in real CRM facts.
+export function buildJakeDraftSystem(pack, contextText, noThink = '') {
+  return `${pack.persona}
+
+${pack.draftingGuide || 'כתוב טקסט נקי ומקצועי בעברית, מוכן לשליחה.'}
+
+נתוני המערכת (לשימוש לפרטים מדויקים — שמות, סכומים, סטטוסים. אל תמציא):
 ${contextText}${noThink}`;
 }

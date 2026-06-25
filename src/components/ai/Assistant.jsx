@@ -6,16 +6,15 @@ import Icon from '../ui/Icon.jsx';
 import warriorSit from '../../assets/warrior_sit.png';
 import warriorStand from '../../assets/warrior_stand.png';
 import warriorWalk from '../../assets/warrior_walk.png';
-import { chatWithLocalModel, forceActions, isGeminiConfigured } from '../../lib/gemini.js';
-import { extractActions, executeActions, reconcileClaim, detectBulkDelete, buildBulkDeleteGate, actionSig } from '../../lib/jakeAgent.js';
+import { chatJake, forceActionsJake, draftWithJake, jakeBrainLabel, jakeBrainPref, setJakeBrain, isGeminiConfigured } from '../../lib/gemini.js';
+import { extractActions, executeActions, describeActions, detectBulkDelete, buildBulkDeleteGate } from '../../lib/jakeAgent.js';
 import { activePack } from '../../lib/jakePack.js';
 import { dashboardKpis, inventoryTotals, lowStockItems } from '../../lib/calc.js';
 import { formatCurrency } from '../../lib/format.js';
 
-const GREETING = 'שלום! אני ג׳יק, העוזר האישי שלך. אני יודע כל מספר במערכת, זוכר את מה שדיברנו, וגם יכול לבצע פעולות — להוסיף לקוח, לעדכן מלאי ועוד. מה נעשה?';
-const SUGGESTIONS = ['כמה לקוחות יש לי?', 'מה המשימות להיום?', 'הוסף פריט מלאי'];
+const GREETING = 'שלום! אני ג׳יק, העוזר האישי שלך. אני יודע כל מספר במערכת, יכול לנסח לך מכתבים והודעות, ולבצע פעולות — כל פעולה אציג לך לאישור לפני הביצוע. מה נעשה?';
+const SUGGESTIONS = ['מה חשוב היום?', 'הוסף לקוח דני כהן, ליד, 3000 ₪', 'נסח הודעת וואטסאפ ללקוח'];
 const CHAT_KEY = 'artvalue_jake_chat';
-const MAX_AGENT_STEPS = 3; // agent-loop cap: extra autonomous steps after the first
 // Authorization code required before any BULK delete (e.g. "מחק את כל המלאי").
 const CONFIRM_CODE = '123456';
 
@@ -83,14 +82,28 @@ function hasActionVerb(text) {
   return /(?:^|\s)(תעדכן|עדכן|תשנה|שנה|תוסיף|הוסף|תמחק|מחק|תסיר|הסר|תוריד|הורד|תרשום|רשום|רשם|תסמן|סמן|תעביר|העבר|תבנה|בנה)/.test(String(text || ''));
 }
 
-// Does the request plausibly need MORE than one step? (sequence words, "for each",
-// or ≥2 action verbs). Gates the agent loop so simple one-shot commands stay fast
-// and only compound tasks get the autonomous plan→act→observe→repeat treatment.
-const ACTION_VERB_G = /(תעדכן|עדכן|תשנה|שנה|תוסיף|הוסף|תמחק|מחק|תסיר|הסר|תוריד|הורד|תרשום|רשום|תסמן|סמן|תעביר|העבר|תבנה|בנה|תיצור|צור)/g;
-function isMultiStep(text) {
+// Is this a WRITING request (letter / WhatsApp / email / reply)? → drafting lane
+// (prose only, no actions). Excludes "הצעת מחיר" which is a real add_quote action.
+function isDraftRequest(text) {
   const t = String(text || '');
-  if (/(אחר כך|ואז|לאחר מכן|בנוסף|וגם|כשתסיים|לכל ה|לכל לקוח|לכל פריט|אחד אחרי|בזה אחר זה)/.test(t)) return true;
-  return (t.match(ACTION_VERB_G) || []).length >= 2;
+  if (/הצע(ת|ות)\s*מחיר/.test(t)) return false;
+  const verb = /(כתוב|תכתוב|תכתבי|נסח|תנסח|נסחי|תכין|חבר|תחבר|לכתוב|לנסח|לחבר)/.test(t);
+  const channel = /(מכתב|הודעה|מסר|מייל|אימייל|אימל|email|וואטס|whatsapp|תשובה|טיוטה|נאום|פוסט|ברכה|תגובה|הודעת)/i.test(t);
+  if (verb && channel) return true;
+  return /(מה לכתוב|איך לכתוב|תעזור לי לכתוב|נסח לי|תנסח לי|תכתוב לי הודעה|תכתוב לי מכתב)/.test(t);
+}
+
+// Did the model CLAIM an action (past OR proposed future tense) in prose? Used to
+// trigger a force-proposal pass when it talked but emitted no actions block.
+function claimsActionText(text) {
+  return /[✓✅]|בוצע|ביצעתי|הוספתי|עדכנתי|מחקתי|הסרתי|סימנתי|יצרתי|בניתי|רשמתי|נרשמ|הועבר|העברתי|שמרתי|אוסיף|אעדכן|אמחק|איצור|אבנה|ארשום|אסמן|אעביר/.test(String(text || ''));
+}
+
+// A calm Hebrew fallback message — the client NEVER sees a raw technical error.
+function gentleError(e) {
+  const msg = String(e?.message || '');
+  if (/Ollama|מקומי|המנוע|עולה אחרי/i.test(msg)) return '⚠️ המוח המקומי עדיין עולה (Ollama). תן/י לו ~30 שניות ונסה/י שוב — או עברו למוח הענן דרך כפתור המוח למעלה.';
+  return 'מצטער, לא הצלחתי לעבד את זה כרגע 🙏 נסה/י שוב בעוד רגע, או לנסח קצת אחרת.';
 }
 
 // Numbers come from CODE, never from the model. For a recognized computed-number
@@ -181,6 +194,7 @@ export default function Assistant() {
   const [reminders, setReminders] = useState([]);
   const [listening, setListening] = useState(false);
   const [voiceOn, setVoiceOn] = useState(false);
+  const [brainTick, setBrainTick] = useState(0); // bump to re-read the brain badge after a switch
   const scrollRef = useRef(null);
   const timers = useRef([]);
   const dismissRef = useRef(null);
@@ -216,6 +230,36 @@ export default function Assistant() {
   };
   const cancelAction = (idx) => {
     setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', text: 'בוטל — לא נמחק כלום.', system: true } : mm)));
+  };
+
+  // ---- propose → confirm → execute: approve a previewed batch of actions ----
+  // The batch runs ONLY here, on the user's click. Adds/updates apply immediately;
+  // any delete inside the batch still surfaces its own explicit confirm (and bulk
+  // deletes a code gate) — nothing destructive happens without a second yes.
+  const approvePreview = (idx, actions) => {
+    const { logs, pendingDeletes, codeGates = [] } = executeActions(actions, data, dispatch, activePack.actions, activePack.entities);
+    if (logs.some((l) => l.startsWith('✓'))) toast('ג׳יק ביצע פעולה ✓');
+    setMessages((m) => m.map((mm, i) => (i === idx
+      ? { role: 'assistant', system: true, text: logs.length ? logs.join('\n') : '✓ בוצע.' }
+      : mm)));
+    pendingDeletes.forEach((d) => setMessages((m) => [...m, { role: 'assistant', confirm: d }]));
+    codeGates.forEach((g) => setMessages((m) => [...m,
+      { role: 'assistant', text: `למחיקת כל ${g.entityLabel} (${g.items.length}) נדרש קוד אישור. 🔒`, system: true },
+      { role: 'assistant', gate: g },
+    ]));
+  };
+  const cancelPreview = (idx) => {
+    setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', system: true, text: 'בוטל — לא בוצעה שום פעולה.' } : mm)));
+  };
+
+  // ---- brain switch: cycle auto (smartest) → cloud → local. Lets נתן keep the
+  // smartest brain by default but flip to the private/local brain in one click. ----
+  const cycleBrain = () => {
+    const order = ['auto', 'cloud', 'local'];
+    const nextPref = order[(order.indexOf(jakeBrainPref()) + 1) % order.length];
+    setJakeBrain(nextPref);
+    setBrainTick((t) => t + 1);
+    toast(`מוח: ${nextPref === 'auto' ? 'אוטומטי (החכם ביותר)' : nextPref === 'cloud' ? 'ענן' : 'מקומי'}`);
   };
 
   // Bulk delete after a passed code gate: dispatch a DELETE for each picked id.
@@ -401,9 +445,9 @@ export default function Assistant() {
     const next = [...messages, { role: 'user', text }];
     setMessages(next);
     setInput('');
-    // Bulk delete ("מחק את כל המלאי") — handled DETERMINISTICALLY (never trust the
-    // small model with destructive bulk ops). Pops a code gate (123456) → then a
-    // granular checkbox picker. Returns before the model is ever called.
+
+    // 1) Bulk delete ("מחק את כל המלאי") — DETERMINISTIC (never trust the model with
+    // bulk destructive ops). Code gate (123456) → granular checkbox picker. No model.
     const bulkEntity = detectBulkDelete(text, activePack.entities);
     if (bulkEntity) {
       const gate = buildBulkDeleteGate(bulkEntity, data, activePack.entities);
@@ -417,17 +461,16 @@ export default function Assistant() {
       ]);
       return;
     }
-    // Proactive briefing ("מה חשוב / מה דחוף / סיכום היום") → deterministic, from
-    // the live store. Skipped if it's an action command (let the executor handle it).
+
+    // 2) Briefing lane ("מה חשוב / סיכום היום") → deterministic, from the live store.
     if (isBriefingRequest(text) && !hasActionVerb(text)) {
       const brief = activePack.briefing(data);
       setMessages((m) => [...m, { role: 'assistant', text: brief }]);
       speak(brief);
       return;
     }
-    // Numbers come from CODE. A PURE number-question is answered directly (model
-    // skipped → always correct, no noncompliance). A COMPOUND "command + question"
-    // still runs the model/executor for the command, then appends this figure.
+
+    // 3) Info lane — numbers from CODE (instant, always correct). Pure question only.
     const dataAns = answerFromData(text, data);
     const actionish = hasActionVerb(text);
     if (dataAns && !actionish) {
@@ -435,112 +478,80 @@ export default function Assistant() {
       speak(dataAns);
       return;
     }
+
+    // 4) Drafting lane — write a letter / WhatsApp / email / reply (prose only).
+    if (isDraftRequest(text)) {
+      setLoading(true);
+      try {
+        const convo = next.filter((mm) => mm.text && !mm.system).slice(-12);
+        const { text: draft } = await draftWithJake(convo, activePack.buildContext(data));
+        const clean = extractActions(draft).clean || draft; // strip any stray actions block
+        setMessages((m) => [...m, { role: 'assistant', text: clean }]);
+        speak(clean);
+      } catch (e) {
+        setMessages((m) => [...m, { role: 'assistant', system: true, text: gentleError(e) }]);
+      } finally { setLoading(false); }
+      return;
+    }
+
+    // 5) Chat → PROPOSE → CONFIRM → EXECUTE. The model PROPOSES actions; nothing
+    // touches the store until נתן approves the card. (The frozen Creative engine is
+    // untouched — this is pure Jake orchestration.)
     setLoading(true);
     try {
-      // Send only the recent text turns (bounded history) + the live data snapshot.
-      const convo = next.filter((m) => m.text && !m.system).slice(-14);
-      const reply = await chatWithLocalModel(convo, activePack.buildContext(data));
-      const { clean, actions } = extractActions(reply);
-      if (clean) { setMessages((m) => [...m, { role: 'assistant', text: clean }]); speak(clean); }
-      let realDone = false;
-      let pass1Logs = []; let pass1Pending = [];
-      let workingData = data; // live mirror for the agent loop (updated per executed step)
-      if (actions.length) {
-        const { logs, pendingDeletes, codeGates = [], nextData } = executeActions(actions, data, dispatch, activePack.actions, activePack.entities);
-        workingData = nextData || data;
-        pass1Logs = logs; pass1Pending = [...pendingDeletes, ...codeGates];
-        if (logs.length) {
-          setMessages((m) => [...m, { role: 'assistant', text: logs.join('\n'), system: true }]);
-          if (logs.some((l) => l.startsWith('✓'))) toast('ג׳יק ביצע פעולה ✓');
-        }
-        pendingDeletes.forEach((d) => setMessages((m) => [...m, { role: 'assistant', confirm: d }]));
-        codeGates.forEach((g) => setMessages((m) => [...m, { role: 'assistant', text: `למחיקת כל ${g.entityLabel} (${g.items.length}) נדרש קוד אישור. 🔒`, system: true }, { role: 'assistant', gate: g }]));
-        realDone = logs.some((l) => l.startsWith('✓')) || pendingDeletes.length > 0 || codeGates.length > 0;
-        if (!clean && !logs.length && !pendingDeletes.length && !codeGates.length) setMessages((m) => [...m, { role: 'assistant', text: reply }]);
-      } else if (!clean) {
-        setMessages((m) => [...m, { role: 'assistant', text: reply }]);
-      }
-      // Claim-vs-execution reconciliation: even when SOMETHING ran, if the prose
-      // claims a different action-family than what executed (e.g. "מחקתי" but a
-      // stock/no-op ran), surface ⚠️ and drop the fake success.
-      const recon = reconcileClaim(clean || reply, actions, pass1Pending, pass1Logs);
-      if (recon.mismatch) {
-        setMessages((m) => [...m, { role: 'assistant', system: true, text: `⚠️ ${recon.note}` }]);
-        realDone = false;
-      }
-      // Lie-detector: ג'יק claims an action in prose but nothing real executed.
-      const claimsAction = /[✓✅]|בוצע|ביצעתי|הוספתי|עדכנתי|מחקתי|הסרתי|סימנתי|יצרתי|בניתי|רשמתי|נרשמ|הועבר|העברתי|החזרתי|שמרתי/.test(clean || reply);
-      // failReason: distinguishes WHY the action didn't happen on the final fallback.
-      let failReason = null; // 'engine' (Ollama unreachable) | 'noncompliance' (model returned no valid op)
-      if (!realDone && claimsAction) {
-        // Second pass: force the model to emit ONLY the actions JSON, then run it.
+      const convo = next.filter((mm) => mm.text && !mm.system).slice(-14);
+      const { text: reply } = await chatJake(convo, activePack.buildContext(data));
+      let { clean, actions } = extractActions(reply); // eslint-disable-line prefer-const
+
+      // Talked about doing something but emitted no block → force a proposal (2nd pass).
+      if (!actions.length && claimsActionText(clean || reply)) {
         try {
-          const forced = await forceActions(text, activePack.buildContext(data));
+          const forced = await forceActionsJake(text, activePack.buildContext(data));
           const r2 = extractActions(forced);
-          if (r2.actions.length) {
-            const { logs, pendingDeletes, codeGates = [], nextData } = executeActions(r2.actions, data, dispatch, activePack.actions, activePack.entities);
-            workingData = nextData || workingData;
-            if (logs.length) {
-              setMessages((m) => [...m, { role: 'assistant', text: logs.join('\n'), system: true }]);
-              if (logs.some((l) => l.startsWith('✓'))) toast('ג׳יק ביצע פעולה ✓');
-            }
-            pendingDeletes.forEach((d) => setMessages((m) => [...m, { role: 'assistant', confirm: d }]));
-            codeGates.forEach((g) => setMessages((m) => [...m, { role: 'assistant', text: `למחיקת כל ${g.entityLabel} (${g.items.length}) נדרש קוד אישור. 🔒`, system: true }, { role: 'assistant', gate: g }]));
-            realDone = logs.some((l) => l.startsWith('✓')) || pendingDeletes.length > 0 || codeGates.length > 0;
-            if (!realDone) failReason = 'noncompliance'; // parsed ops but all failed (warnings already shown)
-          } else {
-            failReason = 'noncompliance'; // model replied but emitted no valid action
-          }
-        } catch {
-          failReason = 'engine'; // forceActions threw → engine/network unreachable
-        }
+          if (r2.actions.length) actions = r2.actions;
+        } catch { /* it was just talk — leave as prose */ }
       }
-      if (!realDone && claimsAction) {
-        const msg = failReason === 'engine'
-          ? '⚠️ המנוע המקומי לא זמין כרגע (Ollama כבוי או עדיין עולה אחרי הפעלת המחשב). הפעולה לא בוצעה. ודא ש-Ollama רץ והמתן ~30 שניות, ואז נסה שוב.'
-          : '⚠️ ג׳יק לא הצליח לתרגם את הבקשה לפעולה — הפעולה לא בוצעה. נסה לנסח מפורש יותר, למשל: "תעדכן את השווי של מזקקת צפת ל-5000".';
-        setMessages((m) => [...m, { role: 'assistant', system: true, text: msg }]);
+
+      if (actions.length) {
+        // It's a PROPOSAL (executes only on approval) — strip any premature "done"
+        // checkmark a weaker model may have added, so the prose never contradicts the card.
+        const proposal = (clean || '').replace(/\s*[✓✅]\s*/g, ' ').trim();
+        if (proposal) { setMessages((m) => [...m, { role: 'assistant', text: proposal }]); speak(proposal); }
+        const items = describeActions(actions, data);
+        setMessages((m) => [...m, { role: 'assistant', preview: { actions, items } }]);
+      } else {
+        const body = clean || reply;
+        setMessages((m) => [...m, { role: 'assistant', text: body }]);
+        speak(body);
       }
-      // ---- AGENT LOOP: finish a multi-step task autonomously — plan→act→OBSERVE
-      // the result→decide next step→repeat. Engages ONLY for plausibly multi-step
-      // requests (so one-shot commands stay fast) and only after a real first step.
-      // Guards: dedup by actionSig (never repeat a step), MAX_AGENT_STEPS cap, stop
-      // on "DONE" / no-new-action / no-✓-progress, and pause on any delete. The
-      // frozen Creative Director engine is untouched — this is pure Jake orchestration.
-      if (realDone && !pass1Pending.length && isMultiStep(text)) {
-        const executed = new Set((actions || []).map(actionSig));
-        const loopConvo = [...convo, { role: 'assistant', text: clean || reply }];
-        for (let step = 0; step < MAX_AGENT_STEPS; step += 1) {
-          const probe = `המשך אוטונומי של המשימה. הבקשה המקורית של נתן: "${text}". אם היא כבר בוצעה במלואה — ענה בדיוק "DONE" ותו לא. אם נשאר שלב קונקרטי אחד שעוד לא בוצע — בצע אותו עכשיו (בלוק actions אחד בלבד). אל תמציא עבודה חדשה ואל תחזור על פעולה שכבר בוצעה.`;
-          let r;
-          try { r = await chatWithLocalModel([...loopConvo, { role: 'user', text: probe }], activePack.buildContext(workingData)); } catch { break; }
-          if (/\bDONE\b/i.test(r)) break;
-          const { clean: c2, actions: a2 } = extractActions(r);
-          const fresh = (a2 || []).filter((a) => !executed.has(actionSig(a)));
-          if (!fresh.length) break; // nothing new to do → task is complete
-          fresh.forEach((a) => executed.add(actionSig(a)));
-          loopConvo.push({ role: 'assistant', text: c2 || r });
-          const { logs, pendingDeletes, codeGates = [], nextData } = executeActions(fresh, workingData, dispatch, activePack.actions, activePack.entities);
-          workingData = nextData || workingData;
-          if (logs.length) setMessages((m) => [...m, { role: 'assistant', system: true, text: `🔄 ${logs.join('\n')}` }]);
-          if (logs.some((l) => l.startsWith('✓'))) toast('ג׳יק ממשיך לבד ✓');
-          pendingDeletes.forEach((d) => setMessages((m) => [...m, { role: 'assistant', confirm: d }]));
-          codeGates.forEach((g) => setMessages((m) => [...m, { role: 'assistant', text: `למחיקת כל ${g.entityLabel} (${g.items.length}) נדרש קוד אישור. 🔒`, system: true }, { role: 'assistant', gate: g }]));
-          if (pendingDeletes.length || codeGates.length) break; // pause for user confirmation
-          if (!logs.some((l) => l.startsWith('✓'))) break; // no real progress → stop
-        }
-      }
-      // Compound "command + number-question": the command ran above; now append the
-      // authoritative figure computed from the live store (never the model's number).
+
+      // Compound "command + number-question": append the authoritative store figure.
       if (dataAns && actionish) {
         setMessages((m) => [...m, { role: 'assistant', system: true, text: `⚙️ ${dataAns}` }]);
       }
     } catch (e) {
-      setMessages((m) => [...m, { role: 'assistant', text: `מצטער, נתקלתי בשגיאה: ${e.message}`, error: true }]);
+      // GRACEFUL DEGRADATION — the user NEVER sees a raw technical error.
+      const calm = answerFromData(text, data);
+      if (calm) setMessages((m) => [...m, { role: 'assistant', text: calm }]);
+      else setMessages((m) => [...m, { role: 'assistant', system: true, text: gentleError(e) }]);
     } finally {
       setLoading(false);
     }
   };
+
+  // Let other parts of the app drive Jake — the Demo Mode dispatches `jake:open`
+  // to pop the chat and `jake:ask` (detail = prompt) to run a live example.
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  useEffect(() => {
+    const forceOpen = () => { clearTimers(); setBubble(null); setReminderOpen(false); setOpen(true); setPhase('chatting'); };
+    const onOpen = () => forceOpen();
+    const onAsk = (e) => { forceOpen(); const q = e?.detail; if (q) after(360, () => sendRef.current(q)); };
+    window.addEventListener('jake:open', onOpen);
+    window.addEventListener('jake:ask', onAsk);
+    return () => { window.removeEventListener('jake:open', onOpen); window.removeEventListener('jake:ask', onAsk); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const walking = phase === 'walkout' || phase === 'walkback';
   const sprite = phase === 'sit' ? warriorSit : walking ? warriorWalk : warriorStand;
@@ -619,7 +630,21 @@ export default function Assistant() {
                   <span className="ai-avatar"><img src={warriorStand} className="ai-avatar-img" alt="" /></span>
                   <div>
                     <div style={{ fontWeight: 800 }}>ג׳יק</div>
-                    <div className="dim" style={{ fontSize: '0.72rem' }}>{isGeminiConfigured ? 'העוזר האישי שלך' : 'מצב הדגמה'}</div>
+                    {(() => {
+                      void brainTick; // re-read after a brain switch
+                      const b = jakeBrainLabel();
+                      return (
+                        <button
+                          className="ai-brain"
+                          onClick={cycleBrain}
+                          title="המוח של ג׳יק — לחץ להחלפה (אוטומטי / ענן / מקומי)"
+                          disabled={!isGeminiConfigured}
+                        >
+                          <span className={`ai-brain-dot ${b.cloud ? 'cloud' : ''}`} />
+                          {isGeminiConfigured ? b.label : 'מצב הדגמה'}
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
                 <div className="row gap-1">
@@ -645,6 +670,17 @@ export default function Assistant() {
                       <div className="ai-confirm-actions">
                         <button className="btn btn-sm ai-confirm-yes" onClick={() => confirmAction(i, m.confirm)}>אשר מחיקה</button>
                         <button className="btn btn-sm btn-ghost" onClick={() => cancelAction(i)}>ביטול</button>
+                      </div>
+                    </div>
+                  ) : m.preview ? (
+                    <div key={i} className="ai-msg assistant ai-preview">
+                      <div className="ai-preview-q">📋 לאישור — אבצע את הפעולות הבאות:</div>
+                      <ul className="ai-preview-list">
+                        {m.preview.items.map((it, k) => <li key={k}>{it}</li>)}
+                      </ul>
+                      <div className="ai-confirm-actions">
+                        <button className="btn btn-sm ai-approve" onClick={() => approvePreview(i, m.preview.actions)}>אשר ובצע</button>
+                        <button className="btn btn-sm btn-ghost" onClick={() => cancelPreview(i)}>ביטול</button>
                       </div>
                     </div>
                   ) : (

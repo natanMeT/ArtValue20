@@ -751,3 +751,67 @@ export function actionSig(a) {
   const extra = [a.value, a.amount, a.status, a.stage, a.qty, a.entity].filter((v) => v !== undefined).join('|');
   return `${a.op}:${ref}:${extra}`;
 }
+
+// ===================================================================
+// describeActions — turn proposed ops into human Hebrew confirm-card lines, with
+// the REFERENCED entity RESOLVED against live data (so the user sees "כהן → דני כהן"
+// and can catch a wrong match before approving). Powers the gen-2 propose→confirm
+// →execute card. Pure (read-only); never mutates. Unknown ops get a safe fallback.
+// ===================================================================
+const ils2 = (n) => (Number(n) || 0).toLocaleString('he-IL');
+const STAGE_HE = { lead: 'ליד', first_call: 'שיחה ראשונית', quote_sent: 'נשלחה הצעה', await_approval: 'ממתין לאישור', won: 'נסגר', in_progress: 'בעבודה', delivered: 'נמסר', retainer: 'המשך שירות', lost: 'אבוד' };
+
+function resolvedName(finder, data, ref, fallback) {
+  const hit = finder(data, ref);
+  if (hit && hit.name && String(hit.name).toLowerCase() !== String(ref || '').toLowerCase()) return `${ref} → ${hit.name}`;
+  return hit?.name || hit?.title || ref || fallback;
+}
+
+export function describeActions(actions, data) {
+  // leads live under outreachLeads — give the lead finder a data view it understands.
+  const leadView = { leads: data.outreachLeads || [] };
+  const out = [];
+  for (const a of actions || []) {
+    const op = a && (a.op || a.type || a.action);
+    let line;
+    switch (op) {
+      case 'add_client': line = `➕ להוסיף לקוח: ${a.name || '—'}${a.value ? ` · ${ils2(a.value)} ₪` : ''}${a.status ? ` · ${normClientStatus(a.status)}` : ''}`; break;
+      case 'update_client': line = `✏️ לעדכן לקוח: ${resolvedName(findClient, data, clientRef(a))}${a.value !== undefined || a.amount !== undefined ? ` · שווי → ${ils2(a.value ?? a.amount)} ₪` : ''}${a.status ? ` · סטטוס → ${normClientStatus(a.status)}` : ''}${a.newName ? ` · שם → ${a.newName}` : ''}`; break;
+      case 'delete_client': line = `🗑️ למחוק לקוח: ${resolvedName(findClient, data, clientRef(a))} (יידרש אישור מחיקה)`; break;
+      case 'add_item': line = `➕ להוסיף פריט מלאי: ${a.name || '—'}${a.qty !== undefined ? ` · ${Math.round(Number(a.qty) || 0)} ${a.unit || 'יח׳'}` : ''}`; break;
+      case 'update_item': line = `✏️ לעדכן פריט: ${resolvedName(findItem, data, itemRef(a))}`; break;
+      case 'add_stock': line = `📦 להוסיף מלאי: ${resolvedName(findItem, data, itemRef(a))} (+${Math.abs(Math.round(Number(a.amount ?? a.qty) || 0))})`; break;
+      case 'remove_stock': line = `📦 להוריד מלאי: ${resolvedName(findItem, data, itemRef(a))} (−${Math.abs(Math.round(Number(a.amount ?? a.qty) || 0))})`; break;
+      case 'delete_item': line = `🗑️ למחוק פריט: ${resolvedName(findItem, data, itemRef(a))} (יידרש אישור מחיקה)`; break;
+      case 'add_quote': {
+        const items = Array.isArray(a.items) ? a.items : [];
+        const sub = items.reduce((s, it) => s + (Number(it.qty) || 1) * (Number(it.price) || 0), 0);
+        line = `📄 ליצור הצעת מחיר ל-${resolvedName(findClient, data, clientRef(a))} · ${items.length} שורות · ~${ils2(Math.round(sub * 1.18))} ₪ כולל מע״מ`;
+        break;
+      }
+      case 'update_quote_status': line = `✏️ לעדכן סטטוס הצעת מחיר ${a.quote || a.number || ''} → ${a.status || ''}`; break;
+      case 'delete_quote': line = `🗑️ למחוק הצעת מחיר ${a.quote || a.number || a.client || ''} (יידרש אישור)`; break;
+      case 'mark_paid': line = `💰 לסמן כשולם: ${resolvedName(findClient, data, clientRef(a))}${a.amount !== undefined ? ` · ${ils2(a.amount)} ₪` : ' · לפי שווי הלקוח'} (תירשם הכנסה)`; break;
+      case 'add_income': line = `💰 לרשום הכנסה: ${ils2(a.amount)} ₪${a.description ? ` · ${a.description}` : ''}`; break;
+      case 'add_expense': line = `💸 לרשום הוצאה: ${ils2(a.amount)} ₪${a.description ? ` · ${a.description}` : ''}`; break;
+      case 'add_income_from_clients': line = `💰 לרשום הכנסות מכל הלקוחות (לפי השווי הרשום, ללא כפילויות)`; break;
+      case 'move_pipeline': line = `↗️ להעביר בפייפליין: ${resolvedName(findClient, data, clientRef(a))} → ${STAGE_HE[normPipeline(a.stage)] || a.stage || ''}`; break;
+      case 'remove_duplicate_clients': line = `🧹 לנקות לקוחות כפולים (יוצג לאישור פרטני)`; break;
+      case 'add_project': line = `➕ להוסיף פרויקט: ${a.name || '—'}${a.client ? ` · ${a.client}` : ''}`; break;
+      case 'update_project': line = `✏️ לעדכן פרויקט: ${resolvedName(findProject, data, a.project || a.name || a.match)}`; break;
+      case 'delete_project': line = `🗑️ למחוק פרויקט: ${resolvedName(findProject, data, a.project || a.name || a.match)} (יידרש אישור)`; break;
+      case 'add_task': line = `➕ להוסיף משימה: ${a.title || a.name || '—'}`; break;
+      case 'update_task': line = `✏️ לעדכן משימה: ${resolvedName(findTask, data, a.task || a.title || a.name || a.match)}`; break;
+      case 'delete_task': line = `🗑️ למחוק משימה: ${resolvedName(findTask, data, a.task || a.title || a.name || a.match)} (יידרש אישור)`; break;
+      case 'add_lead': line = `➕ להוסיף ליד: ${a.name || '—'}`; break;
+      case 'update_lead': line = `✏️ לעדכן ליד: ${resolvedName(findLead, leadView, a.lead || a.name || a.match)}`; break;
+      case 'delete_lead': line = `🗑️ למחוק ליד: ${resolvedName(findLead, leadView, a.lead || a.name || a.match)} (יידרש אישור)`; break;
+      case 'update_tx': line = `✏️ לעדכן תנועה כספית: ${a.tx || a.description || a.match || ''}`; break;
+      case 'delete_tx': line = `🗑️ למחוק תנועה כספית: ${a.tx || a.description || a.match || ''} (יידרש אישור)`; break;
+      case 'delete_all': line = `⚠️ מחיקה המונית של ${a.entity || a.scope || ''} — תידרש הזנת קוד אישור ובחירה פרטנית`; break;
+      default: line = `• ${op || 'פעולה'}`;
+    }
+    out.push(line);
+  }
+  return out;
+}

@@ -8,6 +8,7 @@ import Toaster from './components/ui/Toaster.jsx';
 import Loader from './components/ui/Loader.jsx';
 import Background from './components/layout/Background.jsx';
 import Assistant from './components/ai/Assistant.jsx';
+import DemoMode from './components/ai/DemoMode.jsx';
 
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -80,6 +81,7 @@ function AppShell() {
         </main>
       </div>
       <Assistant />
+      <DemoMode />
     </div>
   );
 }
