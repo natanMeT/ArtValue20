@@ -1,7 +1,7 @@
 // Chat-persistence filter — transient progress cards must never be persisted or
 // restored, while all other chat history is untouched. Pure, deterministic.
 import { describe, it, expect } from 'vitest';
-import { persistableChatMessages, isTransientChatMessage } from '../chatPersistence.js';
+import { persistableChatMessages, isTransientChatMessage, sanitizeChatMessage } from '../chatPersistence.js';
 
 const normal = { role: 'assistant', text: 'שלום, אני ג׳יק' };
 const userMsg = { role: 'user', text: 'תכין קמפיין' };
@@ -58,5 +58,76 @@ describe('chatPersistence — transient progress cards excluded from history', (
   it('tolerates non-array input', () => {
     expect(persistableChatMessages(undefined)).toEqual([]);
     expect(persistableChatMessages(null)).toEqual([]);
+  });
+});
+
+describe('chatPersistence — ephemeral Concept Critic view excluded from history', () => {
+  // a realistic campaign message carrying a live critique view
+  const v1Concepts = [
+    { id: 'concept-1', name: 'א', originalityScore: 9 },
+    { id: 'concept-2', name: 'ב', originalityScore: 7 },
+    { id: 'concept-3', name: 'ג', originalityScore: 5 },
+  ];
+  const makeCampaignWithCritique = () => ({
+    role: 'assistant',
+    campaign: {
+      campaignId: 'c1',
+      strategy: { keyMessage: 'מסר', strategicDirection: 'כיוון' },
+      concepts: v1Concepts.map((c) => ({ ...c })),
+      recommendedConceptId: 'concept-1', // V1 recommendation
+      critique: { ok: true, ranking: ['concept-3', 'concept-1', 'concept-2'], recommendedConceptId: 'concept-3', survivors: ['concept-3', 'concept-1'], rejected: [{ conceptId: 'concept-2', reasons: ['x'] }], evaluations: [], meta: {} },
+    },
+  });
+
+  it('1) a campaign message with critique persists WITHOUT the critique field', () => {
+    const [out] = persistableChatMessages([makeCampaignWithCritique()]);
+    expect(out.campaign).toBeDefined();
+    expect('critique' in out.campaign).toBe(false);
+  });
+
+  it('2) the original campaign data remains intact (id, strategy)', () => {
+    const [out] = persistableChatMessages([makeCampaignWithCritique()]);
+    expect(out.campaign.campaignId).toBe('c1');
+    expect(out.campaign.strategy).toEqual({ keyMessage: 'מסר', strategicDirection: 'כיוון' });
+  });
+
+  it('3) V1 concepts, ORDER, and recommendation are unchanged', () => {
+    const [out] = persistableChatMessages([makeCampaignWithCritique()]);
+    expect(out.campaign.concepts.map((c) => c.id)).toEqual(['concept-1', 'concept-2', 'concept-3']);
+    expect(out.campaign.concepts).toEqual(v1Concepts); // full V1 payload preserved
+    expect(out.campaign.recommendedConceptId).toBe('concept-1'); // V1 rec, NOT critique's
+  });
+
+  it('4) hydration of LEGACY stored chat with critique strips the stale critique', () => {
+    // simulates reading storage that an earlier session left a critique in
+    const legacy = [makeCampaignWithCritique()];
+    const hydrated = persistableChatMessages(legacy);
+    expect('critique' in hydrated[0].campaign).toBe(false);
+    // and the card still has its V1 order + recommendation to fall back to
+    expect(hydrated[0].campaign.concepts.map((c) => c.id)).toEqual(['concept-1', 'concept-2', 'concept-3']);
+    expect(hydrated[0].campaign.recommendedConceptId).toBe('concept-1');
+  });
+
+  it('5) normal / campaign-without-critique / review / system messages persist as before', () => {
+    const normal = { role: 'assistant', text: 'שלום' };
+    const plainCampaign = { role: 'assistant', campaign: { campaignId: 'c2', strategy: {}, concepts: [], recommendedConceptId: 'concept-1' } };
+    const review = { role: 'assistant', productionReview: { campaignId: 'c2', conceptName: 'x', package: {} } };
+    const system = { role: 'assistant', system: true, text: '✓ נשמר' };
+    const out = persistableChatMessages([normal, plainCampaign, review, system]);
+    expect(out).toEqual([normal, plainCampaign, review, system]);
+  });
+
+  it('6) does NOT mutate the input message objects', () => {
+    const input = [makeCampaignWithCritique()];
+    const snapshot = JSON.parse(JSON.stringify(input));
+    persistableChatMessages(input);
+    expect(input).toEqual(snapshot); // original still carries its critique
+    expect('critique' in input[0].campaign).toBe(true);
+  });
+
+  it('sanitizeChatMessage returns the SAME ref when there is no critique', () => {
+    const plain = { role: 'assistant', campaign: { campaignId: 'c3', concepts: [] } };
+    expect(sanitizeChatMessage(plain)).toBe(plain);
+    expect(sanitizeChatMessage(null)).toBe(null);
   });
 });

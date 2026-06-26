@@ -18,6 +18,7 @@ export const CREATIVE_EVENTS = Object.freeze([
   'creative_output_normalized',
   'creative_output_validated',
   'creative_concepts_ready',
+  'creative_concepts_critiqued',
   'creative_concept_selection_proposed',
   'creative_concept_selected',
   'creative_campaign_saved',

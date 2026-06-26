@@ -142,3 +142,65 @@ export type CreativeCampaignRecord = {
   updatedAt: string;
   createdBy?: string;
 };
+
+// ===================================================================
+// Concept Critic + Rerank slice — ADDITIVE evaluation view (conceptCritic.js).
+// This is a SEPARATE view over an existing CreativeCampaignResult; it never
+// changes CreativeCampaignResult, the stored concepts, their order, or
+// result.recommendedConceptId. critique.recommendedConceptId is the critic's OWN
+// pick and is independent of the V1 recommendation.
+// ===================================================================
+
+// All dimension scores are 0..1. Positive dimensions: higher = better.
+export type ConceptScores = {
+  originality: number;
+  brandSpecificity: number;
+  strategicRelevance: number;
+  clarity: number;
+  visualMetaphorCoherence: number;
+  singleHeroDiscipline: number;
+  memorability: number;
+  emotionalFit: number;
+  executability: number;
+};
+
+// Risk dimensions: higher = worse.
+export type ConceptRisks = {
+  genericityRisk: number;
+  metaphorOverload: number;
+  clicheLanguage: number;
+};
+
+export type ConceptEvaluation = {
+  conceptId: string;
+  originalIndex: number; // position in the ORIGINAL V1 concept array
+  scores: ConceptScores;
+  risks: ConceptRisks;
+  diversityPenalty: number; // 0..1, from the reused validateConceptDiversity
+  composite: number;        // 0..1, used for ranking
+  objectCount: number;      // competing scene objects (single-hero discipline)
+  shapeErrors: string[];
+  notes: string[];          // Hebrew, human-readable
+  rejected: boolean;
+  rejectReasons: string[];  // Hebrew
+  protectedAsStrongUnusual: boolean;
+  demoted: boolean;         // weak-but-kept survivor (never removed)
+};
+
+export type ConceptCritique = {
+  ok: boolean;       // false ⇒ UI must fall back to V1 order + V1 recommendation
+  degraded: boolean; // true ⇒ an injected model seam threw (deterministic floor kept)
+  reason?: string;   // present when !ok
+  evaluations: ConceptEvaluation[]; // 1:1 with input, ORIGINAL order + ids preserved
+  ranking: string[];   // conceptIds, strongest → weakest (survivors, then rejected)
+  survivors: string[]; // conceptIds not rejected, in ranked order
+  rejected: Array<{ conceptId: string; reasons: string[] }>;
+  recommendedConceptId?: string; // critic's top survivor (NOT the V1 recommendation)
+  diversity: unknown;  // the validateConceptDiversity verdict (reused as-is)
+  meta: {
+    critiqueVersion: string;
+    deterministic: boolean;
+    modelUsed: boolean;
+    createdAt: string;
+  };
+};

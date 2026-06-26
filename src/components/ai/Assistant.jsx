@@ -127,6 +127,17 @@ function creativeError(e) {
   return 'מצטער, לא הצלחתי להשלים את הקמפיין כרגע 🙏 הנתונים שלך לא שונו. אפשר לנסות שוב.';
 }
 
+// Concise, human-readable critic note for one concept evaluation (additive view —
+// never reflects back into the stored concept). Rejected → first reason; demoted →
+// first note; strong-unusual → a short tag; otherwise a compact critic score.
+function criticNote(ev) {
+  if (!ev) return '';
+  if (ev.rejected && ev.rejectReasons && ev.rejectReasons.length) return `נדחה: ${ev.rejectReasons[0]}`;
+  if (ev.demoted && ev.notes && ev.notes.length) return `מוחלש: ${ev.notes[0]}`;
+  if (ev.protectedAsStrongUnusual) return 'רעיון חזק ולא שגרתי';
+  return `ציון ביקורת ${Math.round((ev.composite || 0) * 100)}`;
+}
+
 // Numbers come from CODE, never from the model. For a recognized computed-number
 // QUESTION (e.g. "מה ערך המלאי") return the answer straight from the live store.
 // Question-anchored (needs מה/כמה/?/תגיד) so it never fires on a bare command like
@@ -623,7 +634,7 @@ export default function Assistant() {
         const need = creative.analyzeMarketingNeed(text);
         const { request, campaignId } = creative.createCampaignBrief({ need });
         const _t0 = Date.now();
-        const { result, diversity } = await creative.runCreativeDirector({ request, campaignId });
+        const { result, diversity, critique } = await creative.runCreativeDirector({ request, campaignId });
         // Debug-only capture (off in production unless window.__JAKE_DEBUG is set):
         // lets verification read the exact canonical result + diversity + timing.
         if (typeof window !== 'undefined' && window.__JAKE_DEBUG) {
@@ -631,7 +642,11 @@ export default function Assistant() {
         }
         setMessages((m) => [...m, {
           role: 'assistant',
-          campaign: { campaignId, strategy: result.strategy, concepts: result.concepts, recommendedConceptId: result.recommendedConceptId },
+          // result.* is the ORIGINAL V1 output (untouched): original concept array,
+          // original order, original recommendedConceptId — kept for auditability.
+          // `critique` is the additive critic view; the renderer uses it only when
+          // critique.ok === true, otherwise it falls back to the V1 fields above.
+          campaign: { campaignId, strategy: result.strategy, concepts: result.concepts, recommendedConceptId: result.recommendedConceptId, critique },
         }]);
       } catch (e) {
         if (typeof window !== 'undefined' && window.__JAKE_DEBUG) {
@@ -832,29 +847,60 @@ export default function Assistant() {
                       </div>
                     </div>
                   ) : m.campaign ? (
-                    <div key={i} className="ai-msg assistant ai-campaign">
-                      <div className="ai-camp-strategy">
-                        <div className="ai-camp-key">🎯 {m.campaign.strategy.keyMessage}</div>
-                        <div className="ai-camp-dir">{m.campaign.strategy.strategicDirection}</div>
-                      </div>
-                      <div className="ai-camp-intro">הכנתי שלושה כיווני קמפיין שונים — בחר/י אחד:</div>
-                      {m.campaign.concepts.map((c, k) => (
-                        <div key={c.id} className={`ai-camp-card ${c.id === m.campaign.recommendedConceptId ? 'rec' : ''}`}>
-                          <div className="ai-camp-head">
-                            <span className="ai-camp-n">{k + 1}</span>
-                            <b>{c.name}</b>
-                            {c.id === m.campaign.recommendedConceptId && <span className="ai-camp-badge">מומלץ</span>}
+                    (() => {
+                      const camp = m.campaign;
+                      const crit = camp.critique;
+                      // Use the critic view ONLY when it succeeded. Otherwise fall back to
+                      // the EXACT original V1 order + V1 recommendation (clarification #1).
+                      const useCritic = !!(crit && crit.ok === true && Array.isArray(crit.ranking) && crit.ranking.length);
+                      const byId = new Map((camp.concepts || []).map((c) => [c.id, c]));
+                      const evalById = useCritic ? new Map((crit.evaluations || []).map((e) => [e.conceptId, e])) : null;
+                      const rejectedSet = useCritic ? new Set((crit.rejected || []).map((r) => r.conceptId)) : new Set();
+                      const orderedIds = (useCritic ? crit.ranking : (camp.concepts || []).map((c) => c.id)).filter((id) => byId.has(id));
+                      const badgeId = useCritic ? crit.recommendedConceptId : camp.recommendedConceptId;
+                      const survivorIds = orderedIds.filter((id) => !rejectedSet.has(id));
+                      const rejectedIds = orderedIds.filter((id) => rejectedSet.has(id));
+                      const renderCard = (id, n, isRejected) => {
+                        const c = byId.get(id);
+                        const ev = evalById ? evalById.get(id) : null;
+                        const demoted = !!(ev && ev.demoted);
+                        const note = useCritic ? criticNote(ev) : '';
+                        return (
+                          <div key={id} className={`ai-camp-card ${id === badgeId ? 'rec' : ''} ${demoted ? 'demoted' : ''} ${isRejected ? 'rejected' : ''}`}>
+                            <div className="ai-camp-head">
+                              <span className="ai-camp-n">{n}</span>
+                              <b>{c.name}</b>
+                              {id === badgeId && <span className="ai-camp-badge">מומלץ</span>}
+                              {demoted && <span className="ai-camp-badge demote">מוחלש</span>}
+                            </div>
+                            <div className="ai-camp-row"><span>זווית</span> {c.strategicAngle}</div>
+                            <div className="ai-camp-row"><span>טון</span> {c.emotionalTone}</div>
+                            <div className="ai-camp-row"><span>כותרת</span> {c.headlineDirection}</div>
+                            <div className="ai-camp-row"><span>ויזואל</span> {c.visualDirection}</div>
+                            <div className="ai-camp-why">💡 {c.whyItWorks}</div>
+                            {note && <div className="ai-camp-critic">🧪 {note}</div>}
+                            <div className="ai-camp-scores">מקוריות {c.originalityScore} · התאמה למותג {c.brandFitScore}</div>
+                            {!isRejected && <button className="btn btn-sm ai-approve ai-camp-pick" onClick={() => selectConcept(camp.campaignId, id, c.name)}>בחר/י קונספט זה</button>}
                           </div>
-                          <div className="ai-camp-row"><span>זווית</span> {c.strategicAngle}</div>
-                          <div className="ai-camp-row"><span>טון</span> {c.emotionalTone}</div>
-                          <div className="ai-camp-row"><span>כותרת</span> {c.headlineDirection}</div>
-                          <div className="ai-camp-row"><span>ויזואל</span> {c.visualDirection}</div>
-                          <div className="ai-camp-why">💡 {c.whyItWorks}</div>
-                          <div className="ai-camp-scores">מקוריות {c.originalityScore} · התאמה למותג {c.brandFitScore}</div>
-                          <button className="btn btn-sm ai-approve ai-camp-pick" onClick={() => selectConcept(m.campaign.campaignId, c.id, c.name)}>בחר/י קונספט זה</button>
+                        );
+                      };
+                      return (
+                        <div key={i} className="ai-msg assistant ai-campaign">
+                          <div className="ai-camp-strategy">
+                            <div className="ai-camp-key">🎯 {camp.strategy.keyMessage}</div>
+                            <div className="ai-camp-dir">{camp.strategy.strategicDirection}</div>
+                          </div>
+                          <div className="ai-camp-intro">הכנתי שלושה כיווני קמפיין שונים — בחר/י אחד:</div>
+                          {survivorIds.map((id, k) => renderCard(id, k + 1, false))}
+                          {rejectedIds.length > 0 && (
+                            <details className="ai-camp-rejected">
+                              <summary>קונספטים שנדחו ({rejectedIds.length})</summary>
+                              {rejectedIds.map((id, k) => renderCard(id, survivorIds.length + k + 1, true))}
+                            </details>
+                          )}
                         </div>
-                      ))}
-                    </div>
+                      );
+                    })()
                   ) : m.campaignSelect ? (
                     <div key={i} className="ai-msg assistant ai-preview">
                       <div className="ai-preview-q">📋 לאישור — לבחור ולשמור את הקונספט:</div>
