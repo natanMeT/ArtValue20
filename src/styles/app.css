@@ -1992,6 +1992,15 @@
 .ai-camp-why { font-size: 0.82rem; color: var(--text-2); background: rgba(212, 255, 63, 0.06); border-radius: 9px; padding: 6px 9px; margin-top: 2px; }
 .ai-camp-scores { font-size: 0.74rem; color: var(--text-3); font-weight: 600; }
 .ai-camp-pick { align-self: flex-start; margin-top: 5px; }
+/* Concept Critic (additive view) — demoted / rejected states + critic note. */
+.ai-camp-card.demoted { opacity: 0.82; border-style: dashed; }
+.ai-camp-card.rejected { opacity: 0.6; border-color: rgba(255, 120, 120, 0.35); }
+.ai-camp-badge.demote { background: rgba(255, 196, 86, 0.16); color: #c98a1d; border-color: rgba(255, 196, 86, 0.45); }
+.ai-camp-critic { font-size: 0.74rem; color: var(--text-3); font-weight: 600; }
+.ai-camp-rejected { margin-top: 4px; }
+.ai-camp-rejected > summary { cursor: pointer; font-size: 0.78rem; color: var(--text-3); font-weight: 700; padding: 4px 2px; }
+.ai-camp-rejected[open] > summary { margin-bottom: 6px; }
+.ai-camp-rejected .ai-camp-card { margin-top: 6px; }
 
 /* brain badge in the assistant header — click to switch auto/cloud/local */
 .ai-brain {
