@@ -93,6 +93,71 @@ function artValueBriefing(data) {
   return parts.join('\n');
 }
 
+// ===================================================================
+// Creative V2 extension point (Phase 7) — turns Art Value CRM state into the
+// canonical Creative V2 sub-structures (business/brand/defaults) ONLY. Aggregate
+// + PII-free: NO client names, phones, emails, or per-client values leave here —
+// only counts and summaries. The generic Context Builder assembles + validates
+// the full canonical request from this. Knows nothing about Creative Director V1.
+// ===================================================================
+function artValueBuildCreativeContext(data, /* { objective, requestedEntityId } */ _opts = {}) {
+  const k = dashboardKpis(data);
+  const clients = data.clients || [];
+  const activeClients = clients.filter((c) => c.status === 'active').length;
+  const leads = clients.filter((c) => c.status === 'lead').length;
+  const inv = data.inventory || [];
+
+  // Products from inventory — name/category/price/margin only (no PII).
+  const products = inv.slice(0, 12).map((it) => {
+    const price = Number(it.unitPrice) || undefined;
+    const margin = ((Number(it.unitPrice) || 0) - (Number(it.cost) || 0)) || undefined;
+    return { id: it.id, name: it.name, ...(it.category ? { description: it.category } : {}), ...(price ? { price } : {}), ...(margin ? { margin } : {}) };
+  });
+
+  // The studio's services (static offering — not a CRM table).
+  const services = [
+    { id: 'svc-website', name: 'בניית אתרים' },
+    { id: 'svc-crm', name: 'מערכות CRM וניהול עסק' },
+    { id: 'svc-branding', name: 'מיתוג ועיצוב' },
+    { id: 'svc-marketing', name: 'קמפיינים ופרסום' },
+    { id: 'svc-landing', name: 'דפי נחיתה' },
+  ];
+
+  // Insights — AGGREGATE only (never individual customer data).
+  const relevantInsights = [
+    `הכנסות החודש: ${formatCurrency(k.revenue)}`,
+    `${clients.length} לקוחות ב-CRM (${activeClients} פעילים, ${leads} לידים)`,
+    k.pendingQuotes ? `${k.pendingQuotes} הצעות מחיר ממתינות` : '',
+    inv.length ? `${inv.length} פריטים במלאי` : '',
+  ].filter(Boolean);
+
+  return {
+    business: {
+      name: 'Art Value',
+      industry: 'סטודיו דיגיטלי — אתרים, CRM, מיתוג וקמפיינים',
+      description: 'סטודיו דיגיטלי שבונה לעסקים נוכחות שמוכרת לבד: אתרים, מערכות CRM, מיתוג וקמפיינים.',
+      ...(products.length ? { products } : {}),
+      services,
+      relevantInsights,
+    },
+    brand: {
+      brandName: 'Art Value',
+      audience: ['בעלי עסקים קטנים ובינוניים', 'עסקי בוטיק ופרימיום', 'יזמים בתחילת דרך'],
+      tone: ['פרימיום', 'חד ומדויק', 'אנושי ומקצועי'],
+      colors: ['#d4ff3f', '#c7bfff', '#0e0e0e'],
+      visualStyles: ['קולנועי', 'מינימליסטי-עשיר', 'סוריאליסטי מאופק'],
+      designRules: ['מוקד ויזואלי יחיד', 'טקסט עברי קריא', 'ניגודיות גבוהה'],
+      forbiddenStyles: ['סטוק גנרי', 'לחיצות יד', 'אנשים מצביעים על מסך'],
+      language: 'he-IL',
+    },
+    defaults: {
+      channel: 'instagram_post',
+      format: '4:5',
+      targetAudience: 'בעלי עסקים שמנהלים את העסק ידנית (וואטסאפ, אקסל, פתקים)',
+    },
+  };
+}
+
 // ---- Art Value pack (the studio CRM/ERP) ----
 export const artValuePack = {
   id: 'artvalue',
@@ -135,6 +200,10 @@ export const artValuePack = {
   entities: BUSINESS_ENTITIES,
   buildContext: artValueContext,
   briefing: artValueBriefing,
+  // ---- Creative V2 extension points (Phase 7) ----
+  buildCreativeContext: artValueBuildCreativeContext,
+  creativeRules: { language: 'he-IL', maxConcepts: 3, requireSingleFocalPoint: true, hebrewTextMustBeLegible: true },
+  creativePermissions: { analyze: true, brief: true, generate: true, select: true, save: true },
 };
 
 // The ACTIVE business pack. Swap this single line to retarget Jake to another
