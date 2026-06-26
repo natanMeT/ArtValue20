@@ -32,8 +32,8 @@ split, or defaulted. Each row is an explicit decision.
 | — (no canonical source) | `brand.trust_signals` | — | `[]` | — | Gap 6 (V1 optional) |
 | — (no canonical source) | `brand.cards` | — | `[]` | — | Gap 6 (display-only; unused by runCreativeDirector) |
 | `requestedConceptCount` (=3) | `opts.target` | direct | `3` | must be 3 | none |
-| (adapter config) | `opts.brainstormSize` | execution config | `12` | — | smaller pool than V1 default 30 (slice perf; documented) |
-| (adapter config) | `opts.maxRounds` | execution config | `1` | — | one kill-safe round (slice perf) |
+| (adapter config) | `opts.brainstormSize` | execution config | `30` | — | V1 default pool (reliable concept yield through the kill-safe gate) |
+| (adapter config) | `opts.maxRounds` | execution config | `2` | — | V1 default — a 2nd brainstorm round runs ONLY if the first yields too few |
 | (adapter config) | `opts.withCritique` | execution config | `false` | — | risks[] therefore empty (Gap 4) |
 
 ## B. RESPONSE PATH — V1 output → Canonical V2 result

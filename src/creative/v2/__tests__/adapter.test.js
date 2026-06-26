@@ -28,7 +28,7 @@ describe('C. adapter — behavior', () => {
       palette: ['#d4ff3f', '#c7bfff'],
       cards: [],
     });
-    expect(run.calls[0].opts).toEqual({ target: 3, brainstormSize: 12, maxRounds: 1, withCritique: false });
+    expect(run.calls[0].opts).toEqual({ target: 3, brainstormSize: 30, maxRounds: 2, withCritique: false });
   });
 
   it('returns a result that passes canonical validation', async () => {

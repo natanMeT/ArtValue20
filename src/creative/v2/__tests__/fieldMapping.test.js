@@ -13,7 +13,7 @@ describe('B. field mapping — REQUEST path (canonical → V1)', () => {
     expect(brand.positioning).toContain('מערכות CRM');    // service NAME folded in
     expect(brand.audience).toBe('בעלי עסקים; בעלי עסקים שמנהלים ידנית');
     expect(brand.tone).toEqual(['פרימיום', 'חד']);
-    expect(opts).toEqual({ target: 3, brainstormSize: 12, maxRounds: 1, withCritique: false });
+    expect(opts).toEqual({ target: 3, brainstormSize: 30, maxRounds: 2, withCritique: false });
   });
 
   it('produces EXACTLY the documented V1 brand keys (no invented field)', () => {

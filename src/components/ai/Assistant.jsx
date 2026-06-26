@@ -557,12 +557,21 @@ export default function Assistant() {
         const creative = creativeRef.current;
         const need = creative.analyzeMarketingNeed(text);
         const { request, campaignId } = creative.createCampaignBrief({ need });
-        const { result } = await creative.runCreativeDirector({ request, campaignId });
+        const _t0 = Date.now();
+        const { result, diversity } = await creative.runCreativeDirector({ request, campaignId });
+        // Debug-only capture (off in production unless window.__JAKE_DEBUG is set):
+        // lets verification read the exact canonical result + diversity + timing.
+        if (typeof window !== 'undefined' && window.__JAKE_DEBUG) {
+          try { window.__creativeLastRun = { ms: Date.now() - _t0, result, diversity, request }; } catch { /* noop */ }
+        }
         setMessages((m) => [...m, {
           role: 'assistant',
           campaign: { campaignId, strategy: result.strategy, concepts: result.concepts, recommendedConceptId: result.recommendedConceptId },
         }]);
       } catch (e) {
+        if (typeof window !== 'undefined' && window.__JAKE_DEBUG) {
+          try { window.__creativeLastError = { code: e && e.code, message: e && e.message, details: e && e.details }; } catch { /* noop */ }
+        }
         setMessages((m) => [...m, { role: 'assistant', system: true, text: creativeError(e) }]);
       } finally { setLoading(false); }
       return;

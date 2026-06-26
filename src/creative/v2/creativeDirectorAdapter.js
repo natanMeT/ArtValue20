@@ -79,7 +79,9 @@ export function mapRequestToV1(request) {
     cards: [],
   };
 
-  const opts = { target: request.requestedConceptCount, brainstormSize: 12, maxRounds: 1, withCritique: false };
+  // Use V1's own default brainstorm pool so its kill-safe gate reliably yields the
+  // requested concepts. (maxRounds:2 only triggers a 2nd round if the first is short.)
+  const opts = { target: request.requestedConceptCount, brainstormSize: 30, maxRounds: 2, withCritique: false };
   return { brand, opts };
 }
 
