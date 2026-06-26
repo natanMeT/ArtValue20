@@ -9,6 +9,7 @@ import warriorWalk from '../../assets/warrior_walk.png';
 import { chatJake, forceActionsJake, draftWithJake, jakeBrainLabel, jakeBrainPref, setJakeBrain, isGeminiConfigured } from '../../lib/gemini.js';
 import { extractActions, executeActions, describeActions, detectBulkDelete, buildBulkDeleteGate } from '../../lib/jakeAgent.js';
 import { activePack } from '../../lib/jakePack.js';
+import { createArtValueCreative } from '../../creative/v2/createArtValueCreative.js';
 import { dashboardKpis, inventoryTotals, lowStockItems } from '../../lib/calc.js';
 import { formatCurrency } from '../../lib/format.js';
 
@@ -106,6 +107,24 @@ function gentleError(e) {
   return 'מצטער, לא הצלחתי לעבד את זה כרגע 🙏 נסה/י שוב בעוד רגע, או לנסח קצת אחרת.';
 }
 
+// Is this a CREATIVE CAMPAIGN request (→ Creative V2 slice: brief → adapter → V1)?
+function isCampaignRequest(text) {
+  const t = String(text || '');
+  return /קמפיי?ן/.test(t)
+    || /(רעיונות|כיוונים)\s*(ל)?(פרסום|מודעה|קריאייטיב|קריאטיב)/.test(t)
+    || /(תכין|בנה|תבנה|רוצה)\s*(לי\s*)?(מודעת? פרסום|כמה רעיונות פרסום)/.test(t);
+}
+
+// Creative-slice errors → calm Hebrew (NEVER a raw technical error to the user).
+function creativeError(e) {
+  const code = e && e.code;
+  if (code === 'CONCEPTS_TOO_SIMILAR') return 'מנוע הקריאייטיב החזיר כיוונים דומים מדי. הנתונים שלך לא שונו — אפשר לנסות שוב. 🙏';
+  if (['NO_OBJECTIVE', 'INVALID_REQUEST', 'REQUEST_INVALID', 'NO_PACK_SUPPORT', 'PACK_BUILD_FAILED'].includes(code)) return 'חסר לי קצת מידע כדי לבנות קמפיין מדויק. נסה/י לתאר מה המטרה ולמי הקמפיין.';
+  if (['V1_EXECUTION_FAILED', 'ENGINE_FAILED'].includes(code)) return 'לא הצלחתי להשלים כרגע את יצירת כיווני הקמפיין. הנתונים שלך לא שונו — אפשר לנסות שוב.';
+  if (['RESULT_INVALID', 'V1_OUTPUT_INVALID'].includes(code)) return 'מנוע הקריאטיב החזיר תוצאה שאינה תקינה. לא נשמרו שינויים במערכת.';
+  return 'מצטער, לא הצלחתי להשלים את הקמפיין כרגע 🙏 הנתונים שלך לא שונו. אפשר לנסות שוב.';
+}
+
 // Numbers come from CODE, never from the model. For a recognized computed-number
 // QUESTION (e.g. "מה ערך המלאי") return the answer straight from the live store.
 // Question-anchored (needs מה/כמה/?/תגיד) so it never fires on a bare command like
@@ -196,6 +215,12 @@ export default function Assistant() {
   const [voiceOn, setVoiceOn] = useState(false);
   const [brainTick, setBrainTick] = useState(0); // bump to re-read the brain badge after a switch
   const scrollRef = useRef(null);
+  // Creative V2 orchestrator — built once; reads live CRM data via a ref. The
+  // adapter inside wraps the FROZEN Creative Director V1 (injected at composition).
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const creativeRef = useRef(null);
+  if (!creativeRef.current) creativeRef.current = createArtValueCreative({ getData: () => dataRef.current, user: 'נתן' });
   const timers = useRef([]);
   const dismissRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -250,6 +275,32 @@ export default function Assistant() {
   };
   const cancelPreview = (idx) => {
     setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', system: true, text: 'בוטל — לא בוצעה שום פעולה.' } : mm)));
+  };
+
+  // ---- creative campaign: select a concept → reuse the propose→confirm card ----
+  // Selecting proposes (no mutation); the campaign concept is persisted ONLY on
+  // approve. Cancelling leaves the campaign at 'concepts_ready' (no mutation).
+  const selectConcept = (campaignId, conceptId, conceptName) => {
+    try {
+      creativeRef.current.proposeSelection({ campaignId, conceptId });
+      setMessages((m) => [...m, { role: 'assistant', campaignSelect: { campaignId, conceptId, conceptName } }]);
+    } catch (e) {
+      setMessages((m) => [...m, { role: 'assistant', system: true, text: creativeError(e) }]);
+    }
+  };
+  const approveCampaignSelect = (idx, sel) => {
+    try {
+      const rec = creativeRef.current.confirmSelection({ campaignId: sel.campaignId, conceptId: sel.conceptId });
+      toast('הקונספט נבחר ונשמר ✓');
+      setMessages((m) => m.map((mm, i) => (i === idx
+        ? { role: 'assistant', system: true, text: `✓ נבחר ונשמר הקונספט "${sel.conceptName}". מצב הקמפיין: ${rec.status === 'concept_selected' ? 'נבחר קונספט' : rec.status}.` }
+        : mm)));
+    } catch (e) {
+      setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', system: true, text: creativeError(e) } : mm)));
+    }
+  };
+  const cancelCampaignSelect = (idx) => {
+    setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', system: true, text: 'בוטל — לא נשמר קונספט. הקמפיין נשאר עם שלושת הכיוונים שהוצעו.' } : mm)));
   };
 
   // ---- brain switch: cycle auto (smartest) → cloud → local. Lets נתן keep the
@@ -480,7 +531,8 @@ export default function Assistant() {
     }
 
     // 4) Drafting lane — write a letter / WhatsApp / email / reply (prose only).
-    if (isDraftRequest(text)) {
+    // Campaign intent wins over drafting (a campaign brief may mention a channel word).
+    if (isDraftRequest(text) && !isCampaignRequest(text)) {
       setLoading(true);
       try {
         const convo = next.filter((mm) => mm.text && !mm.system).slice(-12);
@@ -490,6 +542,37 @@ export default function Assistant() {
         speak(clean);
       } catch (e) {
         setMessages((m) => [...m, { role: 'assistant', system: true, text: gentleError(e) }]);
+      } finally { setLoading(false); }
+      return;
+    }
+
+    // 4.5) Creative campaign lane (Creative V2 slice) — Jake reads CRM context,
+    // builds a canonical brief, runs the FROZEN Creative Director V1 through the
+    // adapter, and returns three distinct concepts. Selection/persistence reuse the
+    // existing confirm card. Nothing is saved until the user approves a concept.
+    if (isCampaignRequest(text)) {
+      setLoading(true);
+      setMessages((m) => [...m, { role: 'assistant', system: true, text: '🎯 בודק את נתוני העסק, בונה בריף ומריץ את מנהל הקריאייטיב — ייקח רגע…' }]);
+      try {
+        const creative = creativeRef.current;
+        const need = creative.analyzeMarketingNeed(text);
+        const { request, campaignId } = creative.createCampaignBrief({ need });
+        const _t0 = Date.now();
+        const { result, diversity } = await creative.runCreativeDirector({ request, campaignId });
+        // Debug-only capture (off in production unless window.__JAKE_DEBUG is set):
+        // lets verification read the exact canonical result + diversity + timing.
+        if (typeof window !== 'undefined' && window.__JAKE_DEBUG) {
+          try { window.__creativeLastRun = { ms: Date.now() - _t0, result, diversity, request }; } catch { /* noop */ }
+        }
+        setMessages((m) => [...m, {
+          role: 'assistant',
+          campaign: { campaignId, strategy: result.strategy, concepts: result.concepts, recommendedConceptId: result.recommendedConceptId },
+        }]);
+      } catch (e) {
+        if (typeof window !== 'undefined' && window.__JAKE_DEBUG) {
+          try { window.__creativeLastError = { code: e && e.code, message: e && e.message, details: e && e.details }; } catch { /* noop */ }
+        }
+        setMessages((m) => [...m, { role: 'assistant', system: true, text: creativeError(e) }]);
       } finally { setLoading(false); }
       return;
     }
@@ -681,6 +764,39 @@ export default function Assistant() {
                       <div className="ai-confirm-actions">
                         <button className="btn btn-sm ai-approve" onClick={() => approvePreview(i, m.preview.actions)}>אשר ובצע</button>
                         <button className="btn btn-sm btn-ghost" onClick={() => cancelPreview(i)}>ביטול</button>
+                      </div>
+                    </div>
+                  ) : m.campaign ? (
+                    <div key={i} className="ai-msg assistant ai-campaign">
+                      <div className="ai-camp-strategy">
+                        <div className="ai-camp-key">🎯 {m.campaign.strategy.keyMessage}</div>
+                        <div className="ai-camp-dir">{m.campaign.strategy.strategicDirection}</div>
+                      </div>
+                      <div className="ai-camp-intro">הכנתי שלושה כיווני קמפיין שונים — בחר/י אחד:</div>
+                      {m.campaign.concepts.map((c, k) => (
+                        <div key={c.id} className={`ai-camp-card ${c.id === m.campaign.recommendedConceptId ? 'rec' : ''}`}>
+                          <div className="ai-camp-head">
+                            <span className="ai-camp-n">{k + 1}</span>
+                            <b>{c.name}</b>
+                            {c.id === m.campaign.recommendedConceptId && <span className="ai-camp-badge">מומלץ</span>}
+                          </div>
+                          <div className="ai-camp-row"><span>זווית</span> {c.strategicAngle}</div>
+                          <div className="ai-camp-row"><span>טון</span> {c.emotionalTone}</div>
+                          <div className="ai-camp-row"><span>כותרת</span> {c.headlineDirection}</div>
+                          <div className="ai-camp-row"><span>ויזואל</span> {c.visualDirection}</div>
+                          <div className="ai-camp-why">💡 {c.whyItWorks}</div>
+                          <div className="ai-camp-scores">מקוריות {c.originalityScore} · התאמה למותג {c.brandFitScore}</div>
+                          <button className="btn btn-sm ai-approve ai-camp-pick" onClick={() => selectConcept(m.campaign.campaignId, c.id, c.name)}>בחר/י קונספט זה</button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : m.campaignSelect ? (
+                    <div key={i} className="ai-msg assistant ai-preview">
+                      <div className="ai-preview-q">📋 לאישור — לבחור ולשמור את הקונספט:</div>
+                      <ul className="ai-preview-list"><li>✦ {m.campaignSelect.conceptName}</li></ul>
+                      <div className="ai-confirm-actions">
+                        <button className="btn btn-sm ai-approve" onClick={() => approveCampaignSelect(i, m.campaignSelect)}>אשר ושמור</button>
+                        <button className="btn btn-sm btn-ghost" onClick={() => cancelCampaignSelect(i)}>ביטול</button>
                       </div>
                     </div>
                   ) : (
