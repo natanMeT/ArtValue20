@@ -295,6 +295,8 @@ export default function Assistant() {
       setMessages((m) => m.map((mm, i) => (i === idx
         ? { role: 'assistant', system: true, text: `✓ נבחר ונשמר הקונספט "${sel.conceptName}". מצב הקמפיין: ${rec.status === 'concept_selected' ? 'נבחר קונספט' : rec.status}.` }
         : mm)));
+      // Offer the next step: turn the chosen concept into a production package.
+      setMessages((m) => [...m, { role: 'assistant', productionOffer: { campaignId: sel.campaignId, conceptName: sel.conceptName } }]);
     } catch (e) {
       setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', system: true, text: creativeError(e) } : mm)));
     }
@@ -302,6 +304,38 @@ export default function Assistant() {
   const cancelCampaignSelect = (idx) => {
     setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', system: true, text: 'בוטל — לא נשמר קונספט. הקמפיין נשאר עם שלושת הכיוונים שהוצעו.' } : mm)));
   };
+
+  // ---- production package: generate a DRAFT from the selected concept (read-only,
+  // ZERO mutation), show a review card, persist ONLY on approve. Cancel = no mutation.
+  const cancelProductionOffer = (idx) => {
+    setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', system: true, text: 'בסדר — לא נוצרה חבילת הפקה.' } : mm)));
+  };
+  const generateProduction = async (idx, campaignId, conceptName) => {
+    setMessages((m) => m.map((mm, i) => (i === idx
+      ? { role: 'assistant', system: true, text: `🎬 מכין חבילת הפקה ל"${conceptName}" — ליבה יצירתית, קופי, בריף ופרומפט…` }
+      : mm)));
+    try {
+      const pkg = await creativeRef.current.generateProductionPackage({ campaignId });
+      setMessages((m) => [...m, { role: 'assistant', productionReview: { campaignId, conceptName, package: pkg } }]);
+    } catch (e) {
+      setMessages((m) => [...m, { role: 'assistant', system: true, text: creativeError(e) }]);
+    }
+  };
+  const approveProductionSave = (idx, review) => {
+    try {
+      const rec = creativeRef.current.saveProductionPackage({ campaignId: review.campaignId, pkg: review.package });
+      toast('חבילת ההפקה נשמרה ✓');
+      setMessages((m) => m.map((mm, i) => (i === idx
+        ? { role: 'assistant', system: true, text: `✓ נשמרה חבילת הפקה ל"${review.conceptName}" (קוד ${rec.id}).` }
+        : mm)));
+    } catch (e) {
+      setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', system: true, text: creativeError(e) } : mm)));
+    }
+  };
+  const cancelProductionSave = (idx) => {
+    setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', system: true, text: 'בוטל — חבילת ההפקה לא נשמרה.' } : mm)));
+  };
+  const RISK_HE = { low: 'נמוך', medium: 'בינוני', high: 'גבוה' };
 
   // ---- brain switch: cycle auto (smartest) → cloud → local. Lets נתן keep the
   // smartest brain by default but flip to the private/local brain in one click. ----
@@ -799,6 +833,51 @@ export default function Assistant() {
                         <button className="btn btn-sm btn-ghost" onClick={() => cancelCampaignSelect(i)}>ביטול</button>
                       </div>
                     </div>
+                  ) : m.productionOffer ? (
+                    <div key={i} className="ai-msg assistant ai-preview">
+                      <div className="ai-preview-q">🎬 הקונספט נבחר. ליצור חבילת הפקה (ליבה יצירתית + קופי + בריף ויזואלי + פרומפט)?</div>
+                      <div className="ai-confirm-actions">
+                        <button className="btn btn-sm ai-approve" onClick={() => generateProduction(i, m.productionOffer.campaignId, m.productionOffer.conceptName)}>צור חבילת הפקה</button>
+                        <button className="btn btn-sm btn-ghost" onClick={() => cancelProductionOffer(i)}>לא עכשיו</button>
+                      </div>
+                    </div>
+                  ) : m.productionReview ? (
+                    (() => {
+                      const p = m.productionReview.package;
+                      const cc = p.creativeCore; const risk = cc.genericityRisk;
+                      return (
+                        <div className="ai-msg assistant ai-campaign">
+                          <div className="ai-camp-strategy">
+                            <div className="ai-camp-key">🎬 חבילת הפקה — {m.productionReview.conceptName}</div>
+                          </div>
+                          <div className="ai-camp-card">
+                            <div className="ai-camp-row"><span>מנגנון יצירתי</span> {cc.creativeMechanism}</div>
+                            <div className="ai-camp-row"><span>מטאפורה ויזואלית</span> {cc.visualMetaphor}</div>
+                            <div className="ai-camp-row"><span>אובייקט גיבור</span> {cc.heroObject}</div>
+                            <div className="ai-camp-row"><span>מנגנון הפתעה</span> {cc.surpriseMechanism}</div>
+                            <div className="ai-camp-row"><span>וו זיכרון</span> {cc.memoryHook}</div>
+                            <div className="ai-camp-row"><span>סיכון גנריות</span> {RISK_HE[risk.level] || risk.level} ({risk.score}){risk.reasons.length ? ` · ${risk.reasons.join(', ')}` : ''}</div>
+                          </div>
+                          <div className="ai-camp-card">
+                            <div className="ai-camp-row"><span>כותרת</span> {p.copyPackage.headline}</div>
+                            <div className="ai-camp-row"><span>תת-כותרת</span> {p.copyPackage.subline}</div>
+                            <div className="ai-camp-row"><span>קריאה לפעולה</span> {p.copyPackage.cta}</div>
+                            {p.copyPackage.bodyVariants?.length ? <div className="ai-camp-why">📝 {p.copyPackage.bodyVariants[0]}</div> : null}
+                            {p.copyPackage.copyWarning ? <div className="ai-camp-row" style={{ color: '#b00' }}><span>⚠️ אזהרת קופי</span> {p.copyPackage.copyWarning}</div> : null}
+                          </div>
+                          <div className="ai-camp-card">
+                            <div className="ai-camp-row"><span>בריף ויזואלי</span> {[p.visualBrief.vibe, p.visualBrief.compositionNote].filter(Boolean).join(' · ')}</div>
+                            <div className="ai-camp-row"><span>פלטה</span> {(p.visualBrief.palette || []).join(', ')}</div>
+                            <div className="ai-camp-row"><span>Image prompt</span> {p.imagePrompt.promptEn}</div>
+                            <div className="ai-camp-row"><span>Negative</span> {p.imagePrompt.negativeEn}</div>
+                          </div>
+                          <div className="ai-confirm-actions">
+                            <button className="btn btn-sm ai-approve" onClick={() => approveProductionSave(i, m.productionReview)}>אשר ושמור</button>
+                            <button className="btn btn-sm btn-ghost" onClick={() => cancelProductionSave(i)}>ביטול</button>
+                          </div>
+                        </div>
+                      );
+                    })()
                   ) : (
                     <div key={i} className={`ai-msg ${m.role} ${m.error ? 'err' : ''} ${m.system ? 'ai-action' : ''}`}>{m.text}</div>
                   )
