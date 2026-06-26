@@ -162,10 +162,16 @@ describe('productionBriefEngine — copy fallback never empty', () => {
     expect(copyPackage.cta.length).toBeGreaterThan(0);
   });
 
-  it('survives a throwing draft seam (graceful → fallback)', async () => {
+  it('a THROWN draft seam is fatal — rejects + emits copy:error, no silent fallback', async () => {
+    // A real provider/model error must NOT be shown as a completed stage. (An
+    // empty/invalid NON-throwing response still uses the deterministic fallback —
+    // covered by the test above.)
+    const events = [];
     const engine = createProductionBriefEngine({ draftCopy: async () => { throw new Error('brain down'); } });
-    const { copyPackage } = await engine.build(concept, { campaignId: 'cmp_1', tenantId: 'artvalue' });
-    expect(copyPackage.headline.length).toBeGreaterThan(0);
+    await expect(engine.build(concept, { campaignId: 'cmp_1', tenantId: 'artvalue', onProgress: (e) => events.push(e) }))
+      .rejects.toThrow('brain down');
+    expect(events).toContainEqual(expect.objectContaining({ stage: 'copy', status: 'error' }));
+    expect(events.some((e) => ['translate', 'visual'].includes(e.stage))).toBe(false); // stopped at copy
   });
 });
 

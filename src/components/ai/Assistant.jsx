@@ -10,6 +10,8 @@ import { chatJake, forceActionsJake, draftWithJake, jakeBrainLabel, jakeBrainPre
 import { extractActions, executeActions, describeActions, detectBulkDelete, buildBulkDeleteGate } from '../../lib/jakeAgent.js';
 import { activePack } from '../../lib/jakePack.js';
 import { createArtValueCreative } from '../../creative/v2/createArtValueCreative.js';
+import { PRODUCTION_STAGES, PRODUCTION_STAGE_ORDER } from '../../creative/v2/productionProgress.js';
+import { persistableChatMessages } from './chatPersistence.js';
 import { dashboardKpis, inventoryTotals, lowStockItems } from '../../lib/calc.js';
 import { formatCurrency } from '../../lib/format.js';
 
@@ -202,7 +204,9 @@ export default function Assistant() {
   const [messages, setMessages] = useState(() => {
     try {
       const raw = localStorage.getItem(CHAT_KEY);
-      if (raw) { const arr = JSON.parse(raw); if (Array.isArray(arr) && arr.length) return arr; }
+      // Drop any transient progress card a buggy build may have persisted, so a
+      // reload never restores a stuck in-progress card.
+      if (raw) { const arr = persistableChatMessages(JSON.parse(raw)); if (arr.length) return arr; }
     } catch { /* ignore */ }
     return [{ role: 'assistant', text: GREETING }];
   });
@@ -238,8 +242,10 @@ export default function Assistant() {
   }, [messages, loading, open]);
 
   // Persist the conversation so ג'יק keeps memory across sessions (cap last 60).
+  // Live progress cards are transient UI state and are excluded — persisting one
+  // would restore a stuck in-progress card (no callback/interval) after reload.
   useEffect(() => {
-    try { localStorage.setItem(CHAT_KEY, JSON.stringify(messages.slice(-60))); } catch { /* ignore */ }
+    try { localStorage.setItem(CHAT_KEY, JSON.stringify(persistableChatMessages(messages).slice(-60))); } catch { /* ignore */ }
   }, [messages]);
 
   const clearChat = () => {
@@ -311,14 +317,39 @@ export default function Assistant() {
     setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', system: true, text: 'בסדר — לא נוצרה חבילת הפקה.' } : mm)));
   };
   const generateProduction = async (idx, campaignId, conceptName) => {
+    const startedAt = Date.now();
+    // Replace the offer with a LIVE progress card. State lives here, in the
+    // assistant message — the engine only emits events through the onProgress seam.
     setMessages((m) => m.map((mm, i) => (i === idx
-      ? { role: 'assistant', system: true, text: `🎬 מכין חבילת הפקה ל"${conceptName}" — ליבה יצירתית, קופי, בריף ופרומפט…` }
+      ? { role: 'assistant', productionProgress: { campaignId, conceptName, statuses: {}, startedAt, nowTs: startedAt, error: null, done: false } }
       : mm)));
+
+    // Merge each REAL progress event into the card at idx (latest status per stage).
+    const onProgress = (e) => setMessages((m) => m.map((mm, i) => {
+      if (i !== idx || !mm.productionProgress) return mm;
+      const pp = mm.productionProgress;
+      return { ...mm, productionProgress: { ...pp, statuses: { ...pp.statuses, [e.stage]: e.status }, nowTs: e.timestamp } };
+    }));
+
+    // Live elapsed clock while running — a real wall-clock readout, not a fake %.
+    const tick = setInterval(() => setMessages((m) => m.map((mm, i) => (
+      i === idx && mm.productionProgress && !mm.productionProgress.done
+        ? { ...mm, productionProgress: { ...mm.productionProgress, nowTs: Date.now() } }
+        : mm))), 250);
+
     try {
-      const pkg = await creativeRef.current.generateProductionPackage({ campaignId });
-      setMessages((m) => [...m, { role: 'assistant', productionReview: { campaignId, conceptName, package: pkg } }]);
+      const pkg = await creativeRef.current.generateProductionPackage({ campaignId, onProgress });
+      setMessages((m) => m.map((mm, i) => (i === idx
+        ? { role: 'assistant', productionReview: { campaignId, conceptName, package: pkg } }
+        : mm)));
     } catch (e) {
-      setMessages((m) => [...m, { role: 'assistant', system: true, text: creativeError(e) }]);
+      // Honest error state: keep the stage list (the failed stage is already marked
+      // 'error' via onProgress) and add a concise Hebrew message — no stack traces.
+      setMessages((m) => m.map((mm, i) => (i === idx && mm.productionProgress
+        ? { ...mm, productionProgress: { ...mm.productionProgress, done: true, nowTs: Date.now(), error: creativeError(e) } }
+        : mm)));
+    } finally {
+      clearInterval(tick);
     }
   };
   const approveProductionSave = (idx, review) => {
@@ -841,6 +872,44 @@ export default function Assistant() {
                         <button className="btn btn-sm btn-ghost" onClick={() => cancelProductionOffer(i)}>לא עכשיו</button>
                       </div>
                     </div>
+                  ) : m.productionProgress ? (
+                    (() => {
+                      const pp = m.productionProgress;
+                      // Canonical order from the engine's single source of truth;
+                      // `rewrite` is hidden until it has actually been emitted.
+                      const order = PRODUCTION_STAGE_ORDER.filter((s) => s !== 'rewrite' || pp.statuses.rewrite);
+                      const elapsed = Math.max(0, (pp.nowTs - pp.startedAt) / 1000);
+                      const errored = order.find((s) => pp.statuses[s] === 'error');
+                      return (
+                        <div key={i} className="ai-msg assistant ai-campaign">
+                          <div className="ai-camp-strategy">
+                            <div className="ai-camp-key">🎬 מכין חבילת הפקה — {pp.conceptName}</div>
+                          </div>
+                          <div className="ai-camp-card">
+                            {order.map((s) => {
+                              const st = pp.statuses[s] || 'pending';
+                              return (
+                                <div key={s} className="ai-camp-row" style={{ opacity: st === 'pending' ? 0.4 : 1, color: st === 'error' ? '#b00' : st === 'fallback' ? '#a86b00' : undefined }}>
+                                  <span>{st === 'active'
+                                    ? <span className="ai-typing"><i /><i /><i /></span>
+                                    : st === 'done' ? '✓' : st === 'error' ? '✗' : st === 'fallback' ? '⚠' : '○'}</span> {PRODUCTION_STAGES[s]}{st === 'fallback' ? ' (תרגום חלופי)' : ''}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="ai-camp-scores">⏱️ {elapsed.toFixed(1)} שניות</div>
+                          {pp.error ? (
+                            <div className="ai-camp-card" style={{ color: '#b00' }}>
+                              <div className="ai-camp-row"><span>⚠️ שגיאה</span> {errored ? `בשלב "${PRODUCTION_STAGES[errored]}". ` : ''}{pp.error}</div>
+                              <div className="ai-confirm-actions">
+                                <button className="btn btn-sm ai-approve" onClick={() => generateProduction(i, pp.campaignId, pp.conceptName)}>נסה שוב</button>
+                                <button className="btn btn-sm btn-ghost" onClick={() => cancelProductionOffer(i)}>סגור</button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })()
                   ) : m.productionReview ? (
                     (() => {
                       const p = m.productionReview.package;

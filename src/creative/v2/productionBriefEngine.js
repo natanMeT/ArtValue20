@@ -10,7 +10,13 @@
 // Engine, render an image, generate typography, make a PosterSpec, or publish.
 // The copy brain is INJECTED (`draftCopy`) so tests never hit a real model and
 // the composition root is the only place the real seam is wired.
+//
+// An OPTIONAL progress seam (opts.onProgress) emits real per-stage events. It is
+// failure-safe and no-op when absent, so the engine behaves exactly as before
+// when no callback is provided. No progress is persisted; nothing here touches
+// React or the browser.
 // ===================================================================
+import { createProgressEmitter, PROGRESS_STATUS } from './productionProgress.js';
 
 export class ProductionEngineError extends Error {
   constructor(code, message) { super(message); this.name = 'ProductionEngineError'; this.code = code; }
@@ -215,13 +221,6 @@ function parseCopy(raw, concept) {
   return { headline, subline, cta, bodyVariants };
 }
 
-// Translate a Hebrew fragment to English via the optional seam; never throws and
-// always returns an English-only string ('' if unavailable or still Hebrew).
-async function translateEn(translateToEn, heText) {
-  if (!translateToEn) return '';
-  try { return ensureEnglish(await translateToEn(heText)); } catch { return ''; }
-}
-
 /**
  * Build the production engine.
  * @param {{ draftCopy: (promptText:string)=>Promise<string>,
@@ -245,55 +244,96 @@ export function createProductionBriefEngine(deps = {}) {
     async build(concept, opts = {}) {
       if (!concept || !concept.id) throw new ProductionEngineError('NO_CONCEPT', 'build requires a selected concept');
 
-      const creativeCore = deriveCreativeCore(concept);
-      const visualBrief = deriveVisualBrief(concept, creativeCore);
+      // Optional, failure-safe progress. `stage` always names the work currently
+      // in flight so the outer catch can label the REAL failing stage (never a
+      // generic one). Stages map 1:1 to the real code points below.
+      const progress = createProgressEmitter(opts.onProgress);
+      let stage = 'analyze';
+      const enter = (s) => { stage = s; progress.emit(s, PROGRESS_STATUS.ACTIVE); };
+      const done = (s) => progress.emit(s, PROGRESS_STATUS.DONE);
 
-      // English-only image prompt: hero + visual concept are translated/sanitized
-      // BEFORE assembly (no Hebrew source field is ever interpolated directly).
-      const heroRaw = String(creativeCore.heroObject || '').trim();
-      let heroEn = ensureEnglish(heroRaw);
-      if (!heroEn) heroEn = (await translateEn(translateToEn, heroRaw)) || 'the central hero object';
+      try {
+        // ---- analyze: creativeCore + deterministic genericityRisk ----
+        enter('analyze');
+        const creativeCore = deriveCreativeCore(concept);
+        done('analyze');
 
-      const metaphorRaw = String(creativeCore.visualMetaphor || '').trim();
-      const conceptEn = ensureEnglish(metaphorRaw) || (await translateEn(translateToEn, metaphorRaw));
+        // ---- copy: prompt the injected brain, then parse deterministically ----
+        // A THROWN provider/model error is FATAL: it propagates to the outer catch,
+        // which emits copy:error and rejects (no later stages). An empty/invalid
+        // (non-throwing) response is the SUPPORTED deterministic fallback: parseCopy
+        // derives copy from the concept and the stage completes (copy:done).
+        enter('copy');
+        const rawCopy = await draftCopy(buildCopyPrompt(concept, creativeCore));
+        let copyPackage = parseCopy(rawCopy, concept);
+        done('copy');
 
-      const palette = (Array.isArray(concept.colorDirection) ? concept.colorDirection : []).join(', ');
-      const imagePrompt = buildImagePrompt({ heroEn, conceptEn, palette, format: opts.format });
+        // ---- lint: deterministic generic-marketing-language check (no model) ----
+        enter('lint');
+        const detected = findGenericCopyPhrases(copyPackage);
+        done('lint');
 
-      let rawCopy = '';
-      try { rawCopy = await draftCopy(buildCopyPrompt(concept, creativeCore)); }
-      catch { rawCopy = ''; } // graceful → deterministic fallback below
-      let copyPackage = parseCopy(rawCopy, concept);
-
-      // Deterministic copy-lint: detect generic phrases → at most ONE stricter
-      // rewrite via the SAME seam. If it still fails, keep the copy, attach a
-      // warning, and raise genericityRisk by a pinned amount (shown pre-approval).
-      let copyWarning = null;
-      const detected = findGenericCopyPhrases(copyPackage);
-      if (detected.length) {
-        let rawRetry = '';
-        try { rawRetry = await draftCopy(buildCopyRewritePrompt(concept, creativeCore, detected)); }
-        catch { rawRetry = ''; }
-        const retryCopy = parseCopy(rawRetry, concept);
-        if (rawRetry && findGenericCopyPhrases(retryCopy).length === 0) {
-          copyPackage = retryCopy; // clean rewrite → adopt, no warning
-        } else {
-          copyWarning = `הקופי עדיין כולל ביטויים גנריים לאחר ניסיון שכתוב: ${detected.join(', ')}`;
-          creativeCore.genericityRisk = bumpGenericityRisk(creativeCore.genericityRisk, COPY_RISK_BUMP, 'קופי גנרי נותר אחרי שכתוב');
+        // ---- rewrite: emitted ONLY when an actual retry runs (detected phrases) ----
+        // Same fatal/fallback split as copy: a THROWN retry propagates → rewrite:error
+        // and rejects (we never keep the original copy as though the rewrite worked).
+        // An empty/invalid (non-throwing) retry is the supported fallback: keep the
+        // original copy, attach a warning, bump genericityRisk, and complete (rewrite:done).
+        let copyWarning = null;
+        if (detected.length) {
+          enter('rewrite');
+          const rawRetry = await draftCopy(buildCopyRewritePrompt(concept, creativeCore, detected));
+          const retryCopy = parseCopy(rawRetry, concept);
+          if (rawRetry && findGenericCopyPhrases(retryCopy).length === 0) {
+            copyPackage = retryCopy; // clean rewrite → adopt, no warning
+          } else {
+            copyWarning = `הקופי עדיין כולל ביטויים גנריים לאחר ניסיון שכתוב: ${detected.join(', ')}`;
+            creativeCore.genericityRisk = bumpGenericityRisk(creativeCore.genericityRisk, COPY_RISK_BUMP, 'קופי גנרי נותר אחרי שכתוב');
+          }
+          done('rewrite');
         }
-      }
-      copyPackage.copyWarning = copyWarning; // string | null
+        copyPackage.copyWarning = copyWarning; // string | null
 
-      return {
-        campaignId: opts.campaignId,
-        conceptId: opts.conceptId || concept.id,
-        tenantId: opts.tenantId,
-        status: 'draft',
-        creativeCore,
-        copyPackage,
-        visualBrief,
-        imagePrompt,
-      };
+        // ---- translate: hero + visual concept → English (Hebrew-sanitized) ----
+        // Translation is NON-FATAL by policy: if the seam throws we continue with the
+        // deterministic English skeleton — but that is reported HONESTLY as
+        // translate:fallback (not an unqualified translate:done). An unusable but
+        // non-throwing return (empty / still-Hebrew) is the ordinary documented
+        // fallback and completes as translate:done.
+        enter('translate');
+        let translateThrew = false;
+        const translate = async (heText) => {
+          if (!translateToEn) return '';
+          try { return ensureEnglish(await translateToEn(heText)); }
+          catch { translateThrew = true; return ''; } // non-fatal → skeleton, flagged below
+        };
+        const heroRaw = String(creativeCore.heroObject || '').trim();
+        let heroEn = ensureEnglish(heroRaw);
+        if (!heroEn) heroEn = (await translate(heroRaw)) || 'the central hero object';
+        const metaphorRaw = String(creativeCore.visualMetaphor || '').trim();
+        const conceptEn = ensureEnglish(metaphorRaw) || (await translate(metaphorRaw));
+        progress.emit('translate', translateThrew ? PROGRESS_STATUS.FALLBACK : PROGRESS_STATUS.DONE);
+
+        // ---- visual: deterministic visual brief + English-only image prompt ----
+        enter('visual');
+        const visualBrief = deriveVisualBrief(concept, creativeCore);
+        const palette = (Array.isArray(concept.colorDirection) ? concept.colorDirection : []).join(', ');
+        const imagePrompt = buildImagePrompt({ heroEn, conceptEn, palette, format: opts.format });
+        done('visual');
+
+        return {
+          campaignId: opts.campaignId,
+          conceptId: opts.conceptId || concept.id,
+          tenantId: opts.tenantId,
+          status: 'draft',
+          creativeCore,
+          copyPackage,
+          visualBrief,
+          imagePrompt,
+        };
+      } catch (e) {
+        progress.emit(stage, PROGRESS_STATUS.ERROR); // label the REAL failing stage
+        throw e;
+      }
     },
   };
 }

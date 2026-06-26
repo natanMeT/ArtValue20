@@ -35,17 +35,22 @@ export function createArtValueCreative({ getData, user } = {}) {
   // deterministic. Separate localStorage store — the campaign store is untouched.
   const productionStore = createProductionStore();
   const engine = createProductionBriefEngine({
+    // A provider/model ERROR PROPAGATES (the engine turns it into copy:error /
+    // rewrite:error and rejects — a real failure is never shown as a completed
+    // stage). An EMPTY model response ('') is NOT an error: the engine uses its
+    // deterministic concept-derived fallback. (No new provider — same brain seam.)
     draftCopy: async (prompt) => {
-      try { const { text } = await draftWithJake([{ role: 'user', text: prompt }], ''); return text || ''; }
-      catch { return ''; } // graceful → engine falls back to concept-derived copy
+      const { text } = await draftWithJake([{ role: 'user', text: prompt }], '');
+      return text || '';
     },
-    // he→en seam for the image prompt (same brain, no new provider). On any
-    // failure the engine keeps promptEn English-only via deterministic fallback.
+    // he→en seam for the image prompt (same brain). A throw PROPAGATES so the
+    // engine reports translate:fallback honestly (non-fatal — it continues with
+    // the English skeleton). An empty/unusable return also degrades to skeleton.
     translateToEn: async (heText) => {
       if (!heText) return '';
       const prompt = `Translate this Hebrew visual description into ONE concise English image-generation phrase. Output English only — no Hebrew characters, no quotes, no preamble:\n${heText}`;
-      try { const { text } = await draftWithJake([{ role: 'user', text: prompt }], ''); return text || ''; }
-      catch { return ''; }
+      const { text } = await draftWithJake([{ role: 'user', text: prompt }], '');
+      return text || '';
     },
   });
   const production = createProductionOrchestrator({ engine, store: productionStore, getCampaign: (id) => store.get(id) });
