@@ -17,6 +17,11 @@ import { createProductionBriefEngine } from './productionBriefEngine.js';
 import { createProductionOrchestrator } from './productionActions.js';
 import { critiqueConcepts } from './conceptCritic.js';
 import { logCreativeEvent } from './logging.js';
+// Offer Campaign Assistant Surface — expose ONLY the public, deterministic offer
+// action (no model, no persistence). This composition root is the single sanctioned
+// importer of the offer layer; it deliberately imports the action entry only and
+// NEVER the bridge/schema/presets/types directly (enforced by offerIsolation.test.js).
+import { generateOfferCampaignBrief } from './offer/offerActions.js';
 
 // The creative model label (for result metadata only — never sent anywhere).
 const CREATIVE_MODEL = (import.meta && import.meta.env
@@ -115,5 +120,15 @@ export function createArtValueCreative({ getData, user, criticPassthrough = CRIT
   // One orchestrator surface for the UI: creative methods + the two production
   // methods. run_creative_director is overridden LAST so the critic-decorated
   // version wins over the spread-in original.
-  return { ...creative, ...production, runCreativeDirector: runCreativeDirectorWithCritique };
+  //
+  // generateOfferCampaignBrief is the deterministic Offer Campaign Assistant
+  // Surface action: request -> { ok, brief, errors, degraded }. It is failure-safe
+  // (never throws), calls NO model, and persists NOTHING. The one-arg wrapper keeps
+  // the UI on the built-in ArtValue preset (no opts injection from the UI).
+  return {
+    ...creative,
+    ...production,
+    runCreativeDirector: runCreativeDirectorWithCritique,
+    generateOfferCampaignBrief: (request) => generateOfferCampaignBrief(request),
+  };
 }

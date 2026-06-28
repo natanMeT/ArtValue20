@@ -131,3 +131,39 @@ describe('chatPersistence — ephemeral Concept Critic view excluded from histor
     expect(sanitizeChatMessage(null)).toBe(null);
   });
 });
+
+describe('chatPersistence — Offer Campaign cards are transient (no offer brief persisted)', () => {
+  const normal = { role: 'assistant', text: 'שלום' };
+  const system = { role: 'assistant', system: true, text: '✓ נשמר' };
+  const offerForm = { role: 'assistant', offerForm: true };
+  const offerBrief = {
+    role: 'assistant',
+    offerBrief: { prospect: { businessType: 'תיווך' }, status: 'draft', offer: { service: 'מערכת CRM חכמה' } },
+  };
+
+  it('excludes an offerForm message from persisted history', () => {
+    expect(persistableChatMessages([normal, offerForm, system])).toEqual([normal, system]);
+  });
+
+  it('excludes an offerBrief result card from persisted history', () => {
+    expect(persistableChatMessages([normal, offerBrief, system])).toEqual([normal, system]);
+  });
+
+  it('hydration of a (legacy) stored offer card restores nothing', () => {
+    expect(persistableChatMessages([offerForm, offerBrief])).toEqual([]);
+  });
+
+  it('isTransientChatMessage flags offerForm and offerBrief', () => {
+    expect(isTransientChatMessage(offerForm)).toBe(true);
+    expect(isTransientChatMessage(offerBrief)).toBe(true);
+    expect(isTransientChatMessage(normal)).toBe(false);
+  });
+
+  it('does not mutate input and preserves order of the remaining messages', () => {
+    const input = [normal, offerForm, offerBrief, system];
+    const snapshot = JSON.parse(JSON.stringify(input));
+    const out = persistableChatMessages(input);
+    expect(input).toEqual(snapshot);
+    expect(out).toEqual([normal, system]);
+  });
+});
