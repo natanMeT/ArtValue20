@@ -22,11 +22,21 @@ import { logCreativeEvent } from './logging.js';
 const CREATIVE_MODEL = (import.meta && import.meta.env
   && (import.meta.env.VITE_CREATIVE_LLM_MODEL || import.meta.env.VITE_LOCAL_LLM_MODEL)) || undefined;
 
+// Phase 0B critic kill-switch (default ON). concept-critic-v1 is NOT validated as a
+// recommendation/rerank driver: the authoritative assisted-golden eval measured it
+// WORSE than the plain V1 baseline (Top-1 25.0% vs 42.9%; 3 false-reject-of-best;
+// 5 reject-promotions). While this is true the critic is skipped entirely and the UI
+// falls back to the EXACT V1 order + V1 recommendation (critique.ok===false). This
+// changes NO V1 behavior, NO thresholds, NO model seam; conceptCritic.js is untouched.
+// Per-instance override via the `criticPassthrough` option (used by tests to exercise
+// the critic engine). Flip to false to re-enable the critic as a driver.
+const CRITIC_PASSTHROUGH_MODE = true;
+
 /**
  * Build the Art Value creative orchestrator wired to the REAL frozen V1.
- * @param {{ getData: ()=>object, user?: string }} opts
+ * @param {{ getData: ()=>object, user?: string, criticPassthrough?: boolean }} opts
  */
-export function createArtValueCreative({ getData, user } = {}) {
+export function createArtValueCreative({ getData, user, criticPassthrough = CRITIC_PASSTHROUGH_MODE } = {}) {
   const adapter = createCreativeDirectorAdapter({ runV1: runCreativeDirector, model: CREATIVE_MODEL });
   const store = createCampaignStore(); // localStorage-backed (additive; no CRM-store change)
   const creative = createCreativeOrchestrator({ adapter, store, pack: activePack, getData, user, tenantId: activePack.id });
@@ -42,6 +52,20 @@ export function createArtValueCreative({ getData, user } = {}) {
   const baseRunCreativeDirector = creative.runCreativeDirector;
   async function runCreativeDirectorWithCritique(args = {}) {
     const inner = await baseRunCreativeDirector.call(creative, args); // { result, diversity, campaignId }
+    // Phase 0B kill-switch: when passthrough is enabled, skip critiqueConcepts()
+    // entirely. The frozen V1 result (concepts, order, recommendedConceptId) passes
+    // through untouched and critique.ok===false makes the UI use the exact V1 view.
+    // Emit an audit breadcrumb (same channel as the normal critique event) so the
+    // disabled critic is OBSERVABLE rather than silent.
+    if (criticPassthrough) {
+      logCreativeEvent('creative_concepts_critiqued', {
+        campaignId: inner.campaignId,
+        ok: false,
+        passthrough: true,
+        reason: 'critic_passthrough_mode',
+      });
+      return { ...inner, critique: { ok: false, passthrough: true } };
+    }
     let critique;
     try {
       critique = await critiqueConcepts(
