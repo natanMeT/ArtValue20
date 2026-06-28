@@ -7,16 +7,16 @@ const SOFT = [0.16, 1, 0.3, 1]; // very gentle ease-out (easeOutExpo-like)
 export const stagger = {
   hidden: {},
   show: {
-    transition: { staggerChildren: 0.17, delayChildren: 0.14 },
+    transition: { staggerChildren: 0.05, delayChildren: 0 },
   },
 };
 
 export const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
+  hidden: { opacity: 0, y: 12 },
   show: {
     opacity: 1,
     y: 0,
-    transition: { duration: 1.32, ease: SOFT },
+    transition: { duration: 0.45, ease: SOFT },
   },
 };
 
