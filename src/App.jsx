@@ -72,7 +72,7 @@ function AppShell() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.66, ease: [0.16, 1, 0.3, 1] }}
+              transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
               style={{ willChange: 'opacity' }}
             >
               <Outlet />
