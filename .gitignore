@@ -25,3 +25,6 @@ renders/
 .cache/
 tmp/
 temp/
+
+# critic-eval generated artifacts (candidate snapshots + reports — never the committed baseline)
+artifacts/

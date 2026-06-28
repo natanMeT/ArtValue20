@@ -1,0 +1,1174 @@
+{
+  "meta": {
+    "source": "fixture-synthetic",
+    "authoritative": false,
+    "mode": "fixture",
+    "model": null,
+    "sampleCount": 1,
+    "warning": "SYNTHETIC DETERMINISTIC FIXTURE — NOT a real-model quality baseline. Hand-authored concepts to exercise the harness; the fixture PASS is directional only. Authoritative quality requires a human-labeled real local-model run (see artifacts/critic-eval/). Do NOT treat this as evidence the critic is validated, and do NOT promote it to a real baseline.",
+    "note": "Goldens are pinned to these samples. A real candidate has different concepts and must be promoted + re-labeled before its golden metrics apply.",
+    "createdAt": "2026-06-26T00:00:00.000Z"
+  },
+  "snapshots": {
+    "b01": {
+      "samples": [
+        {
+          "sampleId": "b01#sample0",
+          "request": {
+            "requestId": "b01",
+            "tenantId": "artvalue",
+            "userId": "eval",
+            "business": {
+              "name": "Art Value",
+              "industry": "סטודיו דיגיטלי",
+              "services": [
+                {
+                  "id": "s1",
+                  "name": "מערכות CRM"
+                },
+                {
+                  "id": "s2",
+                  "name": "אתרים"
+                }
+              ]
+            },
+            "brand": {
+              "brandName": "Art Value",
+              "audience": [
+                "בעלי עסקים"
+              ],
+              "tone": [
+                "פרימיום",
+                "חד"
+              ],
+              "colors": [
+                "#d4ff3f"
+              ],
+              "language": "he-IL"
+            },
+            "campaign": {
+              "objective": "increase_sales",
+              "targetAudience": "בעלי עסקים שמנהלים ידנית",
+              "offer": "דמו חינם",
+              "channel": "instagram_post",
+              "format": "4:5",
+              "constraints": []
+            },
+            "requestedConceptCount": 3
+          },
+          "result": {
+            "requestId": "b01",
+            "strategy": {
+              "businessProblem": "ניהול ידני מבולגן",
+              "campaignObjective": "הגדלת מכירות",
+              "audienceInsight": "בעלי עסקים עמוסים",
+              "strategicDirection": "מוקד יחיד ופשטות",
+              "keyMessage": "כל העסק במקום אחד"
+            },
+            "concepts": [
+              {
+                "id": "concept-1",
+                "name": "מרכז שליטה",
+                "strategicAngle": "בידול דרך פשטות",
+                "emotionalTone": "רוגע",
+                "coreIdea": "מרכז שליטה אחד לעסק",
+                "headlineDirection": "הכול במקום אחד",
+                "visualDirection": "מגדל בקרה זוהר מעל ערפל פתקים",
+                "heroObject": "glowing control tower",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#d4ff3f"
+                ],
+                "whyItWorks": "תחושת שליטה ושקט",
+                "risks": [],
+                "originalityScore": 9,
+                "brandFitScore": 9
+              },
+              {
+                "id": "concept-2",
+                "name": "מהבלגן לשקט",
+                "strategicAngle": "הוכחת טרנספורמציה",
+                "emotionalTone": "הקלה",
+                "coreIdea": "לפני כאוס אחרי סדר",
+                "headlineDirection": "מהבלגן לשקט",
+                "visualDirection": "שולחן מפוצל כאוס מול סדר",
+                "heroObject": "split desk",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#d4ff3f"
+                ],
+                "whyItWorks": "ניגוד חזק שעוצר גלילה",
+                "risks": [],
+                "originalityScore": 8,
+                "brandFitScore": 8
+              },
+              {
+                "id": "concept-3",
+                "name": "הכול מתחבר",
+                "strategicAngle": "מטאפורת איחוד",
+                "emotionalTone": "התפעלות",
+                "coreIdea": "פתקים מתאחדים למסך",
+                "headlineDirection": "הכול מתחבר",
+                "visualDirection": "סופת פתקים נהיית מסך אחד",
+                "heroObject": "paper storm screen",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#d4ff3f"
+                ],
+                "whyItWorks": "סדר מתוך כאוס",
+                "risks": [],
+                "originalityScore": 7,
+                "brandFitScore": 7
+              }
+            ],
+            "recommendedConceptId": "concept-1",
+            "metadata": {
+              "engineVersion": "creative-director-v1",
+              "createdAt": "2026-06-26T00:00:00.000Z"
+            }
+          }
+        }
+      ]
+    },
+    "b02": {
+      "samples": [
+        {
+          "sampleId": "b02#sample0",
+          "request": {
+            "requestId": "b02",
+            "tenantId": "artvalue",
+            "userId": "eval",
+            "business": {
+              "name": "בית קפה לבנה",
+              "industry": "מסעדנות",
+              "products": [
+                {
+                  "id": "p1",
+                  "name": "בראנץ׳"
+                }
+              ]
+            },
+            "brand": {
+              "brandName": "לבנה",
+              "audience": [
+                "תושבי השכונה"
+              ],
+              "tone": [
+                "חמים",
+                "ביתי"
+              ],
+              "colors": [
+                "#e7d8b1"
+              ],
+              "language": "he-IL"
+            },
+            "campaign": {
+              "objective": "brand_awareness",
+              "targetAudience": "משפחות שכונתיות",
+              "channel": "instagram_story",
+              "format": "9:16",
+              "constraints": []
+            },
+            "requestedConceptCount": 3
+          },
+          "result": {
+            "requestId": "b02",
+            "strategy": {
+              "businessProblem": "מסעדה שכונתית לא מוכרת מספיק",
+              "campaignObjective": "מודעות למותג",
+              "audienceInsight": "משפחות מקומיות",
+              "strategicDirection": "חמימות מקומית",
+              "keyMessage": "המטבח של השכונה"
+            },
+            "concepts": [
+              {
+                "id": "concept-1",
+                "name": "שולחן בוקר",
+                "strategicAngle": "תיאבון חזותי",
+                "emotionalTone": "חמים",
+                "coreIdea": "בראנץ׳ שמתחיל את היום",
+                "headlineDirection": "בוקר טוב מתחיל כאן",
+                "visualDirection": "שולחן עץ עמוס צלחות בוקר באור רך",
+                "heroObject": "rustic brunch table",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#e7d8b1"
+                ],
+                "whyItWorks": "חמימות מעוררת רעב",
+                "risks": [],
+                "originalityScore": 8,
+                "brandFitScore": 9
+              },
+              {
+                "id": "concept-2",
+                "name": "השכן שלך",
+                "strategicAngle": "שייכות מקומית",
+                "emotionalTone": "ביתי",
+                "coreIdea": "המקום של השכונה",
+                "headlineDirection": "המטבח של השכונה",
+                "visualDirection": "חלון מואר עם אנשים מבפנים בערב",
+                "heroObject": "glowing neighborhood window",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#e7d8b1"
+                ],
+                "whyItWorks": "תחושת שייכות",
+                "risks": [],
+                "originalityScore": 9,
+                "brandFitScore": 8
+              },
+              {
+                "id": "concept-3",
+                "name": "ריח של קפה",
+                "strategicAngle": "טריגר חושי",
+                "emotionalTone": "מזמין",
+                "coreIdea": "הריח שמושך פנימה",
+                "headlineDirection": "בוא להריח",
+                "visualDirection": "אדי קפה עולים מספל על דלפק",
+                "heroObject": "steaming coffee cup",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#e7d8b1"
+                ],
+                "whyItWorks": "טריגר חושי מיידי",
+                "risks": [],
+                "originalityScore": 7,
+                "brandFitScore": 7
+              }
+            ],
+            "recommendedConceptId": "concept-1",
+            "metadata": {
+              "engineVersion": "creative-director-v1",
+              "createdAt": "2026-06-26T00:00:00.000Z"
+            }
+          }
+        }
+      ]
+    },
+    "b03": {
+      "samples": [
+        {
+          "sampleId": "b03#sample0",
+          "request": {
+            "requestId": "b03",
+            "tenantId": "artvalue",
+            "userId": "eval",
+            "business": {
+              "name": "נדל״ן אופק",
+              "industry": "נדל״ן",
+              "services": [
+                {
+                  "id": "s1",
+                  "name": "תיווך יוקרה"
+                }
+              ]
+            },
+            "brand": {
+              "brandName": "אופק",
+              "audience": [
+                "משקיעים"
+              ],
+              "tone": [
+                "יוקרתי",
+                "מהוקצע"
+              ],
+              "colors": [
+                "#1b1b1b"
+              ],
+              "language": "he-IL"
+            },
+            "campaign": {
+              "objective": "generate_leads",
+              "targetAudience": "משקיעי נדל״ן",
+              "offer": "ייעוץ ראשוני",
+              "channel": "facebook_post",
+              "format": "1:1",
+              "constraints": []
+            },
+            "requestedConceptCount": 3
+          },
+          "result": {
+            "requestId": "b03",
+            "strategy": {
+              "businessProblem": "תחרות גבוהה בתיווך יוקרה",
+              "campaignObjective": "גיוס לידים",
+              "audienceInsight": "משקיעים מחפשים ערך",
+              "strategicDirection": "מכירת חוויה ולא קירות",
+              "keyMessage": "הבית הבא שלך"
+            },
+            "concepts": [
+              {
+                "id": "concept-1",
+                "name": "מפתח לבית",
+                "strategicAngle": "חלום הבעלות",
+                "emotionalTone": "יוקרתי",
+                "coreIdea": "הבית שחיכית לו",
+                "headlineDirection": "הבית הבא שלך",
+                "visualDirection": "מפתח זהב מול חלון פנורמי לעיר",
+                "heroObject": "golden key",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#1b1b1b"
+                ],
+                "whyItWorks": "סמל הגשמה",
+                "risks": [],
+                "originalityScore": 8,
+                "brandFitScore": 8
+              },
+              {
+                "id": "concept-2",
+                "name": "נוף מהחלון",
+                "strategicAngle": "חוויית מגורים",
+                "emotionalTone": "שאפתני",
+                "coreIdea": "הנוף ששווה השקעה",
+                "headlineDirection": "תתעורר לנוף הזה",
+                "visualDirection": "חלון רצפה-תקרה מול קו רקיע בזריחה",
+                "heroObject": "floor to ceiling window",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#1b1b1b"
+                ],
+                "whyItWorks": "מכירת חוויה לא קירות",
+                "risks": [],
+                "originalityScore": 9,
+                "brandFitScore": 8
+              },
+              {
+                "id": "concept-3",
+                "name": "הצלחה והשקעה",
+                "strategicAngle": "הכוח שלך",
+                "emotionalTone": "תאגידי",
+                "coreIdea": "ההשקעה הטובה ביותר",
+                "headlineDirection": "גלה את הכוח של הצלחה",
+                "visualDirection": "גרף עולה כללי",
+                "heroObject": "אובייקט מרכזי בקומפוזיציה",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#1b1b1b"
+                ],
+                "whyItWorks": "מקצועיות ואיכות מובילה",
+                "risks": [],
+                "originalityScore": 3,
+                "brandFitScore": 4
+              }
+            ],
+            "recommendedConceptId": "concept-2",
+            "metadata": {
+              "engineVersion": "creative-director-v1",
+              "createdAt": "2026-06-26T00:00:00.000Z"
+            }
+          }
+        }
+      ]
+    },
+    "b04": {
+      "samples": [
+        {
+          "sampleId": "b04#sample0",
+          "request": {
+            "requestId": "b04",
+            "tenantId": "artvalue",
+            "userId": "eval",
+            "business": {
+              "name": "מרפאת חיוך",
+              "industry": "רפואת שיניים",
+              "services": [
+                {
+                  "id": "s1",
+                  "name": "יישור שיניים"
+                }
+              ]
+            },
+            "brand": {
+              "brandName": "חיוך",
+              "audience": [
+                "מבוגרים צעירים"
+              ],
+              "tone": [
+                "נקי",
+                "אמין"
+              ],
+              "colors": [
+                "#bfe9ff"
+              ],
+              "language": "he-IL"
+            },
+            "campaign": {
+              "objective": "promote_service",
+              "targetAudience": "אנשים שמתביישים בחיוך",
+              "channel": "instagram_post",
+              "format": "4:5",
+              "constraints": []
+            },
+            "requestedConceptCount": 3
+          },
+          "result": {
+            "requestId": "b04",
+            "strategy": {
+              "businessProblem": "אנשים נמנעים מיישור שיניים",
+              "campaignObjective": "קידום שירות",
+              "audienceInsight": "מתביישים בחיוך",
+              "strategicDirection": "דיסקרטיות וביטחון",
+              "keyMessage": "יישור בלי שיראו"
+            },
+            "concepts": [
+              {
+                "id": "concept-1",
+                "name": "חיוך ראשון",
+                "strategicAngle": "רגע אנושי",
+                "emotionalTone": "חם",
+                "coreIdea": "הביטחון שבחיוך",
+                "headlineDirection": "תחייך בלי לחשוב",
+                "visualDirection": "קלוז-אפ חיוך טבעי באור יום",
+                "heroObject": "natural smile close-up",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#bfe9ff"
+                ],
+                "whyItWorks": "רגש אנושי ישיר",
+                "risks": [],
+                "originalityScore": 8,
+                "brandFitScore": 8
+              },
+              {
+                "id": "concept-2",
+                "name": "יישור שקוף",
+                "strategicAngle": "טכנולוגיה דיסקרטית",
+                "emotionalTone": "נקי",
+                "coreIdea": "יישור בלי שיראו",
+                "headlineDirection": "אף אחד לא יבחין",
+                "visualDirection": "קשתית שקופה מונחת על שיניים לבנות",
+                "heroObject": "clear aligner",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#bfe9ff"
+                ],
+                "whyItWorks": "דיסקרטיות",
+                "risks": [],
+                "originalityScore": 8,
+                "brandFitScore": 8
+              },
+              {
+                "id": "concept-3",
+                "name": "יישור דיסקרטי",
+                "strategicAngle": "טכנולוגיה דיסקרטית",
+                "emotionalTone": "נקי",
+                "coreIdea": "יישור בלי שיראו",
+                "headlineDirection": "אף אחד לא יבחין",
+                "visualDirection": "קשתית שקופה מונחת על שיניים לבנות",
+                "heroObject": "clear aligner",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#bfe9ff"
+                ],
+                "whyItWorks": "דיסקרטיות",
+                "risks": [],
+                "originalityScore": 6,
+                "brandFitScore": 6
+              }
+            ],
+            "recommendedConceptId": "concept-1",
+            "metadata": {
+              "engineVersion": "creative-director-v1",
+              "createdAt": "2026-06-26T00:00:00.000Z"
+            }
+          }
+        }
+      ]
+    },
+    "b05": {
+      "samples": [
+        {
+          "sampleId": "b05#sample0",
+          "request": {
+            "requestId": "b05",
+            "tenantId": "artvalue",
+            "userId": "eval",
+            "business": {
+              "name": "גלגל",
+              "industry": "קמעונאות",
+              "products": [
+                {
+                  "id": "p1",
+                  "name": "אופני שטח"
+                }
+              ]
+            },
+            "brand": {
+              "brandName": "גלגל",
+              "audience": [
+                "רוכבים"
+              ],
+              "tone": [
+                "אנרגטי",
+                "הרפתקני"
+              ],
+              "colors": [
+                "#ff6a3d"
+              ],
+              "language": "he-IL"
+            },
+            "campaign": {
+              "objective": "increase_sales",
+              "targetAudience": "רוכבי שטח",
+              "offer": "מבצע סוף עונה",
+              "channel": "instagram_post",
+              "format": "1:1",
+              "constraints": []
+            },
+            "requestedConceptCount": 3
+          },
+          "result": {
+            "requestId": "b05",
+            "strategy": {
+              "businessProblem": "מלאי סוף עונה",
+              "campaignObjective": "הגדלת מכירות",
+              "audienceInsight": "רוכבי שטח נלהבים",
+              "strategicDirection": "אנרגיה והרפתקה",
+              "keyMessage": "תן לרוח להוביל"
+            },
+            "concepts": [
+              {
+                "id": "concept-1",
+                "name": "מהיר כמו הרוח",
+                "strategicAngle": "תחושת מהירות",
+                "emotionalTone": "אנרגטי",
+                "coreIdea": "האופניים שמשחררים",
+                "headlineDirection": "תן לרוח להוביל",
+                "visualDirection": "רוכב מטושטש בתנועה על שביל הרים",
+                "heroObject": "mountain bike in motion",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#ff6a3d"
+                ],
+                "whyItWorks": "אנרגיה ותנועה",
+                "risks": [],
+                "originalityScore": 7,
+                "brandFitScore": 9
+              },
+              {
+                "id": "concept-2",
+                "name": "השביל קורא",
+                "strategicAngle": "הרפתקה",
+                "emotionalTone": "הרפתקני",
+                "coreIdea": "כל שביל הוא הזמנה",
+                "headlineDirection": "השביל מחכה",
+                "visualDirection": "שביל יחיד מתפתל אל הרים בשקיעה",
+                "heroObject": "winding trail",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#ff6a3d"
+                ],
+                "whyItWorks": "הזמנה להרפתקה",
+                "risks": [],
+                "originalityScore": 8,
+                "brandFitScore": 8
+              },
+              {
+                "id": "concept-3",
+                "name": "מכונת השטח",
+                "strategicAngle": "גאוות מוצר",
+                "emotionalTone": "גאה",
+                "coreIdea": "הנדסה שמרגישים",
+                "headlineDirection": "בנוי לשטח",
+                "visualDirection": "אופני שטח על סלע עם פרטי מתכת חדים",
+                "heroObject": "rugged bike on rock",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#ff6a3d"
+                ],
+                "whyItWorks": "גאוות בעלות",
+                "risks": [],
+                "originalityScore": 9,
+                "brandFitScore": 8
+              }
+            ],
+            "recommendedConceptId": "concept-1",
+            "metadata": {
+              "engineVersion": "creative-director-v1",
+              "createdAt": "2026-06-26T00:00:00.000Z"
+            }
+          }
+        }
+      ]
+    },
+    "b06": {
+      "samples": [
+        {
+          "sampleId": "b06#sample0",
+          "request": {
+            "requestId": "b06",
+            "tenantId": "artvalue",
+            "userId": "eval",
+            "business": {
+              "name": "StockFlow",
+              "industry": "תוכנה",
+              "services": [
+                {
+                  "id": "s1",
+                  "name": "ניהול מלאי"
+                }
+              ]
+            },
+            "brand": {
+              "brandName": "StockFlow",
+              "audience": [
+                "מנהלי תפעול"
+              ],
+              "tone": [
+                "חכם",
+                "מינימלי"
+              ],
+              "colors": [
+                "#5b8def"
+              ],
+              "language": "he-IL"
+            },
+            "campaign": {
+              "objective": "generate_leads",
+              "targetAudience": "מנהלי מחסנים",
+              "offer": "תקופת ניסיון",
+              "channel": "facebook_post",
+              "format": "16:9",
+              "constraints": []
+            },
+            "requestedConceptCount": 3
+          },
+          "result": {
+            "requestId": "b06",
+            "strategy": {
+              "businessProblem": "מחסנים מנהלים מלאי ידנית",
+              "campaignObjective": "גיוס לידים",
+              "audienceInsight": "מנהלי תפעול עמוסים",
+              "strategicDirection": "שליטה תפעולית חכמה",
+              "keyMessage": "תמיד יודעים מה יש"
+            },
+            "concepts": [
+              {
+                "id": "concept-1",
+                "name": "מדף מסודר",
+                "strategicAngle": "סדר תפעולי",
+                "emotionalTone": "בטוח",
+                "coreIdea": "מלאי תמיד מדויק",
+                "headlineDirection": "תמיד יודעים מה יש",
+                "visualDirection": "מדפי מחסן מסודרים עם תוויות",
+                "heroObject": "organized warehouse shelf",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#5b8def"
+                ],
+                "whyItWorks": "שליטה תפעולית",
+                "risks": [],
+                "originalityScore": 7,
+                "brandFitScore": 8
+              },
+              {
+                "id": "concept-2",
+                "name": "המלאי שנושם",
+                "strategicAngle": "האנשת נתונים",
+                "emotionalTone": "מסתורי",
+                "coreIdea": "המחסן כיצור חי",
+                "headlineDirection": "המלאי שמדבר אליך",
+                "visualDirection": "דופק אור יחיד נע על מדף אפל",
+                "heroObject": "single pulsing light",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#5b8def"
+                ],
+                "whyItWorks": "מטאפורה בלתי שגרתית שנדבקת",
+                "risks": [],
+                "originalityScore": 9,
+                "brandFitScore": 7
+              },
+              {
+                "id": "concept-3",
+                "name": "אפס טעויות",
+                "strategicAngle": "הפחתת סיכון",
+                "emotionalTone": "רגוע",
+                "coreIdea": "סוף לחוסרים",
+                "headlineDirection": "בלי הפתעות במלאי",
+                "visualDirection": "מדף עם פריט אחד מודגש בירוק",
+                "heroObject": "highlighted item",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#5b8def"
+                ],
+                "whyItWorks": "ביטחון מהפחתת טעות",
+                "risks": [],
+                "originalityScore": 7,
+                "brandFitScore": 8
+              }
+            ],
+            "recommendedConceptId": "concept-1",
+            "metadata": {
+              "engineVersion": "creative-director-v1",
+              "createdAt": "2026-06-26T00:00:00.000Z"
+            }
+          }
+        }
+      ]
+    },
+    "b07": {
+      "samples": [
+        {
+          "sampleId": "b07#sample0",
+          "request": {
+            "requestId": "b07",
+            "tenantId": "artvalue",
+            "userId": "eval",
+            "business": {
+              "name": "טעמים",
+              "industry": "הפקת אירועים",
+              "services": [
+                {
+                  "id": "s1",
+                  "name": "פסטיבל אוכל"
+                }
+              ]
+            },
+            "brand": {
+              "brandName": "טעמים",
+              "audience": [
+                "חובבי אוכל"
+              ],
+              "tone": [
+                "ססגוני",
+                "שמח"
+              ],
+              "colors": [
+                "#ffce3d"
+              ],
+              "language": "he-IL"
+            },
+            "campaign": {
+              "objective": "brand_awareness",
+              "targetAudience": "משפחות וזוגות",
+              "channel": "instagram_post",
+              "format": "4:5",
+              "constraints": []
+            },
+            "requestedConceptCount": 3
+          },
+          "result": {
+            "requestId": "b07",
+            "strategy": {
+              "businessProblem": "פסטיבל חדש ללא מודעות",
+              "campaignObjective": "מודעות למותג",
+              "audienceInsight": "משפחות וזוגות",
+              "strategicDirection": "מיקוד חושי בודד",
+              "keyMessage": "בוא לטעום"
+            },
+            "concepts": [
+              {
+                "id": "concept-1",
+                "name": "צלחת אחת",
+                "strategicAngle": "מיקוד תיאבון",
+                "emotionalTone": "שמח",
+                "coreIdea": "מנה שמספרת סיפור",
+                "headlineDirection": "בוא לטעום",
+                "visualDirection": "מנת רחוב צבעונית אחת מצולמת מקרוב",
+                "heroObject": "single street food plate",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#ffce3d"
+                ],
+                "whyItWorks": "מיקוד מעורר רעב",
+                "risks": [],
+                "originalityScore": 8,
+                "brandFitScore": 8
+              },
+              {
+                "id": "concept-2",
+                "name": "יד שמגישה",
+                "strategicAngle": "חום אנושי",
+                "emotionalTone": "חמים",
+                "coreIdea": "אוכל זה חיבור",
+                "headlineDirection": "נפגשים סביב אוכל",
+                "visualDirection": "יד מגישה מנה מעל דוכן עץ",
+                "heroObject": "serving hand",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#ffce3d"
+                ],
+                "whyItWorks": "חיבור אנושי",
+                "risks": [],
+                "originalityScore": 8,
+                "brandFitScore": 8
+              },
+              {
+                "id": "concept-3",
+                "name": "הכול בפסטיבל",
+                "strategicAngle": "שפע",
+                "emotionalTone": "ססגוני",
+                "coreIdea": "חוויה מכל החושים",
+                "headlineDirection": "הכול במקום אחד",
+                "visualDirection": "בלונים, דוכנים, אורות וזיקוקים",
+                "heroObject": "דוכן אוכל",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#ffce3d"
+                ],
+                "whyItWorks": "עומס חגיגי",
+                "risks": [],
+                "originalityScore": 6,
+                "brandFitScore": 6
+              }
+            ],
+            "recommendedConceptId": "concept-1",
+            "metadata": {
+              "engineVersion": "creative-director-v1",
+              "createdAt": "2026-06-26T00:00:00.000Z"
+            }
+          }
+        }
+      ]
+    },
+    "b08": {
+      "samples": [
+        {
+          "sampleId": "b08#sample0",
+          "request": {
+            "requestId": "b08",
+            "tenantId": "artvalue",
+            "userId": "eval",
+            "business": {
+              "name": "דרך",
+              "industry": "עמותה",
+              "services": [
+                {
+                  "id": "s1",
+                  "name": "מלגות"
+                }
+              ]
+            },
+            "brand": {
+              "brandName": "דרך",
+              "audience": [
+                "תורמים"
+              ],
+              "tone": [
+                "אנושי",
+                "מעורר השראה"
+              ],
+              "colors": [
+                "#4caf82"
+              ],
+              "language": "he-IL"
+            },
+            "campaign": {
+              "objective": "brand_awareness",
+              "targetAudience": "תורמים פוטנציאליים",
+              "channel": "facebook_post",
+              "format": "1:1",
+              "constraints": []
+            },
+            "requestedConceptCount": 3
+          },
+          "result": {
+            "requestId": "b08",
+            "strategy": {
+              "businessProblem": "עמותה זקוקה לתורמים",
+              "campaignObjective": "מודעות למותג",
+              "audienceInsight": "תורמים מונעי רגש",
+              "strategicDirection": "רגע אנושי אחד",
+              "keyMessage": "היד שלך עושה הבדל"
+            },
+            "concepts": [
+              {
+                "id": "concept-1",
+                "name": "יד מושטת",
+                "strategicAngle": "אמפתיה",
+                "emotionalTone": "אנושי",
+                "coreIdea": "תרומה שמשנה חיים",
+                "headlineDirection": "היד שלך עושה הבדל",
+                "visualDirection": "יד מבוגרת אוחזת יד ילד",
+                "heroObject": "two clasped hands",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#4caf82"
+                ],
+                "whyItWorks": "רגש אנושי ישיר",
+                "risks": [],
+                "originalityScore": 9,
+                "brandFitScore": 9
+              },
+              {
+                "id": "concept-2",
+                "name": "נר אחד",
+                "strategicAngle": "תקווה",
+                "emotionalTone": "מרגש",
+                "coreIdea": "אור קטן מאיר דרך",
+                "headlineDirection": "הדלק תקווה",
+                "visualDirection": "נר יחיד מאיר בחושך",
+                "heroObject": "single candle",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#4caf82"
+                ],
+                "whyItWorks": "סמל תקווה",
+                "risks": [],
+                "originalityScore": 7,
+                "brandFitScore": 8
+              },
+              {
+                "id": "concept-3",
+                "name": "ספר פתוח",
+                "strategicAngle": "הזדמנות",
+                "emotionalTone": "מעורר השראה",
+                "coreIdea": "חינוך הוא דלת",
+                "headlineDirection": "פתח דלת לילד",
+                "visualDirection": "ספר פתוח שממנו בוקע אור",
+                "heroObject": "glowing open book",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#4caf82"
+                ],
+                "whyItWorks": "מטאפורת הזדמנות",
+                "risks": [],
+                "originalityScore": 8,
+                "brandFitScore": 8
+              }
+            ],
+            "recommendedConceptId": "concept-1",
+            "metadata": {
+              "engineVersion": "creative-director-v1",
+              "createdAt": "2026-06-26T00:00:00.000Z"
+            }
+          }
+        }
+      ]
+    },
+    "b09": {
+      "samples": [
+        {
+          "sampleId": "b09#sample0",
+          "request": {
+            "requestId": "b09",
+            "tenantId": "artvalue",
+            "userId": "eval",
+            "business": {
+              "name": "אורה",
+              "industry": "קוסמטיקה",
+              "products": [
+                {
+                  "id": "p1",
+                  "name": "סרום פנים"
+                }
+              ]
+            },
+            "brand": {
+              "brandName": "אורה",
+              "audience": [
+                "נשים 25-45"
+              ],
+              "tone": [
+                "רך",
+                "טבעי"
+              ],
+              "colors": [
+                "#f3c6d3"
+              ],
+              "language": "he-IL"
+            },
+            "campaign": {
+              "objective": "promote_product",
+              "targetAudience": "נשים שמחפשות טיפוח טבעי",
+              "offer": "מארז היכרות",
+              "channel": "instagram_post",
+              "format": "4:5",
+              "constraints": []
+            },
+            "requestedConceptCount": 3
+          },
+          "result": {
+            "requestId": "b09",
+            "strategy": {
+              "businessProblem": "שוק טיפוח רווי",
+              "campaignObjective": "קידום מוצר",
+              "audienceInsight": "נשים שרוצות טבעי",
+              "strategicDirection": "טוהר טבעי נראה לעין",
+              "keyMessage": "הטבע על העור"
+            },
+            "concepts": [
+              {
+                "id": "concept-1",
+                "name": "טיפה אחת",
+                "strategicAngle": "מינימליזם טבעי",
+                "emotionalTone": "רך",
+                "coreIdea": "טבע בטיפה",
+                "headlineDirection": "הטבע על העור",
+                "visualDirection": "טיפת סרום זוהרת על עלה ירוק",
+                "heroObject": "serum drop on leaf",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#f3c6d3"
+                ],
+                "whyItWorks": "טוהר נראה לעין",
+                "risks": [],
+                "originalityScore": 8,
+                "brandFitScore": 8
+              },
+              {
+                "id": "concept-2",
+                "name": "הסוד ליופי",
+                "strategicAngle": "הבטחה כללית",
+                "emotionalTone": "כללי",
+                "coreIdea": "הטוב ביותר לעור",
+                "headlineDirection": "הסוד להצלחה של העור",
+                "visualDirection": "אריזה כללית על רקע ורוד",
+                "heroObject": "אובייקט מרכזי בקומפוזיציה",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#f3c6d3"
+                ],
+                "whyItWorks": "תחושת איכות",
+                "risks": [],
+                "originalityScore": 5,
+                "brandFitScore": 5
+              },
+              {
+                "id": "concept-3",
+                "name": "אור מבפנים",
+                "strategicAngle": "ביטחון עצמי",
+                "emotionalTone": "בטוח",
+                "coreIdea": "עור שקורן",
+                "headlineDirection": "תני לעור לזרוח",
+                "visualDirection": "קלוז-אפ עור זוהר באור טבעי",
+                "heroObject": "glowing skin close-up",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#f3c6d3"
+                ],
+                "whyItWorks": "חיבור רגשי לתוצאה",
+                "risks": [],
+                "originalityScore": 8,
+                "brandFitScore": 8
+              }
+            ],
+            "recommendedConceptId": "concept-1",
+            "metadata": {
+              "engineVersion": "creative-director-v1",
+              "createdAt": "2026-06-26T00:00:00.000Z"
+            }
+          }
+        }
+      ]
+    },
+    "b10": {
+      "samples": [
+        {
+          "sampleId": "b10#sample0",
+          "request": {
+            "requestId": "b10",
+            "tenantId": "artvalue",
+            "userId": "eval",
+            "business": {
+              "name": "מוסך רן",
+              "industry": "רכב",
+              "services": [
+                {
+                  "id": "s1",
+                  "name": "טיפולי רכב"
+                }
+              ]
+            },
+            "brand": {
+              "brandName": "רן",
+              "audience": [
+                "בעלי רכב"
+              ],
+              "tone": [
+                "אמין",
+                "מקצועי"
+              ],
+              "colors": [
+                "#3a6ea5"
+              ],
+              "language": "he-IL"
+            },
+            "campaign": {
+              "objective": "generate_leads",
+              "targetAudience": "בעלי רכב פרטי",
+              "offer": "בדיקת חורף",
+              "channel": "whatsapp",
+              "format": "1:1",
+              "constraints": []
+            },
+            "requestedConceptCount": 3
+          },
+          "result": {
+            "requestId": "b10",
+            "strategy": {
+              "businessProblem": "בעלי רכב דוחים טיפולים",
+              "campaignObjective": "גיוס לידים",
+              "audienceInsight": "בעלי רכב פרטי",
+              "strategicDirection": "אמון מקצועי",
+              "keyMessage": "בידיים טובות"
+            },
+            "concepts": [
+              {
+                "id": "concept-1",
+                "name": "חורף בטוח",
+                "strategicAngle": "מניעת סיכון",
+                "emotionalTone": "אחראי",
+                "coreIdea": "מוכנים לכביש החורפי",
+                "headlineDirection": "אל תיתפס לא מוכן",
+                "visualDirection": "רכב על כביש רטוב עם פנסים דולקים",
+                "heroObject": "car on wet road",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#3a6ea5"
+                ],
+                "whyItWorks": "הנעה דרך דאגה",
+                "risks": [],
+                "originalityScore": 7,
+                "brandFitScore": 9
+              },
+              {
+                "id": "concept-2",
+                "name": "מגע מקצועי",
+                "strategicAngle": "אמון במומחה",
+                "emotionalTone": "אמין",
+                "coreIdea": "ידיים שמכירות רכב",
+                "headlineDirection": "בידיים טובות",
+                "visualDirection": "יד מכונאי על מנוע נקי באור סדנה",
+                "heroObject": "mechanic hand on engine",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#3a6ea5"
+                ],
+                "whyItWorks": "אמון אישי",
+                "risks": [],
+                "originalityScore": 8,
+                "brandFitScore": 8
+              },
+              {
+                "id": "concept-3",
+                "name": "בדיקה שקטה",
+                "strategicAngle": "שקט נפשי",
+                "emotionalTone": "רגוע",
+                "coreIdea": "בדיקה שמורידה דאגה",
+                "headlineDirection": "תנוח, בדקנו",
+                "visualDirection": "מד דלק ירוק עם וי",
+                "heroObject": "green gauge check",
+                "compositionDirection": "קומפוזיציה ממוקדת — מוקד יחיד",
+                "colorDirection": [
+                  "#3a6ea5"
+                ],
+                "whyItWorks": "הקלה",
+                "risks": [],
+                "originalityScore": 7,
+                "brandFitScore": 7
+              }
+            ],
+            "recommendedConceptId": "concept-1",
+            "metadata": {
+              "engineVersion": "creative-director-v1",
+              "createdAt": "2026-06-26T00:00:00.000Z"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
