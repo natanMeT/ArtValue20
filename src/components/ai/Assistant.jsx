@@ -11,6 +11,7 @@ import { extractActions, executeActions, describeActions, detectBulkDelete, buil
 import { activePack } from '../../lib/jakePack.js';
 import { createArtValueCreative } from '../../creative/v2/createArtValueCreative.js';
 import { PRODUCTION_STAGES, PRODUCTION_STAGE_ORDER } from '../../creative/v2/productionProgress.js';
+import { generatePosterFromOffer } from '../../lib/comfyPoster.js';
 import { persistableChatMessages } from './chatPersistence.js';
 import { dashboardKpis, inventoryTotals, lowStockItems } from '../../lib/calc.js';
 import { formatCurrency } from '../../lib/format.js';
@@ -147,6 +148,16 @@ function buildOfferRequest(form) {
     signals,
     goal: { objective: 'generate_leads', channel: 'whatsapp', language: 'he-IL' },
   };
+}
+
+// Calm Hebrew copy for a failed ComfyUI poster generation (local studio only). The
+// card it renders is TRANSIENT, so it never sticks around after a reload.
+function posterErrorText(err) {
+  const reason = err && err.reason;
+  if (reason === 'comfy_not_configured') return 'מחולל הפוסטרים המקומי (ComfyUI) לא מוגדר. הוסף/י את כתובת המנוע והפעל/י אותו, ואז נסה/י שוב.';
+  if (reason === 'comfy_offline') return 'מנוע ה-ComfyUI כבוי או לא מגיב כרגע 🙏 הפעל/י אותו והמתן/י כ-30 שניות, ואז נסה/י שוב.';
+  if (reason === 'prompt_failed') return 'לא הצלחתי לבנות פרומפט לפוסטר מהבריף הזה.';
+  return 'יצירת הפוסטר נכשלה כרגע 🙏 ודא/י שמנוע ה-ComfyUI פעיל, ונסה/י שוב.';
 }
 
 // Does the text contain an explicit action verb (add/update/delete/…)? If so the
@@ -310,6 +321,7 @@ export default function Assistant() {
   const timers = useRef([]);
   const dismissRef = useRef(null);
   const recognitionRef = useRef(null);
+  const posterSeqRef = useRef(0); // unique id per poster generation (match progress→result/error)
 
   const supportsSTT = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
   const supportsTTS = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -498,6 +510,29 @@ export default function Assistant() {
         ? { role: 'assistant', system: true, text: 'לא הצלחתי לבנות בריף הצעה כרגע 🙏 ודא/י שמילאת סוג עסק, ונסה/י שוב.' }
         : mm)));
     }
+  };
+
+  // ---- ComfyUI poster: render a LOCAL key-visual image from the (transient) offer
+  // brief. Fail-closed via the adapter (ComfyUI only — never Pollinations/Gemini, never
+  // throws). The progress, result AND error cards are ALL transient (excluded from chat
+  // persistence) — no image, prompt, store, gallery, or localStorage write happens here.
+  const generatePoster = async (offerBrief) => {
+    const service = (offerBrief && offerBrief.offer && offerBrief.offer.service) || '';
+    posterSeqRef.current += 1;
+    const pid = `poster_${posterSeqRef.current}`;
+    setMessages((m) => [...m, { role: 'assistant', posterProgress: { service, pid } }]);
+    let res;
+    try {
+      res = await generatePosterFromOffer(offerBrief); // never throws; { ok, src?, reason? }
+    } catch {
+      res = { ok: false, reason: 'unexpected' };
+    }
+    setMessages((m) => m.map((mm) => {
+      if (!mm.posterProgress || mm.posterProgress.pid !== pid) return mm;
+      return res && res.ok && res.src
+        ? { role: 'assistant', posterResult: { src: res.src, service, engine: res.engine } }
+        : { role: 'assistant', posterError: { reason: (res && res.reason) || 'unknown', service } };
+    }));
   };
 
   // Periodic speech bubble (only while resting in the corner).
@@ -1175,9 +1210,35 @@ export default function Assistant() {
                               ))}
                             </div>
                           ) : null}
+
+                          <div className="ai-camp-card" style={{ textAlign: 'center' }}>
+                            <button className="btn btn-sm ai-approve" onClick={() => generatePoster(b)}>🎨 צור פוסטר עם ComfyUI</button>
+                          </div>
                         </div>
                       );
                     })()
+                  ) : m.posterProgress ? (
+                    <div key={i} className="ai-msg assistant ai-campaign">
+                      <div className="ai-camp-strategy">
+                        <div className="ai-camp-key">🎨 מייצר פוסטר עם ComfyUI…</div>
+                        {m.posterProgress.service ? <div className="ai-camp-dir">{m.posterProgress.service}</div> : null}
+                      </div>
+                      <div className="ai-camp-card">
+                        <div className="ai-camp-row"><span className="ai-typing"><i /><i /><i /></span> מרנדר מקומית — זה עשוי לקחת מספר עשרות שניות.</div>
+                      </div>
+                    </div>
+                  ) : m.posterResult ? (
+                    <div key={i} className="ai-msg assistant ai-campaign">
+                      <div className="ai-camp-strategy">
+                        <div className="ai-camp-key">🖼️ פוסטר{m.posterResult.service ? ` — ${m.posterResult.service}` : ''}</div>
+                        <div className="ai-camp-dir">נוצר מקומית · ComfyUI</div>
+                      </div>
+                      <div className="ai-camp-card">
+                        <img src={m.posterResult.src} alt="פוסטר שנוצר" style={{ width: '100%', borderRadius: 8, display: 'block' }} />
+                      </div>
+                    </div>
+                  ) : m.posterError ? (
+                    <div key={i} className="ai-msg assistant ai-action">{posterErrorText(m.posterError)}</div>
                   ) : (
                     <div key={i} className={`ai-msg ${m.role} ${m.error ? 'err' : ''} ${m.system ? 'ai-action' : ''}`}>{m.text}</div>
                   )

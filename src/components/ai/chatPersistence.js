@@ -14,6 +14,12 @@
 // guarantees nothing offer-related is written to chat storage, and a reload never
 // restores a half-filled form or a stale brief card.
 //
+// The ComfyUI Poster MVP cards — `posterProgress` (live "rendering…" card driven by a
+// pending async generation), `posterResult` (an ephemeral LOCAL ComfyUI /view image
+// URL that dies when the engine restarts), and `posterError` (a calm failure card
+// that may carry generated prompt details) — are TRANSIENT BY DESIGN: no poster image
+// or prompt is ever persisted, and a reload never restores a stuck/dead poster card.
+//
 // A campaign message's `campaign.critique` is the SAME class of transient state:
 // the Concept Critic view is ephemeral and recomputable, never part of the
 // persisted contract. The campaign CARD still persists (concepts, original order,
@@ -28,7 +34,8 @@
 
 /** A chat message that is live-only UI state and must NOT be persisted. */
 export function isTransientChatMessage(m) {
-  return !!(m && (m.productionProgress || m.offerForm || m.offerBrief));
+  return !!(m && (m.productionProgress || m.offerForm || m.offerBrief
+    || m.posterProgress || m.posterResult || m.posterError));
 }
 
 /**

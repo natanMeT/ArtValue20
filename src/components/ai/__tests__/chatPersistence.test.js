@@ -167,3 +167,34 @@ describe('chatPersistence — Offer Campaign cards are transient (no offer brief
     expect(out).toEqual([normal, system]);
   });
 });
+
+describe('chatPersistence — ComfyUI Poster cards are transient (no poster image/prompt persisted)', () => {
+  const normal = { role: 'assistant', text: 'שלום' };
+  const system = { role: 'assistant', system: true, text: '✓ נשמר' };
+  const posterProgress = { role: 'assistant', posterProgress: { service: 'מערכת CRM חכמה', pid: 'poster_1' } };
+  const posterResult = { role: 'assistant', posterResult: { src: 'http://localhost:8188/view?filename=x.png', service: 'אוטומציות', engine: 'local' } };
+  const posterError = { role: 'assistant', posterError: { reason: 'comfy_offline', service: 'אוטומציות' } };
+
+  it('excludes posterProgress / posterResult / posterError from persisted history', () => {
+    expect(persistableChatMessages([normal, posterProgress, posterResult, posterError, system])).toEqual([normal, system]);
+  });
+
+  it('hydration of (legacy) stored poster cards restores nothing', () => {
+    expect(persistableChatMessages([posterProgress, posterResult, posterError])).toEqual([]);
+  });
+
+  it('isTransientChatMessage flags all three poster card types', () => {
+    expect(isTransientChatMessage(posterProgress)).toBe(true);
+    expect(isTransientChatMessage(posterResult)).toBe(true);
+    expect(isTransientChatMessage(posterError)).toBe(true);
+    expect(isTransientChatMessage(normal)).toBe(false);
+  });
+
+  it('does not mutate input and preserves order of the remaining messages', () => {
+    const input = [normal, posterProgress, posterResult, system];
+    const snapshot = JSON.parse(JSON.stringify(input));
+    const out = persistableChatMessages(input);
+    expect(input).toEqual(snapshot);
+    expect(out).toEqual([normal, system]);
+  });
+});
