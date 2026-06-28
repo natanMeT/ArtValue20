@@ -11,8 +11,13 @@ import path from 'node:path';
 
 const SRC = 'src';
 const POSTER_DIR = path.normalize('src/creative/v2/poster');
-const RUNTIME_FILES = ['posterBridge.js', 'posterSchema.js', 'posterTypes.ts'];
+// comfyPosterPrompt.js is the deterministic English poster-prompt builder for the
+// ComfyUI Poster MVP. It is held to the same offline/deterministic purity as the
+// frozen poster sources (no imports, no model, no fetch, no Date/random).
+const RUNTIME_FILES = ['posterBridge.js', 'posterSchema.js', 'posterTypes.ts', 'comfyPosterPrompt.js'];
 const readPoster = (f) => fs.readFileSync(`src/creative/v2/poster/${f}`, 'utf8');
+// Test files are not runtime wiring (mirrors the offer-isolation precedent).
+const isTestFile = (p) => /\.test\.[jt]sx?$/.test(p) || /(^|[\\/])__tests__[\\/]/.test(p);
 
 function walk(dir) {
   const out = [];
@@ -35,22 +40,36 @@ function stripComments(src) {
 }
 
 describe('poster layer isolation (offline / runtime-inert)', () => {
-  it('all six poster files exist', () => {
-    for (const f of [...RUNTIME_FILES, '__tests__/posterBridge.test.js', '__tests__/posterSchema.test.js', '__tests__/posterIsolation.test.js']) {
+  it('all poster files exist (incl. the comfy poster prompt builder + its test)', () => {
+    for (const f of [...RUNTIME_FILES, '__tests__/posterBridge.test.js', '__tests__/posterSchema.test.js', '__tests__/posterIsolation.test.js', '__tests__/comfyPosterPrompt.test.js']) {
       expect(fs.existsSync(`src/creative/v2/poster/${f}`)).toBe(true);
     }
   });
 
-  it('18a/19. no file OUTSIDE poster/ imports the poster module (runtime-inert, no wiring)', () => {
+  // Exactly ONE sanctioned external RUNTIME importer is allowed: the local-only
+  // ComfyUI adapter (src/lib/comfyPoster.js) may import the deterministic poster
+  // PROMPT builder — and ONLY that file. Every other outside importer, and any import
+  // of the frozen bridge/schema/types, remains an offender, so the rest of the poster
+  // layer stays runtime-inert. Test files are not runtime wiring (exempt). Mirrors the
+  // offer-isolation precedent; the runtime guard stays fully strict.
+  it('18a/19. only the sanctioned adapter imports poster/ at runtime, and only the prompt builder', () => {
+    const SANCTIONED_IMPORTER = path.normalize('src/lib/comfyPoster.js');
     const offenders = [];
+    let sanctionedWired = false;
     for (const file of walk(SRC)) {
-      if (path.normalize(file).startsWith(POSTER_DIR)) continue; // skip poster's own files
-      const specs = importSpecifiers(fs.readFileSync(file, 'utf8'));
-      for (const spec of specs) {
-        if (/(^|[./])poster\//.test(spec) || /creative\/v2\/poster/.test(spec)) offenders.push(`${file} → ${spec}`);
+      const norm = path.normalize(file);
+      if (norm.startsWith(POSTER_DIR)) continue; // skip poster's own files
+      if (isTestFile(norm)) continue;            // tests are not runtime wiring
+      const isSanctioned = norm === SANCTIONED_IMPORTER;
+      for (const spec of importSpecifiers(fs.readFileSync(file, 'utf8'))) {
+        const refsPoster = /(^|[./])poster\//.test(spec) || /creative\/v2\/poster/.test(spec);
+        if (!refsPoster) continue;
+        if (isSanctioned && /poster\/comfyPosterPrompt(\.js)?$/.test(spec)) { sanctionedWired = true; continue; }
+        offenders.push(`${norm} → ${spec}`); // any other importer, or bridge/schema/types
       }
     }
-    expect(offenders, `unexpected importers of poster/: ${offenders.join(', ')}`).toEqual([]);
+    expect(offenders, `unexpected runtime poster/ imports: ${offenders.join(', ')}`).toEqual([]);
+    expect(sanctionedWired, 'comfyPoster.js must import ./poster/comfyPosterPrompt.js').toBe(true);
   });
 
   it('18b/c. poster runtime sources import only sibling poster modules (no judge/diagnostics/runtime)', () => {
@@ -83,9 +102,11 @@ describe('poster layer isolation (offline / runtime-inert)', () => {
     }
   });
 
-  it('the composer has no nondeterminism (no Date.now, no Math.random)', () => {
-    const code = stripComments(readPoster('posterBridge.js'));
-    expect(/Date\.now|new Date\(/.test(code)).toBe(false);
-    expect(/Math\.random/.test(code)).toBe(false);
+  it('the composers have no nondeterminism (no Date.now, no Math.random)', () => {
+    for (const f of ['posterBridge.js', 'comfyPosterPrompt.js']) {
+      const code = stripComments(readPoster(f));
+      expect(/Date\.now|new Date\(/.test(code), `${f} uses Date`).toBe(false);
+      expect(/Math\.random/.test(code), `${f} uses Math.random`).toBe(false);
+    }
   });
 });
