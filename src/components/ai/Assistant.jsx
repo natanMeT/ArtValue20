@@ -13,6 +13,7 @@ import { createArtValueCreative } from '../../creative/v2/createArtValueCreative
 import { PRODUCTION_STAGES, PRODUCTION_STAGE_ORDER } from '../../creative/v2/productionProgress.js';
 import { generatePosterFromOffer } from '../../lib/comfyPoster.js';
 import { buildPosterOverlay } from './posterOverlay.js';
+import { exportPosterPng } from './posterExport.js';
 import { persistableChatMessages } from './chatPersistence.js';
 import { dashboardKpis, inventoryTotals, lowStockItems } from '../../lib/calc.js';
 import { formatCurrency } from '../../lib/format.js';
@@ -209,6 +210,35 @@ function PosterOverlay({ overlay }) {
           }}>{o.cta}</div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+// Download the visible final poster (image + baked Hebrew overlay) as a PNG. Holds
+// its own transient export/error state — no parent state, no persistence. Renders
+// only when a poster image exists (never on progress/error cards).
+function PosterExportButton({ result }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  if (!result || !result.src) return null;
+  const onClick = async () => {
+    setErr('');
+    setBusy(true);
+    let res;
+    try {
+      res = await exportPosterPng({ src: result.src, overlay: result.overlay, service: result.service });
+    } catch {
+      res = { ok: false };
+    }
+    setBusy(false);
+    if (!res || !res.ok) setErr('ייצוא ה-PNG נכשל כרגע 🙏 נסה/י שוב.');
+  };
+  return (
+    <div style={{ marginTop: 8 }}>
+      <button className="btn btn-sm ai-approve" onClick={onClick} disabled={busy} aria-busy={busy}>
+        {busy ? 'מייצא…' : '⬇️ הורד PNG'}
+      </button>
+      {err ? <div style={{ marginTop: 6, fontSize: 12, color: '#e0808a' }}>{err}</div> : null}
     </div>
   );
 }
@@ -1294,6 +1324,7 @@ export default function Assistant() {
                           <img src={m.posterResult.src} alt="פוסטר שנוצר" style={{ width: '100%', borderRadius: 8, display: 'block' }} />
                           <PosterOverlay overlay={m.posterResult.overlay} />
                         </div>
+                        <PosterExportButton result={m.posterResult} />
                       </div>
                     </div>
                   ) : m.posterError ? (
