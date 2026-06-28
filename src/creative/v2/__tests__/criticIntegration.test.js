@@ -80,7 +80,10 @@ describe('critic integration — additive over the REAL orchestrator + store', (
 describe('critic integration — REAL composition root wiring (createArtValueCreative)', () => {
   it('runCreativeDirector returns an additive critique while preserving V1 output + persistence', async () => {
     clearCreativeEventLog();
-    const creative = createArtValueCreative({ getData: () => emptyData, user: 'נתן' });
+    // criticPassthrough:false → exercise the critic-ENABLED wiring path. The default
+    // is now passthrough (Phase 0B kill-switch); the default behaviour is covered in
+    // criticPassthrough.test.js.
+    const creative = createArtValueCreative({ getData: () => emptyData, user: 'נתן', criticPassthrough: false });
     const need = creative.analyzeMarketingNeed('קמפיין להגדלת מכירות באינסטגרם');
     const { request, campaignId } = creative.createCampaignBrief({ need });
     const out = await creative.runCreativeDirector({ request, campaignId });
