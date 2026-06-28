@@ -49,16 +49,38 @@ describe('offer layer isolation (offline / runtime-inert)', () => {
     }
   });
 
-  it('20. no file OUTSIDE offer/ imports the offer module (runtime-inert, no wiring)', () => {
+  // Exactly ONE sanctioned external importer is allowed: the composition root may
+  // import the PUBLIC offer action entry — and ONLY that entry. Every other outside
+  // importer, and any DEEPER offer/ import from the composition root (the bridge,
+  // schema, presets, or types), remains an offender. This keeps the offer engine's
+  // internals sealed while permitting the single product-wiring seam.
+  // This guard targets RUNTIME wiring: production sources must not import offer/
+  // except the one sanctioned seam. Test files are NOT runtime wiring — the offer
+  // engine's own tests already import offer modules to assert behaviour, and a
+  // sibling surface test legitimately imports the offer validator for the same
+  // reason — so *.test.* files are exempt from the external-importer scan. The
+  // runtime guard below stays fully strict.
+  const isTestFile = (p) => /\.test\.[jt]sx?$/.test(p) || /(^|[\\/])__tests__[\\/]/.test(p);
+  it('20. only the sanctioned composition root imports offer/ at runtime, and only the action entry', () => {
+    const SANCTIONED_IMPORTER = path.normalize('src/creative/v2/createArtValueCreative.js');
+    const SANCTIONED_SPEC = './offer/offerActions.js';
     const offenders = [];
+    let sanctionedWired = false;
     for (const file of walk(SRC)) {
-      if (path.normalize(file).startsWith(OFFER_DIR)) continue; // skip offer's own files
-      const specs = importSpecifiers(fs.readFileSync(file, 'utf8'));
-      for (const spec of specs) {
-        if (/(^|[./])offer\//.test(spec) || /creative\/v2\/offer/.test(spec)) offenders.push(`${file} → ${spec}`);
+      const norm = path.normalize(file);
+      if (norm.startsWith(OFFER_DIR)) continue; // skip offer's own files
+      if (isTestFile(norm)) continue;           // tests are not runtime wiring
+      const isSanctioned = norm === SANCTIONED_IMPORTER;
+      for (const spec of importSpecifiers(fs.readFileSync(file, 'utf8'))) {
+        const refsOffer = /(^|[./])offer\//.test(spec) || /creative\/v2\/offer/.test(spec);
+        if (!refsOffer) continue;
+        if (isSanctioned && spec === SANCTIONED_SPEC) { sanctionedWired = true; continue; }
+        offenders.push(`${norm} → ${spec}`); // any other offer/ import (incl. bridge/schema/presets/types)
       }
     }
-    expect(offenders, `unexpected importers of offer/: ${offenders.join(', ')}`).toEqual([]);
+    expect(offenders, `unexpected runtime offer/ imports: ${offenders.join(', ')}`).toEqual([]);
+    // The one sanctioned seam must actually exist (guards against a silently broken wiring).
+    expect(sanctionedWired, 'createArtValueCreative.js must import ./offer/offerActions.js').toBe(true);
   });
 
   it('15/16/17. offer runtime sources import only sibling offer modules', () => {

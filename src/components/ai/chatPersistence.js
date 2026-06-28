@@ -8,6 +8,12 @@
 // and no interval, leaving a card stuck "in progress" forever. So it must never
 // be written to history, and any legacy-stored one is dropped on hydration.
 //
+// The Offer Campaign Assistant Surface cards — `offerForm` (a live input form with
+// its own transient field state) and `offerBrief` (the read-only generated brief) —
+// are TRANSIENT BY DESIGN: this slice persists no offer brief at all. Excluding them
+// guarantees nothing offer-related is written to chat storage, and a reload never
+// restores a half-filled form or a stale brief card.
+//
 // A campaign message's `campaign.critique` is the SAME class of transient state:
 // the Concept Critic view is ephemeral and recomputable, never part of the
 // persisted contract. The campaign CARD still persists (concepts, original order,
@@ -22,7 +28,7 @@
 
 /** A chat message that is live-only UI state and must NOT be persisted. */
 export function isTransientChatMessage(m) {
-  return !!(m && m.productionProgress);
+  return !!(m && (m.productionProgress || m.offerForm || m.offerBrief));
 }
 
 /**

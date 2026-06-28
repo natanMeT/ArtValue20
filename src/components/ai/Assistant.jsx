@@ -78,6 +78,77 @@ function GateCard({ gate, onDelete, onCancel }) {
   );
 }
 
+// Dedicated, DETERMINISTIC Offer Campaign brief form (no NLP, no model). Holds its
+// own transient field state (same self-contained pattern as GateCard) so it survives
+// the messages re-render. Submit is disabled until businessType is non-empty — the
+// only hard requirement. channel/objective/language are fixed defaults for this slice
+// (whatsapp / generate_leads / he-IL), shown read-only.
+function OfferBriefForm({ onSubmit, onCancel }) {
+  const [businessType, setBusinessType] = useState('');
+  const [businessName, setBusinessName] = useState('');
+  const [painPoints, setPainPoints] = useState('');
+  const [currentSituation, setCurrentSituation] = useState('');
+  const canSubmit = businessType.trim().length > 0;
+  // Inline styles only (CSS files are out of scope for this slice).
+  const field = { width: '100%', boxSizing: 'border-box', marginTop: 6, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line, #ccc)', background: 'var(--bg-soft, #fff)', color: 'inherit', font: 'inherit' };
+  const submit = () => { if (canSubmit) onSubmit({ businessType, businessName, painPoints, currentSituation }); };
+  return (
+    <div className="ai-msg assistant ai-confirm ai-offer-form">
+      <div className="ai-confirm-q">📣 בניית בריף הצעה ללקוח</div>
+      <input
+        style={field} autoFocus value={businessType}
+        onChange={(e) => setBusinessType(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+        placeholder="סוג העסק (חובה) — למשל: משרד תיווך נדל״ן"
+        aria-label="סוג העסק"
+      />
+      <input
+        style={field} value={businessName}
+        onChange={(e) => setBusinessName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+        placeholder="שם העסק (אופציונלי)"
+        aria-label="שם העסק"
+      />
+      <textarea
+        style={{ ...field, minHeight: 52, resize: 'vertical' }} rows={2} value={painPoints}
+        onChange={(e) => setPainPoints(e.target.value)}
+        placeholder="כאבים / בעיות (אופציונלי) — מופרד בפסיקים או בשורות"
+        aria-label="כאבים"
+      />
+      <input
+        style={field} value={currentSituation}
+        onChange={(e) => setCurrentSituation(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+        placeholder="מצב נוכחי (אופציונלי)"
+        aria-label="מצב נוכחי"
+      />
+      <div className="ai-camp-scores" style={{ marginTop: 8 }}>ערוץ: וואטסאפ · מטרה: יצירת לידים · שפה: עברית</div>
+      <div className="ai-confirm-actions">
+        <button className="btn btn-sm ai-approve" disabled={!canSubmit} onClick={submit}>צור בריף</button>
+        <button className="btn btn-sm btn-ghost" onClick={onCancel}>ביטול</button>
+      </div>
+    </div>
+  );
+}
+
+// Map the structured form state → a deterministic OfferCampaignRequest. Pure: trims,
+// splits painPoints on commas/newlines, omits empty optionals, fixes the goal.
+function buildOfferRequest(form) {
+  const t = (v) => String(v == null ? '' : v).trim();
+  const businessName = t(form && form.businessName);
+  const currentSituation = t(form && form.currentSituation);
+  const painPoints = t(form && form.painPoints).split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+  const prospect = { businessType: t(form && form.businessType) };
+  if (businessName) prospect.businessName = businessName;
+  const signals = { painPoints };
+  if (currentSituation) signals.currentSituation = currentSituation;
+  return {
+    prospect,
+    signals,
+    goal: { objective: 'generate_leads', channel: 'whatsapp', language: 'he-IL' },
+  };
+}
+
 // Does the text contain an explicit action verb (add/update/delete/…)? If so the
 // model must run to emit the action block — we never fully swallow it. (\b word
 // boundaries don't work around Hebrew letters, so anchor on start/whitespace.)
@@ -400,6 +471,33 @@ export default function Assistant() {
   };
   const cancelGate = (idx) => {
     setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', system: true, text: 'בוטל — לא נמחק כלום.' } : mm)));
+  };
+
+  // ---- Offer Campaign brief: open a structured form → generate a READ-ONLY brief.
+  // Deterministic, model-free, persistence-free: it calls the offer action through
+  // the orchestrator surface, never a store/draftWithJake/chatJake. The form and the
+  // result card are TRANSIENT (excluded from chat persistence) — nothing is saved.
+  const openOfferForm = () => {
+    setMessages((m) => [...m, { role: 'assistant', offerForm: true }]);
+  };
+  const cancelOfferForm = (idx) => {
+    setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', system: true, text: 'בוטל — לא נוצר בריף הצעה.' } : mm)));
+  };
+  const submitOfferForm = (idx, form) => {
+    const request = buildOfferRequest(form);
+    let r;
+    try {
+      r = creativeRef.current.generateOfferCampaignBrief(request); // deterministic; never throws
+    } catch (e) {
+      r = { ok: false, errors: [(e && e.message) || 'offer_failed'] };
+    }
+    if (r && r.ok && r.brief) {
+      setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', offerBrief: r.brief } : mm)));
+    } else {
+      setMessages((m) => m.map((mm, i) => (i === idx
+        ? { role: 'assistant', system: true, text: 'לא הצלחתי לבנות בריף הצעה כרגע 🙏 ודא/י שמילאת סוג עסק, ונסה/י שוב.' }
+        : mm)));
+    }
   };
 
   // Periodic speech bubble (only while resting in the corner).
@@ -993,6 +1091,93 @@ export default function Assistant() {
                         </div>
                       );
                     })()
+                  ) : m.offerForm ? (
+                    <OfferBriefForm key={i} onSubmit={(form) => submitOfferForm(i, form)} onCancel={() => cancelOfferForm(i)} />
+                  ) : m.offerBrief ? (
+                    (() => {
+                      const b = m.offerBrief;
+                      return (
+                        <div key={i} className="ai-msg assistant ai-campaign">
+                          <div className="ai-camp-strategy">
+                            <div className="ai-camp-key">📣 בריף הצעה — {b.offer.service}</div>
+                            <div className="ai-camp-dir">{b.prospect.businessName ? `${b.prospect.businessName} · ` : ''}{b.prospect.businessType}</div>
+                          </div>
+
+                          <div className="ai-camp-card">
+                            <div className="ai-camp-head"><b>אבחון</b></div>
+                            <div className="ai-camp-row"><span>הקשר</span> {b.diagnosis.context}</div>
+                            {b.diagnosis.businessPain.map((p, k) => <div key={k} className="ai-camp-row"><span>כאב</span> {p}</div>)}
+                          </div>
+
+                          <div className="ai-camp-card">
+                            <div className="ai-camp-head"><b>הצעה</b></div>
+                            <div className="ai-camp-row"><span>שירות</span> {b.offer.service}</div>
+                            <div className="ai-camp-row"><span>ערך</span> {b.offer.valueProposition}</div>
+                            <div className="ai-camp-row"><span>כלול</span> {b.offer.whatsIncluded.join(', ')}</div>
+                            <div className="ai-camp-row"><span>הוכחות</span> {b.offer.proofPoints.join(', ')}</div>
+                          </div>
+
+                          <div className="ai-camp-card">
+                            <div className="ai-camp-head"><b>זווית קמפיין</b></div>
+                            <div className="ai-camp-row"><span>זווית</span> {b.campaignAngle.angle}</div>
+                            <div className="ai-camp-row"><span>מסר</span> {b.campaignAngle.keyMessage}</div>
+                            <div className="ai-camp-why">💡 {b.campaignAngle.hook}</div>
+                          </div>
+
+                          <div className="ai-camp-card">
+                            <div className="ai-camp-head"><b>וואטסאפ</b></div>
+                            <div className="ai-camp-row"><span>פתיח</span> {b.whatsappOutreach.opener}</div>
+                            <div className="ai-camp-row"><span>גוף</span> {b.whatsappOutreach.body}</div>
+                            <div className="ai-camp-row"><span>קריאה לפעולה</span> {b.whatsappOutreach.cta}</div>
+                          </div>
+
+                          <div className="ai-camp-card">
+                            <div className="ai-camp-head"><b>בריף פוסטר / מודעה</b></div>
+                            <div className="ai-camp-row"><span>כותרת</span> {b.posterAdBrief.headline}</div>
+                            <div className="ai-camp-row"><span>תת-כותרת</span> {b.posterAdBrief.subheadline}</div>
+                            <div className="ai-camp-row"><span>אובייקט גיבור</span> {b.posterAdBrief.heroIdea}</div>
+                            <div className="ai-camp-row"><span>להימנע</span> {b.posterAdBrief.avoidList.join(', ')}</div>
+                          </div>
+
+                          <div className="ai-camp-card">
+                            <div className="ai-camp-head"><b>דף נחיתה</b></div>
+                            <div className="ai-camp-row"><span>כותרת</span> {b.landingHero.headline}</div>
+                            <div className="ai-camp-row"><span>תת-כותרת</span> {b.landingHero.subheadline}</div>
+                            <div className="ai-camp-row"><span>קריאה לפעולה</span> {b.landingHero.cta}</div>
+                            <div className="ai-camp-row"><span>מקטעים</span> {b.landingHero.sections.join(' · ')}</div>
+                          </div>
+
+                          <div className="ai-camp-card">
+                            <div className="ai-camp-head"><b>פולואפ</b></div>
+                            <div className="ai-camp-row"><span>זווית</span> {b.followUp.angle}</div>
+                            <div className="ai-camp-why">📩 {b.followUp.message}</div>
+                          </div>
+
+                          <div className="ai-camp-card">
+                            <div className="ai-camp-head"><b>התנגדויות</b></div>
+                            {b.objectionHandling.map((o, k) => (
+                              <div key={k} className="ai-camp-row"><span>{o.objection}</span> {o.reply}</div>
+                            ))}
+                          </div>
+
+                          <div className="ai-camp-card">
+                            <div className="ai-camp-head"><b>כיוון ויזואלי</b></div>
+                            <div className="ai-camp-row"><span>מוד</span> {b.visualDirection.mood}</div>
+                            <div className="ai-camp-row"><span>אובייקט גיבור</span> {b.visualDirection.heroIdea}</div>
+                            {b.visualDirection.palette && b.visualDirection.palette.length ? <div className="ai-camp-row"><span>פלטה</span> {b.visualDirection.palette.join(', ')}</div> : null}
+                          </div>
+
+                          {b.risks && b.risks.length ? (
+                            <div className="ai-camp-card">
+                              <div className="ai-camp-head"><b>סיכונים</b></div>
+                              {b.risks.map((rk, k) => (
+                                <div key={k} className="ai-camp-row"><span>{RISK_HE[rk.level] || rk.level}</span> {rk.note}</div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })()
                   ) : (
                     <div key={i} className={`ai-msg ${m.role} ${m.error ? 'err' : ''} ${m.system ? 'ai-action' : ''}`}>{m.text}</div>
                   )
@@ -1005,6 +1190,10 @@ export default function Assistant() {
                     {SUGGESTIONS.map((s) => <button key={s} className="ai-sugg" onClick={() => send(s)}>{s}</button>)}
                   </div>
                 )}
+              </div>
+
+              <div className="ai-suggestions" style={{ padding: '0 12px 8px' }}>
+                <button className="ai-sugg" onClick={openOfferForm}>📣 בנה בריף הצעה ללקוח</button>
               </div>
 
               <div className="ai-input">
