@@ -172,7 +172,7 @@ describe('chatPersistence — ComfyUI Poster cards are transient (no poster imag
   const normal = { role: 'assistant', text: 'שלום' };
   const system = { role: 'assistant', system: true, text: '✓ נשמר' };
   const posterProgress = { role: 'assistant', posterProgress: { service: 'מערכת CRM חכמה', pid: 'poster_1' } };
-  const posterResult = { role: 'assistant', posterResult: { src: 'http://localhost:8188/view?filename=x.png', service: 'אוטומציות', engine: 'local' } };
+  const posterResult = { role: 'assistant', posterResult: { src: 'http://localhost:8188/view?filename=x.png', service: 'אוטומציות', engine: 'local', overlay: { headline: 'כותרת', subheadline: 'תת', cta: 'קבעו שיחה קצרה', label: 'אוטומציות' } } };
   const posterError = { role: 'assistant', posterError: { reason: 'comfy_offline', service: 'אוטומציות' } };
 
   it('excludes posterProgress / posterResult / posterError from persisted history', () => {

@@ -12,6 +12,7 @@ import { activePack } from '../../lib/jakePack.js';
 import { createArtValueCreative } from '../../creative/v2/createArtValueCreative.js';
 import { PRODUCTION_STAGES, PRODUCTION_STAGE_ORDER } from '../../creative/v2/productionProgress.js';
 import { generatePosterFromOffer } from '../../lib/comfyPoster.js';
+import { buildPosterOverlay } from './posterOverlay.js';
 import { persistableChatMessages } from './chatPersistence.js';
 import { dashboardKpis, inventoryTotals, lowStockItems } from '../../lib/calc.js';
 import { formatCurrency } from '../../lib/format.js';
@@ -158,6 +159,58 @@ function posterErrorText(err) {
   if (reason === 'comfy_offline') return 'מנוע ה-ComfyUI כבוי או לא מגיב כרגע 🙏 הפעל/י אותו והמתן/י כ-30 שניות, ואז נסה/י שוב.';
   if (reason === 'prompt_failed') return 'לא הצלחתי לבנות פרומפט לפוסטר מהבריף הזה.';
   return 'יצירת הפוסטר נכשלה כרגע 🙏 ודא/י שמנוע ה-ComfyUI פעיל, ונסה/י שוב.';
+}
+
+// PREVIEW-ONLY Hebrew advertising overlay composited over the (transient) ComfyUI
+// poster image. Pure presentation: RTL, a bottom gradient scrim for contrast on any
+// image, white text with a soft shadow, safe margins, and clamp/line-clamp so long
+// Hebrew copy never overflows. Font sizes use viewport-clamped values (no container
+// units — those would remove the image's intrinsic width and collapse the card). No
+// export/rasterization — this is a live preview layer.
+function PosterOverlay({ overlay }) {
+  const o = overlay || {};
+  if (!o.headline && !o.subheadline && !o.cta && !o.label) return null;
+  const clamp = (lines) => ({
+    display: '-webkit-box', WebkitLineClamp: lines, WebkitBoxOrient: 'vertical',
+    overflow: 'hidden', textOverflow: 'ellipsis',
+  });
+  return (
+    <div
+      dir="rtl"
+      aria-hidden="true"
+      style={{
+        position: 'absolute', inset: 0, borderRadius: 8, pointerEvents: 'none',
+        display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+        // bottom-anchored scrim so text stays readable over light OR dark images
+        background: 'linear-gradient(to top, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.45) 24%, rgba(0,0,0,0) 52%)',
+        color: '#fff', textAlign: 'right', fontFamily: 'inherit',
+        textShadow: '0 1px 4px rgba(0,0,0,0.65)', overflow: 'hidden',
+      }}
+    >
+      {o.label ? (
+        <div style={{
+          position: 'absolute', top: 10, insetInlineEnd: 12, maxWidth: '70%',
+          padding: '3px 10px', borderRadius: 999, background: 'rgba(0,0,0,0.42)',
+          fontSize: 'clamp(10px, 2.6vw, 13px)', fontWeight: 600, ...clamp(1),
+        }}>{o.label}</div>
+      ) : null}
+      <div style={{ padding: '14px 16px 16px', display: 'grid', gap: 7 }}>
+        {o.headline ? (
+          <div style={{ fontSize: 'clamp(17px, 4.6vw, 26px)', fontWeight: 800, lineHeight: 1.14, ...clamp(3) }}>{o.headline}</div>
+        ) : null}
+        {o.subheadline ? (
+          <div style={{ fontSize: 'clamp(12px, 3.3vw, 17px)', fontWeight: 500, opacity: 0.95, lineHeight: 1.3, ...clamp(2) }}>{o.subheadline}</div>
+        ) : null}
+        {o.cta ? (
+          <div style={{
+            justifySelf: 'start', marginTop: 2, padding: '6px 16px', borderRadius: 999,
+            background: '#fff', color: '#111', fontWeight: 700,
+            fontSize: 'clamp(12px, 3.2vw, 15px)', ...clamp(1),
+          }}>{o.cta}</div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 // Does the text contain an explicit action verb (add/update/delete/…)? If so the
@@ -518,6 +571,9 @@ export default function Assistant() {
   // persistence) — no image, prompt, store, gallery, or localStorage write happens here.
   const generatePoster = async (offerBrief) => {
     const service = (offerBrief && offerBrief.offer && offerBrief.offer.service) || '';
+    // Derive the Hebrew overlay text up front from the (already-available) offer brief.
+    // Pure + deterministic; the image itself is generated text-free by ComfyUI.
+    const overlay = buildPosterOverlay(offerBrief);
     posterSeqRef.current += 1;
     const pid = `poster_${posterSeqRef.current}`;
     setMessages((m) => [...m, { role: 'assistant', posterProgress: { service, pid } }]);
@@ -530,7 +586,7 @@ export default function Assistant() {
     setMessages((m) => m.map((mm) => {
       if (!mm.posterProgress || mm.posterProgress.pid !== pid) return mm;
       return res && res.ok && res.src
-        ? { role: 'assistant', posterResult: { src: res.src, service, engine: res.engine } }
+        ? { role: 'assistant', posterResult: { src: res.src, service, engine: res.engine, overlay } }
         : { role: 'assistant', posterError: { reason: (res && res.reason) || 'unknown', service } };
     }));
   };
@@ -1234,7 +1290,10 @@ export default function Assistant() {
                         <div className="ai-camp-dir">נוצר מקומית · ComfyUI</div>
                       </div>
                       <div className="ai-camp-card">
-                        <img src={m.posterResult.src} alt="פוסטר שנוצר" style={{ width: '100%', borderRadius: 8, display: 'block' }} />
+                        <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden' }}>
+                          <img src={m.posterResult.src} alt="פוסטר שנוצר" style={{ width: '100%', borderRadius: 8, display: 'block' }} />
+                          <PosterOverlay overlay={m.posterResult.overlay} />
+                        </div>
                       </div>
                     </div>
                   ) : m.posterError ? (
