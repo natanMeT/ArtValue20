@@ -33,6 +33,12 @@ import Activity from './pages/Activity.jsx';
 import Settings from './pages/Settings.jsx';
 import QuotePrint from './pages/QuotePrint.jsx';
 
+// Growth OS — business-growth center (scaffold)
+import Growth from './pages/growth/Growth.jsx';
+import GrowthLeads from './pages/growth/GrowthLeads.jsx';
+import GrowthCalendar from './pages/growth/GrowthCalendar.jsx';
+import Calls from './pages/growth/Calls.jsx';
+
 function AppShell() {
   const [navOpen, setNavOpen] = useState(false);
   const location = useLocation();
@@ -112,6 +118,13 @@ function MainRoutes() {
         <Route path="/finance" element={<Finance />} />
         <Route path="/inventory" element={<Inventory />} />
         <Route path="/activity" element={<Activity />} />
+
+        {/* Growth OS — business-growth center (scaffold) */}
+        <Route path="/growth" element={<Growth />} />
+        <Route path="/growth/leads" element={<GrowthLeads />} />
+        <Route path="/growth/calendar" element={<GrowthCalendar />} />
+        <Route path="/calls" element={<Calls />} />
+
         <Route path="/settings" element={<Settings />} />
       </Route>
     </Routes>

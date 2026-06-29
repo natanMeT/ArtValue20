@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Icon from '../ui/Icon.jsx';
+import { GROWTH_NAV } from '../../pages/growth/growthNav.js';
 
 const NAV = [
   { to: '/', label: 'דאשבורד', icon: 'dashboard', end: true },
@@ -65,6 +66,30 @@ export default function Sidebar({ open, onClose }) {
               )}
             </NavLink>
           ))}
+
+          {/* Growth OS — visually separated business-growth group */}
+          <div className="nav-group">
+            <div className="nav-group-label">Growth OS</div>
+            {GROWTH_NAV.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                onClick={onClose}
+                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+              >
+                {({ isActive }) => (
+                  <>
+                    {isActive && (
+                      <motion.span layoutId="nav-active" className="nav-active-bg" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />
+                    )}
+                    <span className="nav-ico"><Icon name={item.icon} size={19} /></span>
+                    <span className="nav-label">{item.label}</span>
+                  </>
+                )}
+              </NavLink>
+            ))}
+          </div>
         </nav>
 
         <div className="sidebar-foot">
