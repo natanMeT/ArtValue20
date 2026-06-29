@@ -87,6 +87,62 @@
   text-transform: uppercase;
   color: var(--text-3);
 }
+
+/* Growth OS — Lead mapping (Slice 2) */
+.lead-stats { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 560px) { .lead-stats { grid-template-columns: 1fr; } }
+
+.price-note { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; }
+
+.lead-card {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  height: 100%;
+  text-align: start;
+}
+.lead-card:focus-visible { outline: 2px solid var(--lime-deep); outline-offset: 2px; }
+.lead-ico {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--lime-deep);
+  border: 1px solid var(--border);
+}
+.lead-name { font-size: 1.06rem; margin: 0; }
+.lead-who { margin: 0; font-size: 0.9rem; }
+.lead-pain { margin: 0; font-size: 0.83rem; }
+.lead-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.lead-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+}
+.lead-chip.price { color: var(--lime-deep); border-color: rgba(212, 255, 63, 0.3); }
+.lead-foot { margin-top: auto; padding-top: 2px; }
+.lead-action { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; font-weight: 600; color: var(--text-2); }
+
+.lead-detail { display: flex; flex-direction: column; gap: 14px; }
+.ld-block { display: flex; flex-direction: column; gap: 5px; }
+.ld-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.ld-list { margin: 0; padding-inline-start: 18px; display: flex; flex-direction: column; gap: 4px; }
+.ld-badges { display: flex; flex-wrap: wrap; gap: 8px; }
 .nav-item {
   position: relative;
   display: flex;
