@@ -69,6 +69,24 @@
   gap: 10px;
   flex-shrink: 0;
 }
+
+/* Growth OS — visually separated nav group */
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.nav-group-label {
+  padding: 0 14px 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
 .nav-item {
   position: relative;
   display: flex;
