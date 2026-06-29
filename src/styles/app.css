@@ -4,16 +4,17 @@
 
 .app-shell {
   display: flex;
-  min-height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 /* ---------------- Sidebar ---------------- */
 .sidebar {
   width: var(--sidebar-w);
   flex-shrink: 0;
-  position: sticky;
+  position: relative;
   top: 0;
-  height: 100vh;
+  height: 100dvh;
   padding: 22px 16px;
   display: flex;
   flex-direction: column;
@@ -57,12 +58,16 @@
   flex-direction: column;
   gap: 4px;
   margin-top: 6px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 .sidebar-foot {
   margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex-shrink: 0;
 }
 .nav-item {
   position: relative;
@@ -131,6 +136,9 @@
 .main-col {
   flex: 1;
   min-width: 0;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -190,6 +198,10 @@
 }
 
 .content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 26px 28px 60px;
   max-width: 1320px;
   width: 100%;
