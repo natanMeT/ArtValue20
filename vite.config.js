@@ -8,7 +8,7 @@ export default defineConfig({
   // strictPort: fail loudly if 5173 is taken instead of silently moving to 5174
   // (which would "hide" your saved data under a different origin).
   server: { port: 5173, strictPort: true },
-  preview: { port: 5173, strictPort: true },
+  preview: { port: 4173, strictPort: true },
   build: {
     rollupOptions: {
       output: {
