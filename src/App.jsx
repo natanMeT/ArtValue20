@@ -37,6 +37,7 @@ import QuotePrint from './pages/QuotePrint.jsx';
 import Growth from './pages/growth/Growth.jsx';
 import GrowthLeads from './pages/growth/GrowthLeads.jsx';
 import GrowthCalendar from './pages/growth/GrowthCalendar.jsx';
+import GrowthContentAds from './pages/growth/GrowthContentAds.jsx';
 import Calls from './pages/growth/Calls.jsx';
 
 function AppShell() {
@@ -123,6 +124,7 @@ function MainRoutes() {
         <Route path="/growth" element={<Growth />} />
         <Route path="/growth/leads" element={<GrowthLeads />} />
         <Route path="/growth/calendar" element={<GrowthCalendar />} />
+        <Route path="/growth/content" element={<GrowthContentAds />} />
         <Route path="/calls" element={<Calls />} />
 
         <Route path="/settings" element={<Settings />} />

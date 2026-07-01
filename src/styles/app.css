@@ -209,6 +209,112 @@
 .ld-upsell-item { display: inline-flex; align-items: center; gap: 8px; }
 .ld-flow-sep { display: inline-flex; color: var(--text-3); flex: none; }
 
+/* Growth OS — Content & Ads Library (ספריית פרסום ותוכן) */
+.ads-stats { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 760px) { .ads-stats { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 420px) { .ads-stats { grid-template-columns: 1fr; } }
+
+.ads-card {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  text-align: start;
+}
+.ads-card:focus-visible { outline: 2px solid var(--lime-deep); outline-offset: 2px; }
+.ads-ico {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--lime-deep);
+  border: 1px solid var(--border);
+  flex: none;
+}
+.ads-title { font-size: 1.02rem; margin: 0; }
+.ads-goal { margin: 0; font-size: 0.86rem; }
+.ads-card-foot { margin-top: auto; padding-top: 2px; }
+
+.ads-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.ads-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.74rem;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+}
+.ads-chip.tone { color: var(--lime-deep); border-color: rgba(212, 255, 63, 0.3); }
+.ads-chip.tag { color: var(--text-3); }
+
+.ads-detail { display: flex; flex-direction: column; gap: 13px; }
+.ads-desc { margin: 0; font-size: 0.9rem; line-height: 1.6; }
+
+.ads-section { display: flex; flex-direction: column; gap: 7px; }
+.ads-section + .ads-section { margin-top: 2px; padding-top: 13px; border-top: 1px solid var(--border); }
+.ads-section-head { display: flex; align-items: center; gap: 8px; }
+.ads-section-ico {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--lime-deep);
+  border: 1px solid var(--border);
+  flex: none;
+}
+.ads-section-title { margin: 0; font-size: 0.9rem; font-weight: 700; margin-inline-end: auto; }
+
+.ads-text { margin: 0; color: var(--text-2); font-size: 0.9rem; line-height: 1.6; }
+.ads-quote {
+  margin: 0;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--border);
+  color: var(--text-2);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.ads-quote.ok { border-inline-start-color: var(--lime-deep); }
+.ads-prompt {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 0.82rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.ads-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.ads-copy:hover { color: var(--lime-deep); border-color: rgba(212, 255, 63, 0.3); }
+.ads-copy:focus-visible { outline: 2px solid var(--lime-deep); outline-offset: 2px; }
+
 /* Growth OS — Monthly Action Calendar (Slice 3) */
 .gc-controls .field label { font-size: 0.8rem; }
 .gc-summary { grid-template-columns: repeat(4, 1fr); }

@@ -8,6 +8,7 @@ export const GROWTH_NAV = [
   { to: '/growth', label: 'מרכז הצמיחה', icon: 'trendUp', end: true },
   { to: '/growth/leads', label: 'מיפוי לידים', icon: 'target' },
   { to: '/growth/calendar', label: 'לוח פעולה', icon: 'calendar' },
+  { to: '/growth/content', label: 'ספריית פרסום', icon: 'image' },
   { to: '/calls', label: 'שיחות', icon: 'phone' },
 ];
 
@@ -24,6 +25,12 @@ export const GROWTH_MODULES = [
     title: 'לוח פעולה חודשי',
     soon: 'בקרוב — תכנון פעולות חודשי לפי יעד הכנסה',
     icon: 'calendar',
+  },
+  {
+    to: '/growth/content',
+    title: 'ספריית פרסום ותוכן',
+    soon: 'מאגר פרומטים, רעיונות ותבניות פרסום',
+    icon: 'image',
   },
   {
     to: '/calls',
