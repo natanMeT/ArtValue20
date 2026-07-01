@@ -315,3 +315,94 @@ describe('growthContentAds — matchContentTemplates', () => {
     }
   });
 });
+
+// ---- Content quality gates (GPT Image 2 prompts + Hebrew ad copy rules) ----
+const HEBREW = /[֐-׿]/;
+const hasHebrew = (s) => HEBREW.test(s);
+
+// Guarantee / hype phrases that must never appear in any visible ad text.
+const FORBIDDEN_SUBSTR = [
+  'מובטח', 'מבטיח', 'להבטיח', 'הבטחה', 'מהפכה', 'הכפל', 'להכפיל', 'guaranteed',
+];
+const FORBIDDEN_TIME = /תוך\s*\d+\s*(ימים|יום|שבועות|שבוע|שעות)/;
+const FORBIDDEN_TIME_LITERAL = ['תוך שבוע', 'תוך שבועיים'];
+
+// Vague-only visual phrases that must not appear in a GPT Image 2 prompt.
+const VAGUE_PROMPT = [
+  'modern ad', 'modern business ad', 'professional design',
+  'professional digital design', 'business growth', 'ai technology',
+];
+
+// Concrete visual-direction vocabulary a usable image prompt should carry.
+const VISUAL_KEYWORDS = [
+  'composition', 'style', 'color', 'lighting', 'background', 'foreground',
+  'layout', 'overlay', 'palette', 'contrast', 'scene', 'frame',
+];
+
+const ALL_TEXT_FIELDS = ['title', 'description', 'goal', 'bestFor', 'tone', 'hook', 'message', 'cta', 'prompt', 'usageNote'];
+
+describe('growthContentAds — content quality (GPT Image 2 + Hebrew ad rules)', () => {
+  for (const item of CONTENT_LIBRARY_ITEMS) {
+    describe(`item "${item.id}"`, () => {
+      it('hook / message / cta are non-empty Hebrew copy', () => {
+        for (const f of ['hook', 'message', 'cta']) {
+          expect(nonEmptyStr(item[f]), `${f}`).toBe(true);
+          expect(hasHebrew(item[f]), `${f} has Hebrew`).toBe(true);
+        }
+      });
+
+      it('prompt is ArtValue-specific and long enough to be usable', () => {
+        expect(item.prompt.includes('ArtValue'), 'prompt names ArtValue').toBe(true);
+        expect(item.prompt.length, 'prompt length').toBeGreaterThanOrEqual(300);
+      });
+
+      it('prompt is a structured GPT Image 2 brief with an exact Hebrew overlay', () => {
+        expect(/composition:/i.test(item.prompt), 'has a Composition section').toBe(true);
+        expect(/style/i.test(item.prompt), 'has a Style section').toBe(true);
+        expect(/overlay/i.test(item.prompt), 'has an overlay section').toBe(true);
+        // at least one quoted Hebrew overlay line so the ad text is explicit
+        expect(/"[^"\n]*[֐-׿][^"\n]*"/.test(item.prompt), 'has a quoted Hebrew overlay line').toBe(true);
+      });
+
+      it('prompt carries concrete visual direction (>= 3 visual keywords)', () => {
+        const lc = item.prompt.toLowerCase();
+        const hits = VISUAL_KEYWORDS.filter((k) => lc.includes(k)).length;
+        expect(hits, `visual keywords found: ${hits}`).toBeGreaterThanOrEqual(3);
+      });
+
+      it('prompt avoids vague-only language', () => {
+        const lc = item.prompt.toLowerCase();
+        for (const v of VAGUE_PROMPT) expect(lc.includes(v), `vague phrase "${v}"`).toBe(false);
+      });
+
+      it('no forbidden guarantee / hype phrase in any visible text', () => {
+        for (const field of ALL_TEXT_FIELDS) {
+          const val = item[field] || '';
+          for (const bad of FORBIDDEN_SUBSTR) expect(val.includes(bad), `${field} contains "${bad}"`).toBe(false);
+          expect(FORBIDDEN_TIME.test(val), `${field} has a time-guarantee`).toBe(false);
+          for (const bad of FORBIDDEN_TIME_LITERAL) expect(val.includes(bad), `${field} contains "${bad}"`).toBe(false);
+        }
+      });
+
+      it('message placeholders only exist in WhatsApp follow-up templates', () => {
+        const placeholders = item.message.match(/\{[^}]+\}/g) || [];
+        if (placeholders.length > 0) {
+          expect(item.categoryId, 'placeholders only in followups_whatsapp').toBe('followups_whatsapp');
+          for (const p of placeholders) expect(['{שם}', '{נציג}']).toContain(p);
+        }
+      });
+    });
+  }
+
+  it('every WhatsApp follow-up template personalizes with {שם}', () => {
+    const followups = itemsByCategory('followups_whatsapp');
+    expect(followups.length).toBeGreaterThan(0);
+    for (const item of followups) expect(item.message.includes('{שם}'), `${item.id} has {שם}`).toBe(true);
+  });
+
+  it('no ArtValue positioning line uses a forbidden guarantee phrase', () => {
+    for (const line of Object.values(POSITIONING)) {
+      for (const bad of FORBIDDEN_SUBSTR) expect(line.includes(bad), `positioning contains "${bad}"`).toBe(false);
+    }
+  });
+});
