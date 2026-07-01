@@ -209,6 +209,28 @@
 .ld-upsell-item { display: inline-flex; align-items: center; gap: 8px; }
 .ld-flow-sep { display: inline-flex; color: var(--text-3); flex: none; }
 
+/* Lead detail → matching content templates (links into the Content & Ads Library) */
+.ld-matches { display: flex; flex-direction: column; gap: 8px; }
+.ld-match {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s;
+}
+.ld-match:hover { border-color: rgba(212, 255, 63, 0.32); }
+.ld-match:focus-visible { outline: 2px solid var(--lime-deep); outline-offset: 2px; }
+.ld-match-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ld-match-title { font-size: 0.95rem; font-weight: 600; }
+.ld-match-cta { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--text-2); }
+.ld-match-reason { margin: 0; font-size: 0.78rem; color: var(--text-3); }
+.ld-match-open { display: inline-flex; align-items: center; gap: 5px; font-size: 0.76rem; font-weight: 600; color: var(--lime-deep); }
+
 /* Growth OS — Content & Ads Library (ספריית פרסום ותוכן) */
 .ads-stats { grid-template-columns: repeat(4, 1fr); }
 @media (max-width: 760px) { .ads-stats { grid-template-columns: repeat(2, 1fr); } }

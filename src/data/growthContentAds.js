@@ -541,6 +541,32 @@ export const CONTENT_LIBRARY_ITEMS = [
 export const itemById = (id) => CONTENT_LIBRARY_ITEMS.find((i) => i.id === id) || null;
 export const itemsByCategory = (categoryId) => CONTENT_LIBRARY_ITEMS.filter((i) => i.categoryId === categoryId);
 
+// Match content/ad templates to a PRIORITY-ORDERED list of service (offer) ids —
+// e.g. a lead category's [offerId, entryOfferId, ...upsell]. Returns up to `limit`
+// ORIGINAL content items (never mutated), ranked by the highest-priority offer each
+// item matches via item.relatedOffers; original library order breaks ties.
+// Empty / non-array / no-match input → []. Pure & deterministic (no side effects).
+export function matchContentTemplates(offerIds, limit = 4) {
+  if (!Array.isArray(offerIds)) return [];
+  const priority = [];
+  for (const id of offerIds) if (id && !priority.includes(id)) priority.push(id);
+  if (priority.length === 0) return [];
+
+  const matched = [];
+  CONTENT_LIBRARY_ITEMS.forEach((item, idx) => {
+    const offers = item.relatedOffers || [];
+    let rank = -1;
+    for (let i = 0; i < priority.length; i++) {
+      if (offers.includes(priority[i])) { rank = i; break; }
+    }
+    if (rank >= 0) matched.push({ item, rank, idx });
+  });
+  matched.sort((a, b) => (a.rank - b.rank) || (a.idx - b.idx));
+  // limit is "how many you want": a non-positive limit yields no results.
+  const capped = limit > 0 ? matched.slice(0, limit) : [];
+  return capped.map((m) => m.item);
+}
+
 // ---- summary stats for the KPI strip (derived, deterministic) ----
 export const STATS = {
   categories: CONTENT_CATEGORIES.length,
