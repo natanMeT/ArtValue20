@@ -11,8 +11,9 @@ import {
   itemById,
   itemsByCategory,
   matchesFilter,
+  matchContentTemplates,
 } from '../growthContentAds.js';
-import { SERVICES } from '../growthLeads.js';
+import { SERVICES, LEAD_CATEGORIES } from '../growthLeads.js';
 
 // ===================================================================
 // Growth OS — Content & Ads Library data-integrity coverage.
@@ -204,5 +205,113 @@ describe('growthContentAds — formats & positioning', () => {
     expect(nonEmptyStr(POSITIONING.core)).toBe(true);
     expect(nonEmptyStr(POSITIONING.coreAlt)).toBe(true);
     expect(nonEmptyStr(POSITIONING.services)).toBe(true);
+  });
+});
+
+// ---- Lead Category → Matching Content Templates (integration helper) ----
+const rankIn = (priority, item) => {
+  const offers = item.relatedOffers || [];
+  for (let i = 0; i < priority.length; i++) if (offers.includes(priority[i])) return i;
+  return -1;
+};
+const offerPath = (cat) => [cat.offerId, cat.entryOfferId, ...(cat.upsell || [])].filter(Boolean);
+
+describe('growthContentAds — matchContentTemplates', () => {
+  it('returns an array', () => {
+    expect(Array.isArray(matchContentTemplates(['crm_smart']))).toBe(true);
+    expect(Array.isArray(matchContentTemplates([]))).toBe(true);
+  });
+
+  it('does not mutate source data', () => {
+    const before = JSON.stringify(CONTENT_LIBRARY_ITEMS);
+    const beforeLen = CONTENT_LIBRARY_ITEMS.length;
+    matchContentTemplates(['crm_smart', 'website_premium', 'automation'], 3);
+    matchContentTemplates(['business_full'], 999);
+    matchContentTemplates(['__nope__']);
+    expect(JSON.stringify(CONTENT_LIBRARY_ITEMS)).toBe(before);
+    expect(CONTENT_LIBRARY_ITEMS.length).toBe(beforeLen);
+    // returns a NEW array of ORIGINAL item references (not clones)
+    const r = matchContentTemplates(['crm_smart'], 2);
+    expect(r).not.toBe(CONTENT_LIBRARY_ITEMS);
+    for (const item of r) expect(CONTENT_LIBRARY_ITEMS.includes(item)).toBe(true);
+  });
+
+  it('returns only existing content items', () => {
+    const r = matchContentTemplates(['crm_smart', 'automation'], 5);
+    for (const item of r) expect(itemById(item.id)).toBe(item);
+  });
+
+  it('matches by offerId / entryOfferId / upsell (relatedOffers intersect the offer path)', () => {
+    for (const cat of LEAD_CATEGORIES) {
+      const path = offerPath(cat);
+      const r = matchContentTemplates(path, 999);
+      for (const item of r) {
+        expect(item.relatedOffers.some((o) => path.includes(o)), `${item.id} vs ${cat.id}`).toBe(true);
+      }
+    }
+  });
+
+  it('ranks exact main-offer matches before entry/upsell matches (monotonic rank)', () => {
+    // disjoint tiers: business_full-only items (rank 0) must precede crm_smart items (rank 1)
+    const r = matchContentTemplates(['business_full', 'crm_smart'], 999);
+    expect(r[0].id).toBe('before_after-1');
+    expect(r[1].id).toBe('before_after-2');
+    // rank is non-decreasing across the whole result; ties keep library order
+    const priority = ['business_full', 'crm_smart'];
+    let prevRank = -1;
+    let prevIdx = -1;
+    for (const item of r) {
+      const rank = rankIn(priority, item);
+      const idx = CONTENT_LIBRARY_ITEMS.indexOf(item);
+      expect(rank).toBeGreaterThanOrEqual(prevRank);
+      if (rank === prevRank) expect(idx).toBeGreaterThan(prevIdx);
+      prevRank = rank; prevIdx = idx;
+    }
+  });
+
+  it('returns a safe empty array for unknown / empty / invalid input', () => {
+    expect(matchContentTemplates(['__nope__'])).toEqual([]);
+    expect(matchContentTemplates([])).toEqual([]);
+    expect(matchContentTemplates(undefined)).toEqual([]);
+    expect(matchContentTemplates(null)).toEqual([]);
+    expect(matchContentTemplates(['', null, undefined])).toEqual([]);
+  });
+
+  it('respects the limit', () => {
+    const all = matchContentTemplates(['crm_smart', 'website_premium', 'automation'], 999);
+    const capped = matchContentTemplates(['crm_smart', 'website_premium', 'automation'], 3);
+    expect(capped.length).toBeLessThanOrEqual(3);
+    expect(all.length).toBeGreaterThanOrEqual(capped.length);
+    expect(capped).toEqual(all.slice(0, 3));
+    // a non-positive limit yields no results
+    expect(matchContentTemplates(['crm_smart'], 0)).toEqual([]);
+    expect(matchContentTemplates(['crm_smart'], -1)).toEqual([]);
+  });
+
+  it('every lead category with a mapped offer returns at least one related content item', () => {
+    for (const cat of LEAD_CATEGORIES) {
+      const path = offerPath(cat);
+      expect(path.length, `${cat.id} has offers`).toBeGreaterThan(0);
+      const r = matchContentTemplates(path, 4);
+      expect(r.length, `${cat.id} matched no templates`).toBeGreaterThan(0);
+    }
+  });
+
+  it('returned items have valid category and format references', () => {
+    for (const cat of LEAD_CATEGORIES) {
+      const r = matchContentTemplates(offerPath(cat), 4);
+      for (const item of r) {
+        expect(categoryById(item.categoryId), `${item.id} category`).not.toBeNull();
+        for (const f of item.formats) expect(CONTENT_FORMATS[f], `${item.id} format ${f}`).toBeTruthy();
+      }
+    }
+  });
+
+  it('produces a stable, deterministic order', () => {
+    const args = ['crm_smart', 'website_premium', 'automation', 'landing_basic'];
+    expect(matchContentTemplates(args, 4)).toEqual(matchContentTemplates(args, 4));
+    for (const cat of LEAD_CATEGORIES) {
+      expect(matchContentTemplates(offerPath(cat), 4)).toEqual(matchContentTemplates(offerPath(cat), 4));
+    }
   });
 });

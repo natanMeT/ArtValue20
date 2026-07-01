@@ -1,9 +1,13 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import Modal from '../../../components/ui/Modal.jsx';
 import Icon from '../../../components/ui/Icon.jsx';
 import {
   serviceById, actionById, levelMeta, formatBand, PRICE_DISCLAIMER,
 } from '../../../data/growthLeads.js';
+import {
+  matchContentTemplates, categoryById as contentCategoryById, formatById,
+} from '../../../data/growthContentAds.js';
 
 // Section wrapper: small icon + label header, then content. Purely presentational.
 function Section({ icon, label, children }) {
@@ -61,6 +65,16 @@ export default function LeadCategoryDetail({ category, onClose }) {
   const action = actionById(category.action);
   const upsell = (category.upsell || []).map(serviceById).filter(Boolean);
   const hasEntry = entry && entry.id !== offer?.id;
+
+  // Deterministic link into the Content & Ads Library: templates whose relatedOffers
+  // intersect this category's offer path (main → entry → upsell). Read-only, no mutation.
+  const contentOfferIds = [category.offerId, category.entryOfferId, ...(category.upsell || [])].filter(Boolean);
+  const contentMatches = matchContentTemplates(contentOfferIds, 4);
+  const matchReason = (item) => {
+    const id = contentOfferIds.find((o) => (item.relatedOffers || []).includes(o));
+    const svc = id ? serviceById(id) : null;
+    return svc ? svc.name : null;
+  };
 
   return (
     <Modal open={!!category} onClose={onClose} title={category.label} subtitle={category.who} maxWidth={640}>
@@ -167,6 +181,47 @@ export default function LeadCategoryDetail({ category, onClose }) {
             </div>
           </Section>
         )}
+
+        {/* 7 — Matching content/ad templates (deterministic link into the library) */}
+        <Section icon="image" label="תבניות פרסום מתאימות">
+          <p className="ld-text" style={{ marginTop: -2 }}>
+            רעיונות מוכנים מתוך ספריית הפרסום שמתאימים להצעה ולסוג הלקוח הזה.
+          </p>
+          {contentMatches.length > 0 ? (
+            <div className="ld-matches">
+              {contentMatches.map((item) => {
+                const cat = contentCategoryById(item.categoryId);
+                const formats = (item.formats || []).map(formatById).filter(Boolean);
+                const reason = matchReason(item);
+                return (
+                  <Link
+                    key={item.id}
+                    to="/growth/content"
+                    className="ld-match"
+                    aria-label={`פתח בספריית הפרסום — ${item.title}`}
+                  >
+                    <div className="ld-match-top">
+                      <span className="ld-match-title">{item.title}</span>
+                      {cat && <span className="badge badge-neutral"><span className="dot" />{cat.label}</span>}
+                    </div>
+                    {formats.length > 0 && (
+                      <div className="lead-chips">
+                        {formats.map((f) => (
+                          <span key={f.id} className="lead-chip"><Icon name={f.icon} size={12} /> {f.name}</span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="ld-match-cta"><Icon name="send" size={12} /> {item.cta}</div>
+                    {reason && <p className="ld-match-reason">מתאים ל: {reason}</p>}
+                    <span className="ld-match-open"><Icon name="arrow" size={13} /> פתח בספריית הפרסום</span>
+                  </Link>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="dim">אין עדיין תבניות פרסום משויכות לקטגוריה הזו.</p>
+          )}
+        </Section>
       </div>
     </Modal>
   );
