@@ -144,6 +144,71 @@
 .ld-list { margin: 0; padding-inline-start: 18px; display: flex; flex-direction: column; gap: 4px; }
 .ld-badges { display: flex; flex-wrap: wrap; gap: 8px; }
 
+/* Lead detail — action-plan polish (Slice: lead-detail action plan) */
+.ld-section { display: flex; flex-direction: column; gap: 9px; }
+.ld-section + .ld-section { margin-top: 2px; padding-top: 14px; border-top: 1px solid var(--border); }
+.ld-section-head { display: flex; align-items: center; gap: 8px; }
+.ld-section-ico {
+  display: grid; place-items: center; width: 26px; height: 26px; flex: none;
+  border-radius: 8px; background: var(--surface); color: var(--lime-deep);
+  border: 1px solid var(--border);
+}
+.ld-section-title { margin: 0; font-size: 0.92rem; font-weight: 700; }
+
+.ld-axes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+@media (max-width: 480px) { .ld-axes { grid-template-columns: 1fr; } }
+.ld-axis {
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
+  padding: 10px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border);
+}
+.ld-axis-cap { font-size: 0.72rem; color: var(--text-3); }
+
+.ld-action-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 13px; border-radius: 12px;
+  border: 1px solid rgba(212, 255, 63, 0.32); background: rgba(212, 255, 63, 0.07);
+}
+.ld-ab-ico {
+  display: grid; place-items: center; width: 32px; height: 32px; flex: none;
+  border-radius: 9px; background: var(--surface); color: var(--lime-deep); border: 1px solid var(--border);
+}
+.ld-ab-cap { font-size: 0.72rem; color: var(--text-3); }
+.ld-ab-label { font-size: 0.98rem; font-weight: 700; }
+
+.ld-field { display: flex; flex-direction: column; gap: 5px; }
+.ld-field-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ld-text { margin: 0; color: var(--text-2); font-size: 0.9rem; line-height: 1.6; }
+
+.ld-quote {
+  margin: 0; padding: 9px 12px; border-radius: 10px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--border);
+  color: var(--text-2); font-size: 0.9rem; line-height: 1.55;
+}
+.ld-quote.ok { border-inline-start-color: var(--lime-deep); }
+
+.ld-entry {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 0.82rem; color: var(--text-2);
+  padding: 8px 11px; border-radius: 10px;
+  background: var(--surface); border: 1px dashed var(--border);
+}
+.ld-entry svg { color: var(--lime-deep); flex: none; }
+
+.ld-copy {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  font-size: 0.74rem; font-weight: 600;
+  padding: 4px 9px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-2);
+  cursor: pointer; transition: border-color 0.15s, color 0.15s;
+}
+.ld-copy:hover { color: var(--lime-deep); border-color: rgba(212, 255, 63, 0.3); }
+.ld-copy:focus-visible { outline: 2px solid var(--lime-deep); outline-offset: 2px; }
+
+.ld-upsell-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ld-upsell-item { display: inline-flex; align-items: center; gap: 8px; }
+.ld-flow-sep { display: inline-flex; color: var(--text-3); flex: none; }
+
 /* Growth OS — Monthly Action Calendar (Slice 3) */
 .gc-controls .field label { font-size: 0.8rem; }
 .gc-summary { grid-template-columns: repeat(4, 1fr); }
