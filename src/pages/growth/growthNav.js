@@ -12,30 +12,31 @@ export const GROWTH_NAV = [
   { to: '/calls', label: 'שיחות', icon: 'phone' },
 ];
 
-// Hub modules — cards on the /growth page. Copy mirrors each placeholder page.
+// Hub modules — cards on the /growth page. All four modules are shipped and
+// live; `desc` states what each one actually does today (no "coming soon").
 export const GROWTH_MODULES = [
   {
     to: '/growth/leads',
     title: 'מיפוי לידים',
-    soon: 'בקרוב — מיפוי לידים ואסטרטגיית הצעות',
+    desc: 'קטגוריות לידים, הצעה מתאימה לכל קטגוריה ותוכנית פעולה מפורטת.',
     icon: 'target',
   },
   {
     to: '/growth/calendar',
     title: 'לוח פעולה חודשי',
-    soon: 'בקרוב — תכנון פעולות חודשי לפי יעד הכנסה',
+    desc: 'תרגום יעד הכנסה לפעולות יומיות, פירוק שבועי וקטגוריות מיקוד.',
     icon: 'calendar',
   },
   {
     to: '/growth/content',
     title: 'ספריית פרסום ותוכן',
-    soon: 'מאגר פרומטים, רעיונות ותבניות פרסום',
+    desc: 'מאגר תבניות, פרומטים ורעיונות פרסום — מותאמים לפי הצעה.',
     icon: 'image',
   },
   {
     to: '/calls',
-    title: 'שיחות',
-    soon: 'בקרוב — אימון שיחות ומכירות עם JaceOS',
+    title: 'שיחות ופולואפים',
+    desc: 'הכנה לשיחה לפי סוג לקוח: תסריט פתיחה, התנגדויות ותבניות המשך.',
     icon: 'phone',
   },
 ];

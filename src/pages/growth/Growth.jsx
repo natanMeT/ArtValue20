@@ -17,9 +17,9 @@ export default function Growth() {
       <Reveal>
         <div className="card panel" style={{ marginBottom: 18 }}>
           <p className="muted" style={{ margin: 0, lineHeight: 1.7 }}>
-            כאן מנהלים את הצמיחה של העסק: מיפוי לידים ואסטרטגיית הצעות, תכנון פעולות
-            חודשי לפי יעד הכנסה, ואימון שיחות ומכירות. המודולים ייפתחו בהדרגה — זהו
-            המסך המרכזי שמחבר ביניהם.
+            כאן מנהלים את הצמיחה של העסק: מתחילים בלוח הפעולה החודשי, ממשיכים
+            למיפוי לידים ולהכנת שיחות, ומשתמשים בספריית התוכן לפרסום. כל
+            המודולים פעילים ומחוברים — זהו המסך המרכזי שמחבר ביניהם.
           </p>
         </div>
       </Reveal>
@@ -34,10 +34,10 @@ export default function Growth() {
             >
               <div className="row between" style={{ gap: 12 }}>
                 <span className="kpi-ico"><Icon name={m.icon} size={20} /></span>
-                <span className="badge badge-neutral"><span className="dot" />בקרוב</span>
+                <span className="badge badge-completed"><span className="dot" />פעיל</span>
               </div>
               <h3 style={{ fontSize: '1.12rem', margin: 0 }}>{m.title}</h3>
-              <p className="muted" style={{ margin: 0, fontSize: '0.9rem' }}>{m.soon}</p>
+              <p className="muted" style={{ margin: 0, fontSize: '0.9rem' }}>{m.desc}</p>
             </Link>
           </Reveal>
         ))}

@@ -141,6 +141,49 @@ export function weeklyBreakdown(plan) {
   });
 }
 
+// ---- operating links (pure route mapping — navigation only, no behavior) ----
+// Where each calendar action is EXECUTED inside Growth OS. Deterministic map;
+// no messaging, no automation — links land on existing prep/library pages.
+export const GROWTH_ROUTES = {
+  calls: '/calls',
+  leads: '/growth/leads',
+  content: '/growth/content',
+  calendar: '/growth/calendar',
+};
+
+const ACTION_DESTINATIONS = {
+  whatsapp:  { to: GROWTH_ROUTES.calls,   label: 'להכנת הודעה' },
+  calls:     { to: GROWTH_ROUTES.calls,   label: 'להכנת שיחה' },
+  followUps: { to: GROWTH_ROUTES.calls,   label: 'להכנת פולואפ' },
+  demos:     { to: GROWTH_ROUTES.leads,   label: 'לבחירת קטגוריה' },
+  meetings:  { to: GROWTH_ROUTES.calls,   label: 'להכנת שיחה' },
+  proposals: { to: GROWTH_ROUTES.leads,   label: 'לתוכנית הפעולה' },
+  content:   { to: GROWTH_ROUTES.content, label: 'לספריית התוכן' },
+};
+
+// Destination for a calendar action key. Unknown/missing key → safe fallback
+// (stay on the calendar) so a link can never point outside Growth OS.
+export function actionDestination(actionKey) {
+  return ACTION_DESTINATIONS[actionKey] || { to: GROWTH_ROUTES.calendar, label: 'ללוח הפעולה' };
+}
+
+const isLeadCategoryId = (id) => LEAD_CATEGORIES.some((c) => c.id === id);
+
+// Route into the Calls prep page with a category preselected. Unknown id →
+// plain /calls (the page falls back to its first category by itself).
+export function callsRouteForCategory(categoryId) {
+  return isLeadCategoryId(categoryId)
+    ? `${GROWTH_ROUTES.calls}?category=${encodeURIComponent(categoryId)}`
+    : GROWTH_ROUTES.calls;
+}
+
+// Route into Lead Mapping with a category detail opened. Unknown id → plain list.
+export function leadsRouteForCategory(categoryId) {
+  return isLeadCategoryId(categoryId)
+    ? `${GROWTH_ROUTES.leads}?category=${encodeURIComponent(categoryId)}`
+    : GROWTH_ROUTES.leads;
+}
+
 // ---- lead-category focus ranking (deterministic, top 5) ----
 const LEVEL_SCORE = { high: 3, medium: 2, low: 1 };
 const score = (cat) =>

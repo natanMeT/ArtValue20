@@ -6,6 +6,7 @@ import { SectionHeader } from '../../components/ui/atoms.jsx';
 import { PRICE_DISCLAIMER } from '../../data/growthLeads.js';
 import {
   CALENDAR_DEFAULTS, CALENDAR_ACTIONS, planFromTargets, weeklyBreakdown, rankCategoryFocus,
+  actionDestination, callsRouteForCategory, leadsRouteForCategory,
 } from '../../data/growthCalendar.js';
 import GrowthCalendarControls from './calendar/GrowthCalendarControls.jsx';
 import GrowthCalendarPlan from './calendar/GrowthCalendarPlan.jsx';
@@ -51,11 +52,21 @@ export default function GrowthCalendar() {
 
       <h3 className="gc-section-title">פעילות מומלצת החודש</h3>
       <StaggerGroup className="kpi-grid gc-actions">
-        {CALENDAR_ACTIONS.map((a) => (
-          <Reveal key={a.key}>
-            <GrowthActionCard icon={a.icon} label={a.label} count={plan.actions[a.key]} note={a.note} />
-          </Reveal>
-        ))}
+        {CALENDAR_ACTIONS.map((a) => {
+          const dest = actionDestination(a.key);
+          return (
+            <Reveal key={a.key} style={{ height: '100%' }}>
+              <GrowthActionCard
+                icon={a.icon}
+                label={a.label}
+                count={plan.actions[a.key]}
+                note={a.note}
+                to={dest.to}
+                linkLabel={dest.label}
+              />
+            </Reveal>
+          );
+        })}
       </StaggerGroup>
 
       <h3 className="gc-section-title">פירוק שבועי</h3>
@@ -85,6 +96,14 @@ export default function GrowthCalendar() {
               <div className="row between gap-2 gc-focus-foot">
                 <span className={`badge ${f.urgency.cls}`}><span className="dot" />{f.urgency.label}</span>
                 {f.action && <span className="lead-action"><Icon name={f.action.icon} size={14} /> {f.action.label}</span>}
+              </div>
+              <div className="gc-focus-links">
+                <Link className="btn btn-ghost btn-sm" to={leadsRouteForCategory(f.id)}>
+                  <Icon name="target" size={14} /> תוכנית פעולה
+                </Link>
+                <Link className="btn btn-ghost btn-sm" to={callsRouteForCategory(f.id)}>
+                  <Icon name="phone" size={14} /> הכנת שיחה
+                </Link>
               </div>
             </div>
           </Reveal>

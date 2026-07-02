@@ -344,8 +344,13 @@
 @media (max-width: 900px) { .gc-summary, .gc-actions { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 520px) { .gc-summary, .gc-actions { grid-template-columns: 1fr; } }
 
-.gc-action { display: flex; flex-direction: column; }
-.gc-action-note { margin: 6px 0 0; font-size: 0.76rem; }
+.gc-action { display: flex; flex-direction: column; height: 100%; }
+.gc-action-note { margin: 6px 0 10px; font-size: 0.76rem; }
+/* operating link, bottom-anchored so buttons align across a card row
+   (same equal-height pattern as .gc-focus-foot) */
+.gc-action-go { margin-top: auto; align-self: flex-start; }
+/* focus-card links into leads / calls prep */
+.gc-focus-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 
 .gc-section-title { font-size: 1.05rem; margin: 22px 0 12px; }
 
