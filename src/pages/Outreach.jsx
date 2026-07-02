@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useStore } from '../store/store.jsx';
 import { StaggerGroup, Reveal, ScrollReveal } from '../components/ui/motion.jsx';
@@ -6,7 +7,8 @@ import Icon from '../components/ui/Icon.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
 import { SectionHeader, EmptyState } from '../components/ui/atoms.jsx';
-import { CATS, buildMessage, needFor, OUTREACH_NEEDS_DEFAULT } from '../data/outreach.js';
+import { CATS, buildMessage, needFor, OUTREACH_NEEDS_DEFAULT, OUTREACH_TO_GROWTH_CATEGORY } from '../data/outreach.js';
+import { leadsRouteForCategory } from '../data/growthCalendar.js';
 import { uuid } from '../lib/api.js';
 import { generateLeadIdeas, isGeminiConfigured } from '../lib/gemini.js';
 
@@ -42,7 +44,7 @@ export default function Outreach() {
       const ideas = await generateLeadIdeas(niche, 6);
       if (!ideas.length) { setGenError('לא התקבלו רעיונות, נסה ניסוח אחר'); return; }
       ideas.forEach((idea) => {
-        const category = CATS.some((c) => c.id === idea.category) ? idea.category : 'food';
+        const category = CATS.some((c) => c.id === idea.category) ? idea.category : 'services';
         dispatch({ type: 'ADD_LEAD', payload: { name: idea.name, category, status: 'pending', clientId: null, need: idea.need || '' } });
       });
       toast(`נוספו ${ideas.length} רעיונות לידים`);
@@ -130,7 +132,7 @@ export default function Outreach() {
     <div>
       <SectionHeader
         title="מחקר לידים"
-        sub="רעיונות ללידים ופניות קרות · העתק הודעה, סמן מצב, התקדם"
+        sub="רעיונות ללידים ופניות קרות · העתק הודעה, סמן מצב, והתקדם משיחה להזדמנות"
         action={
           <button className="btn btn-ghost" onClick={() => setAdding(true)}>
             <Icon name="plus" size={18} /> הוסף ליד ידני
@@ -145,7 +147,7 @@ export default function Outreach() {
             <Icon name="spark" size={18} style={{ color: 'var(--lime-deep)' }} /> מחקר לידים עם AI
           </div>
           <p className="dim" style={{ fontSize: '0.84rem', marginBottom: 14 }}>
-            הזן תחום, אזור או סוג קהל — וקבל רעיונות ללידים שכדאי לפנות אליהם, עם הצורך הדיגיטלי של כל אחד.
+            הזן תחום, אזור או סוג קהל — וקבל רעיונות ללידים שכדאי לפנות אליהם, עם הצורך העסקי של כל אחד: מערכת CRM, דשבורד, אוטומציות, מערכת פולואפים או דף נחיתה.
             {!isGeminiConfigured && ' (מצב הדגמה — ללא מפתח Gemini)'}
           </p>
           <div className="row gap-2 wrap">
@@ -216,6 +218,13 @@ export default function Outreach() {
                 <span className="group-ico">{cat.icon}</span>
                 <span>{cat.label}</span>
                 <span className="dim" style={{ fontSize: '0.8rem', fontWeight: 600 }}>· {inCat.length}</span>
+                <div className="grow" />
+                <Link
+                  className="btn btn-ghost btn-sm"
+                  to={leadsRouteForCategory(OUTREACH_TO_GROWTH_CATEGORY[cat.id])}
+                >
+                  <Icon name="target" size={14} /> מיפוי אסטרטגי
+                </Link>
               </div>
               <StaggerGroup style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
                 {inCat.map((lead) => (
