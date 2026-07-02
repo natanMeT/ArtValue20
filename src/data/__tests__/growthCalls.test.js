@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { CALL_CATEGORIES, buildCallPrep } from '../growthCalls.js';
+import { CALL_CATEGORIES, buildCallPrep, resolveCallCategoryId } from '../growthCalls.js';
 import {
   LEAD_CATEGORIES, SERVICES, ACTIONS, serviceById, actionById,
 } from '../growthLeads.js';
@@ -204,5 +204,33 @@ describe('growthCalls · buildCallPrep', () => {
     for (const token of forbidden) {
       expect(src.includes(token)).toBe(false);
     }
+  });
+});
+
+// ===================================================================
+// resolveCallCategoryId — safe navigation preselection (?category=<id>)
+// ===================================================================
+
+describe('growthCalls · resolveCallCategoryId', () => {
+  const firstId = CALL_CATEGORIES[0].id;
+
+  it('returns the id itself for every known category', () => {
+    for (const c of CALL_CATEGORIES) {
+      expect(resolveCallCategoryId(c.id)).toBe(c.id);
+    }
+  });
+
+  it('unknown id falls back to the first category', () => {
+    expect(resolveCallCategoryId('definitely_not_a_category')).toBe(firstId);
+  });
+
+  it('missing / empty / non-string input falls back to the first category', () => {
+    for (const bad of [null, undefined, '', 0, 42, {}, []]) {
+      expect(resolveCallCategoryId(bad)).toBe(firstId);
+    }
+  });
+
+  it('never throws (total function)', () => {
+    expect(() => resolveCallCategoryId(Symbol('x'))).not.toThrow();
   });
 });

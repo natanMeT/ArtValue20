@@ -2,10 +2,16 @@ import { describe, it, expect } from 'vitest';
 import {
   CALENDAR_DEFAULTS,
   CALENDAR_DISCLAIMER,
+  CALENDAR_ACTIONS,
+  GROWTH_ROUTES,
   planFromTargets,
   weeklyBreakdown,
   rankCategoryFocus,
+  actionDestination,
+  callsRouteForCategory,
+  leadsRouteForCategory,
 } from '../growthCalendar.js';
+import { LEAD_CATEGORIES } from '../growthLeads.js';
 
 const finite = (n) => Number.isFinite(n) && !Number.isNaN(n);
 
@@ -98,5 +104,73 @@ describe('growthCalendar — rankCategoryFocus', () => {
 describe('growthCalendar — disclaimer', () => {
   it('exposes the planning disclaimer string', () => {
     expect(CALENDAR_DISCLAIMER).toContain('הערכה תכנונית');
+  });
+});
+
+// ===================================================================
+// Operating links (Slice: calendar → calls/leads/content connection)
+// Pure route mapping — navigation only, never automation.
+// ===================================================================
+
+const KNOWN_ROUTES = ['/calls', '/growth/leads', '/growth/content', '/growth/calendar'];
+
+describe('growthCalendar — actionDestination', () => {
+  it('every calendar action has a destination inside Growth OS', () => {
+    for (const a of CALENDAR_ACTIONS) {
+      const dest = actionDestination(a.key);
+      expect(dest).toBeTruthy();
+      expect(KNOWN_ROUTES).toContain(dest.to);
+      expect(typeof dest.label).toBe('string');
+      expect(dest.label.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('exposes exactly the known Growth OS routes', () => {
+    expect(Object.values(GROWTH_ROUTES).sort()).toEqual([...KNOWN_ROUTES].sort());
+  });
+
+  it('outreach actions (whatsapp/calls/followUps/meetings) go to /calls', () => {
+    for (const key of ['whatsapp', 'calls', 'followUps', 'meetings']) {
+      expect(actionDestination(key).to).toBe('/calls');
+    }
+  });
+
+  it('content goes to /growth/content', () => {
+    expect(actionDestination('content').to).toBe('/growth/content');
+  });
+
+  it('demos/proposals go to /growth/leads', () => {
+    for (const key of ['demos', 'proposals']) {
+      expect(actionDestination(key).to).toBe('/growth/leads');
+    }
+  });
+
+  it('unknown / missing action key falls back safely to the calendar', () => {
+    for (const bad of ['nope', '', null, undefined, 42]) {
+      const dest = actionDestination(bad);
+      expect(dest.to).toBe('/growth/calendar');
+      expect(typeof dest.label).toBe('string');
+    }
+  });
+});
+
+describe('growthCalendar — category route helpers', () => {
+  it('known lead category → /calls?category=<id>', () => {
+    for (const cat of LEAD_CATEGORIES) {
+      expect(callsRouteForCategory(cat.id)).toBe(`/calls?category=${encodeURIComponent(cat.id)}`);
+    }
+  });
+
+  it('known lead category → /growth/leads?category=<id>', () => {
+    for (const cat of LEAD_CATEGORIES) {
+      expect(leadsRouteForCategory(cat.id)).toBe(`/growth/leads?category=${encodeURIComponent(cat.id)}`);
+    }
+  });
+
+  it('unknown / missing category id → plain module route (never crashes)', () => {
+    for (const bad of ['nope', '', null, undefined, 42]) {
+      expect(callsRouteForCategory(bad)).toBe('/calls');
+      expect(leadsRouteForCategory(bad)).toBe('/growth/leads');
+    }
   });
 });

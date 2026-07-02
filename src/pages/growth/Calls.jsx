@@ -1,16 +1,26 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import Icon from '../../components/ui/Icon.jsx';
 import { SectionHeader } from '../../components/ui/atoms.jsx';
-import { CALL_CATEGORIES, buildCallPrep } from '../../data/growthCalls.js';
+import { CALL_CATEGORIES, buildCallPrep, resolveCallCategoryId } from '../../data/growthCalls.js';
 import CallPrepView from './calls/CallPrepView.jsx';
 
 // Growth OS · שיחות ופולואפים — static, deterministic call & follow-up prep.
 // Reuses existing Growth OS data only (lead mapping + content library). No
 // persistence, no store, no AI, no JaceOS/assistant wiring, no messaging,
 // no publishing. `selected` is local UI state only.
+// An optional ?category=<id> (e.g. from the Monthly Calendar) preselects a
+// category; unknown/missing ids fall back safely to the first category.
 export default function Calls() {
-  const [selectedId, setSelectedId] = useState(CALL_CATEGORIES[0]?.id || '');
+  const [searchParams] = useSearchParams();
+  const paramId = searchParams.get('category');
+  const [selectedId, setSelectedId] = useState(() => resolveCallCategoryId(paramId));
+
+  // Re-sync when navigation brings a (new) category param while mounted.
+  useEffect(() => {
+    if (paramId) setSelectedId(resolveCallCategoryId(paramId));
+  }, [paramId]);
+
   const prep = useMemo(() => buildCallPrep(selectedId), [selectedId]);
 
   return (

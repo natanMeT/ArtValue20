@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Reveal } from '../../components/ui/motion.jsx';
 import Icon from '../../components/ui/Icon.jsx';
 import { SectionHeader } from '../../components/ui/atoms.jsx';
 import {
-  LEAD_CATEGORIES, FILTERS, STATS, PRICE_DISCLAIMER, matchesFilter,
+  LEAD_CATEGORIES, FILTERS, STATS, PRICE_DISCLAIMER, matchesFilter, categoryById,
 } from '../../data/growthLeads.js';
 import LeadCategoryGrid from './leads/LeadCategoryGrid.jsx';
 import LeadCategoryDetail from './leads/LeadCategoryDetail.jsx';
@@ -12,9 +12,19 @@ import LeadCategoryDetail from './leads/LeadCategoryDetail.jsx';
 // Growth OS · מיפוי לידים ואסטרטגיית הצעות (Slice 2)
 // Static, presentational, deterministic. No persistence, no store, no AI.
 // `filter` and `selected` are local UI state only.
+// An optional ?category=<id> (e.g. from the Monthly Calendar) opens that
+// category's detail; unknown/missing ids are ignored (plain list, no crash).
 export default function GrowthLeads() {
+  const [searchParams] = useSearchParams();
+  const paramId = searchParams.get('category');
   const [filter, setFilter] = useState('all');
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState(() => categoryById(paramId));
+
+  // Re-sync when navigation brings a (new) valid category param while mounted.
+  useEffect(() => {
+    const cat = categoryById(paramId);
+    if (cat) setSelected(cat);
+  }, [paramId]);
 
   const visible = useMemo(
     () => LEAD_CATEGORIES.filter((c) => matchesFilter(c, filter)),

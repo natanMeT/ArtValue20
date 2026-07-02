@@ -30,6 +30,15 @@ export const CALL_CATEGORIES = LEAD_CATEGORIES.map((c) => ({
   id: c.id, label: c.label, icon: c.icon,
 }));
 
+// Resolve a category id coming from navigation (e.g. /calls?category=x).
+// Pure + total: known id → itself; unknown/missing/non-string → first category.
+// Never throws, so a stale or hand-typed URL can never crash the page.
+export function resolveCallCategoryId(param) {
+  return CALL_CATEGORIES.some((c) => c.id === param)
+    ? param
+    : (CALL_CATEGORIES[0]?.id || '');
+}
+
 // Merge follow-up templates (prioritized) with offer-matched templates,
 // de-duplicated by id and capped at `limit`. Returns ORIGINAL item refs in a
 // fresh array — never mutates the source library. Pure & deterministic.
