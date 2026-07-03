@@ -3,6 +3,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import Icon from '../../components/ui/Icon.jsx';
 import { SectionHeader } from '../../components/ui/atoms.jsx';
 import { CALL_CATEGORIES, buildCallPrep, resolveCallCategoryId } from '../../data/growthCalls.js';
+import { buildGrowthPromptSeed } from '../../data/growthContext.js';
+import { askJake } from '../../lib/askJake.js';
 import CallPrepView from './calls/CallPrepView.jsx';
 
 // Growth OS · שיחות ופולואפים — static, deterministic call & follow-up prep.
@@ -39,7 +41,7 @@ export default function Calls() {
         <Icon name="spark" size={13} /> בחר סוג לקוח וקבל תמונת מצב, תסריט פתיחה, טיפול בהתנגדות ותבניות פולואפ מוכנות. הכל מקומי — בלי שליחה אוטומטית.
       </p>
 
-      <div className="toolbar" style={{ marginBottom: 16 }}>
+      <div className="toolbar" style={{ marginBottom: 16, gap: 10, flexWrap: 'wrap' }}>
         <div className="filter-tabs hide-scroll" style={{ overflowX: 'auto', maxWidth: '100%' }}>
           {CALL_CATEGORIES.map((c) => (
             <button
@@ -51,6 +53,14 @@ export default function Calls() {
             </button>
           ))}
         </div>
+        {/* Explicit click → jake:ask with call-prep context for the selected category */}
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={() => askJake(buildGrowthPromptSeed('call_prep', { categoryId: selectedId }))}
+        >
+          <Icon name="spark" size={15} /> הכן לי שיחה עם ג׳יק
+        </button>
       </div>
 
       <CallPrepView prep={prep} />

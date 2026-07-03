@@ -36,12 +36,21 @@ const safetyBlock = () => ['כללי בטיחות:', ...GROWTH_CONTEXT_SAFETY.ma
 // Compact Hebrew snapshot: purpose, monthly plan volumes, top focus
 // categories with their recommended offer. Safe defaults mirror the
 // Growth Calendar (its state is local UI state, never persisted).
+// Forwards ALL planning assumptions (target, avgDeal, closeRate,
+// qualifyRate, workDays) so a caller showing an edited plan can hand
+// Jake the SAME numbers; planFromTargets back-fills any missing one
+// with the calendar defaults.
+const planFromOptions = (options) => planFromTargets({
+  target: options.target ?? CALENDAR_DEFAULTS.target,
+  avgDeal: options.avgDeal ?? CALENDAR_DEFAULTS.avgDeal,
+  closeRate: options.closeRate,
+  qualifyRate: options.qualifyRate,
+  workDays: options.workDays,
+});
+
 export function buildGrowthContext(options = {}) {
   const categoryLimit = options.categoryLimit ?? DEFAULTS.categoryLimit;
-  const plan = planFromTargets({
-    target: options.target ?? CALENDAR_DEFAULTS.target,
-    avgDeal: options.avgDeal ?? CALENDAR_DEFAULTS.avgDeal,
-  });
+  const plan = planFromOptions(options);
   const focus = rankCategoryFocus(categoryLimit);
 
   const actionLines = Object.entries(plan.actions)
@@ -71,10 +80,7 @@ export function buildGrowthContext(options = {}) {
 
 // ---- short daily-focus context --------------------------------------------
 export function buildGrowthDailyFocusContext(options = {}) {
-  const plan = planFromTargets({
-    target: options.target ?? CALENDAR_DEFAULTS.target,
-    avgDeal: options.avgDeal ?? CALENDAR_DEFAULTS.avgDeal,
-  });
+  const plan = planFromOptions(options);
   const top = rankCategoryFocus(1)[0];
 
   return [

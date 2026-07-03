@@ -8,6 +8,8 @@ import {
   CALENDAR_DEFAULTS, CALENDAR_ACTIONS, planFromTargets, weeklyBreakdown, rankCategoryFocus,
   actionDestination, callsRouteForCategory, leadsRouteForCategory,
 } from '../../data/growthCalendar.js';
+import { buildGrowthPromptSeed } from '../../data/growthContext.js';
+import { askJake } from '../../lib/askJake.js';
 import GrowthCalendarControls from './calendar/GrowthCalendarControls.jsx';
 import GrowthCalendarPlan from './calendar/GrowthCalendarPlan.jsx';
 import GrowthActionCard from './calendar/GrowthActionCard.jsx';
@@ -50,7 +52,18 @@ export default function GrowthCalendar() {
         <Reveal><GrowthCalendarPlan plan={plan} /></Reveal>
       </div>
 
-      <h3 className="gc-section-title">פעילות מומלצת החודש</h3>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+        <h3 className="gc-section-title">פעילות מומלצת החודש</h3>
+        {/* Explicit click → jake:ask with ALL five planning assumptions currently
+            on screen, so Jake's numbers always match the plan card above. */}
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={() => askJake(buildGrowthPromptSeed('daily_focus', { ...values }))}
+        >
+          <Icon name="spark" size={15} /> שאל את ג׳יק מה לעשות היום
+        </button>
+      </div>
       <StaggerGroup className="kpi-grid gc-actions">
         {CALENDAR_ACTIONS.map((a) => {
           const dest = actionDestination(a.key);
