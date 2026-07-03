@@ -1,27 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Icon from '../ui/Icon.jsx';
-import { GROWTH_NAV } from '../../pages/growth/growthNav.js';
-
-const NAV = [
-  { to: '/', label: 'דאשבורד', icon: 'dashboard', end: true },
-  { to: '/clients', label: 'לקוחות', icon: 'users' },
-  { to: '/outreach', label: 'מחקר לידים', icon: 'send' },
-  { to: '/projects', label: 'פרויקטים', icon: 'briefcase' },
-  { to: '/tasks', label: 'משימות', icon: 'check' },
-  { to: '/pipeline', label: 'פייפליין', icon: 'filter' },
-  { to: '/quotes', label: 'הצעות מחיר', icon: 'doc' },
-  { to: '/diagnose', label: 'אבחון AI', icon: 'spark' },
-  { to: '/adstudio', label: 'סטודיו פרסום', icon: 'spark' },
-  { to: '/studio', label: 'מחולל תמונות', icon: 'image' },
-  { to: '/workflow', label: 'סטודיו Workflow', icon: 'filter' },
-  { to: '/fooocus', label: 'Fooocus', icon: 'image' },
-  { to: '/finance', label: 'פיננסים', icon: 'wallet' },
-  { to: '/activity', label: 'יומן פעילות', icon: 'clock' },
-  { to: '/inventory', label: 'מלאי', icon: 'dashboard' },
-  { to: '/assets', label: 'קבצים וקישורים', icon: 'link' },
-  { to: '/templates', label: 'תבניות', icon: 'copy' },
-];
+import { NAV_SECTIONS } from './sidebarNav.js';
 
 export default function Sidebar({ open, onClose }) {
   const navigate = useNavigate();
@@ -47,49 +27,30 @@ export default function Sidebar({ open, onClose }) {
         </button>
 
         <nav className="nav">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              onClick={onClose}
-              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-            >
-              {({ isActive }) => (
-                <>
-                  {isActive && (
-                    <motion.span layoutId="nav-active" className="nav-active-bg" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />
+          {NAV_SECTIONS.map((section) => (
+            <div className="nav-group" key={section.label}>
+              <div className="nav-group-label">{section.label}</div>
+              {section.items.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  onClick={onClose}
+                  className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                >
+                  {({ isActive }) => (
+                    <>
+                      {isActive && (
+                        <motion.span layoutId="nav-active" className="nav-active-bg" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />
+                      )}
+                      <span className="nav-ico"><Icon name={item.icon} size={19} /></span>
+                      <span className="nav-label">{item.label}</span>
+                    </>
                   )}
-                  <span className="nav-ico"><Icon name={item.icon} size={19} /></span>
-                  <span className="nav-label">{item.label}</span>
-                </>
-              )}
-            </NavLink>
+                </NavLink>
+              ))}
+            </div>
           ))}
-
-          {/* Growth OS — visually separated business-growth group */}
-          <div className="nav-group">
-            <div className="nav-group-label">Growth OS</div>
-            {GROWTH_NAV.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                onClick={onClose}
-                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-              >
-                {({ isActive }) => (
-                  <>
-                    {isActive && (
-                      <motion.span layoutId="nav-active" className="nav-active-bg" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />
-                    )}
-                    <span className="nav-ico"><Icon name={item.icon} size={19} /></span>
-                    <span className="nav-label">{item.label}</span>
-                  </>
-                )}
-              </NavLink>
-            ))}
-          </div>
         </nav>
 
         <div className="sidebar-foot">

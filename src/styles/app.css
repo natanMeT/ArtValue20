@@ -87,6 +87,12 @@
   text-transform: uppercase;
   color: var(--text-3);
 }
+/* First sidebar section sits right under the CTA — no divider needed there. */
+.nav > .nav-group:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
 
 /* Growth OS — Lead mapping (Slice 2) */
 .lead-stats { grid-template-columns: repeat(3, 1fr); }

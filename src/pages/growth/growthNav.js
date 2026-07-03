@@ -8,8 +8,8 @@ export const GROWTH_NAV = [
   { to: '/growth', label: 'מרכז הצמיחה', icon: 'trendUp', end: true },
   { to: '/growth/leads', label: 'מיפוי לידים', icon: 'target' },
   { to: '/growth/calendar', label: 'לוח פעולה', icon: 'calendar' },
-  { to: '/growth/content', label: 'ספריית פרסום', icon: 'image' },
   { to: '/calls', label: 'שיחות', icon: 'phone' },
+  { to: '/growth/content', label: 'ספריית פרסום', icon: 'image' },
 ];
 
 // Hub modules — cards on the /growth page. All four modules are shipped and
