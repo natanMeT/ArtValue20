@@ -8,6 +8,8 @@ import {
 import {
   matchContentTemplates, categoryById as contentCategoryById, formatById,
 } from '../../../data/growthContentAds.js';
+import { buildGrowthPromptSeed } from '../../../data/growthContext.js';
+import { askJake } from '../../../lib/askJake.js';
 
 // Section wrapper: small icon + label header, then content. Purely presentational.
 function Section({ icon, label, children }) {
@@ -76,8 +78,27 @@ export default function LeadCategoryDetail({ category, onClose }) {
     return svc ? svc.name : null;
   };
 
+  // Explicit click → close the modal FIRST (it visually covers Jake's chat),
+  // then dispatch the category-strategy prompt through the jake:ask seam.
+  const askStrategy = () => {
+    const prompt = buildGrowthPromptSeed('category_strategy', { categoryId: category.id });
+    onClose?.();
+    askJake(prompt);
+  };
+
   return (
-    <Modal open={!!category} onClose={onClose} title={category.label} subtitle={category.who} maxWidth={640}>
+    <Modal
+      open={!!category}
+      onClose={onClose}
+      title={category.label}
+      subtitle={category.who}
+      maxWidth={640}
+      footer={
+        <button type="button" className="btn btn-ghost" onClick={askStrategy}>
+          <Icon name="spark" size={16} /> שאל את ג׳יק על אסטרטגיה
+        </button>
+      }
+    >
       <div className="lead-detail">
         {/* 1 — Snapshot: pains + qualitative read */}
         <Section icon="target" label="תמונת מצב">
