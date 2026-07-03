@@ -251,6 +251,24 @@ async function comfyUI(text, useFlux = false, w = 1024, h = 1024, hd = false, mo
   return { src, engine: 'local', demo: false };
 }
 
+// Parse a ComfyUI object_info combo/options field into a flat string array.
+// ComfyUI has shipped two shapes for `input.required.<field>`:
+//   old flat : [ ["modelA.safetensors", "modelB.safetensors"], {..config} ]  → field[0] is the list
+//   new COMBO: [ "COMBO", { options: ["4x-UltraSharp.pth", ...], multiselect } ] → field[1].options is the list
+// Pure + defensive: unknown/missing/malformed input → []. No network, no side effects.
+export function parseComfyOptions(field) {
+  if (!Array.isArray(field)) return [];
+  const head = field[0];
+  // Old flat format: the first element IS the array of string options.
+  if (Array.isArray(head)) return head.filter((x) => typeof x === 'string');
+  // New COMBO format: options live on the config object at field[1].
+  const cfg = field[1];
+  if (cfg && typeof cfg === 'object' && Array.isArray(cfg.options)) {
+    return cfg.options.filter((x) => typeof x === 'string');
+  }
+  return [];
+}
+
 // Human-friendly checkpoint label: "juggernaut-xl-v9.safetensors" -> "Juggernaut Xl V9".
 function prettyModelName(file) {
   return String(file)
@@ -269,7 +287,7 @@ export async function listImageModels() {
     const res = await fetch(`${COMFY_URL}/object_info/CheckpointLoaderSimple`);
     if (!res.ok) return [];
     const j = await res.json();
-    const all = j?.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0] || [];
+    const all = parseComfyOptions(j?.CheckpointLoaderSimple?.input?.required?.ckpt_name);
     return all
       .filter((f) => !/ltx|svd|stable.?video|\bwan\b|mochi|hunyuan.?video|cogvideo/i.test(f))
       .map((f) => ({ file: f, flux: /flux/i.test(f), arch: /flux/i.test(f) ? 'flux' : 'sdxl', label: prettyModelName(f) }));
@@ -566,7 +584,7 @@ export async function hasUpscaleModel() {
   try {
     const r = await fetch(`${COMFY_URL}/object_info/UpscaleModelLoader`);
     const j = await r.json();
-    const list = j?.UpscaleModelLoader?.input?.required?.model_name?.[0] || [];
+    const list = parseComfyOptions(j?.UpscaleModelLoader?.input?.required?.model_name);
     upscaleCache = list.includes(FACE_UPSCALE_MODEL);
   } catch { upscaleCache = false; }
   return upscaleCache;
@@ -580,7 +598,7 @@ export async function hasQwenEditNode() {
   try {
     const r = await fetch(`${COMFY_URL}/object_info/UnetLoaderGGUF`);
     const j = await r.json();
-    const list = j?.UnetLoaderGGUF?.input?.required?.unet_name?.[0] || [];
+    const list = parseComfyOptions(j?.UnetLoaderGGUF?.input?.required?.unet_name);
     qwenEditCache = list.includes(QWEN_UNET);
   } catch { qwenEditCache = false; }
   return qwenEditCache;

@@ -1,0 +1,167 @@
+// ===================================================================
+// ArtValue Creative Presets — business-first recipe pack for the
+// existing Image Studio. PURE DATA: no functions with side effects, no
+// network, no localStorage, no browser APIs, no engine imports. Each
+// preset is a starting recipe the UI fills into the existing controls
+// (prompt / aspect / model) plus copyable guidance — it never generates.
+//
+// `promptScaffold` uses the placeholder {נושא} = the subject the user
+// swaps in. Providers/models reference the local ComfyUI stack the audit
+// verified installed (flux1-dev-fp8, RealVisXL_V4.0, juggernaut-xl-v9,
+// Qwen-Image-Edit, LTX video). Aspect ids match ImageStudio ASPECTS
+// (square / portrait / landscape); non-image presets carry [] and are
+// applied as guidance only.
+// ===================================================================
+
+export const CREATIVE_PRESETS = [
+  {
+    id: 'premium_business_visual',
+    title: 'ArtValue Premium Business Visual',
+    titleHe: 'ויזואל עסקי פרימיום',
+    category: 'brand',
+    useCase: 'תמונת גיבור / ויזואל מותג פרימיום לעסק',
+    provider: 'local-flux',
+    recommendedModel: 'flux1-dev-fp8.safetensors',
+    modelFamily: 'flux',
+    aspectRatios: ['landscape', 'square'],
+    targetTab: 'text',
+    promptScaffold: 'premium business hero visual of {נושא}, cinematic business-tech aesthetic, deep black and navy background, graphite glass surfaces, electric lime accent lighting, dramatic rim light, high detail, photorealistic, sharp focus',
+    negativePrompt: '',
+    recommendedParams: { guidance: 3.2, steps: 28 },
+    qualityNotes: 'FLUX נבנה מהפרומפט (בלי negative). שמור על פלטת שחור-נייבי עם אקסנט ליים אחד.',
+    pitfalls: 'אל תסמוך על טקסט שה-diffusion מרנדר — הוסף כותרות ולוגו בעיצוב אחרי היצירה.',
+    localReady: true,
+    requiresApi: false,
+    futureProvider: null,
+  },
+  {
+    id: 'dark_saas_dashboard',
+    title: 'Dark SaaS Dashboard Mockup',
+    titleHe: 'מוקאפ דשבורד SaaS כהה',
+    category: 'dashboard',
+    useCase: 'ויזואל אווירה של דשבורד / CRM / SaaS למצגות ולפרזנטציות',
+    provider: 'local-flux',
+    recommendedModel: 'flux1-dev-fp8.safetensors',
+    modelFamily: 'flux',
+    aspectRatios: ['landscape'],
+    targetTab: 'text',
+    promptScaffold: 'atmospheric photo of a dark SaaS analytics dashboard on a monitor, {נושא}, deep navy interface, lime-green accent charts, clean data grid, soft glowing panels, modern office bokeh, photorealistic, shallow depth of field',
+    negativePrompt: '',
+    recommendedParams: { guidance: 3.5, steps: 28 },
+    qualityNotes: 'שימוש כוויזואל אווירה / קונספט — לא כמסך מדויק. הרקע והתחושה הם המטרה.',
+    pitfalls: 'ה-diffusion המקומי לא מרנדר טקסט עברית קריא ב-UI — אל תצפה לממשק אמיתי. למסך מדויק עם טקסט קריא — GPT Image 2 בעתיד.',
+    localReady: true,
+    requiresApi: false,
+    futureProvider: 'gpt-image-2',
+  },
+  {
+    id: 'product_hero_shot',
+    title: 'Product Hero Shot',
+    titleHe: 'תמונת מוצר גיבור',
+    category: 'product',
+    useCase: 'תמונת מוצר נקייה לאיקומרס / קטלוג',
+    provider: 'local-sdxl',
+    recommendedModel: 'RealVisXL_V4.0.safetensors',
+    modelFamily: 'sdxl',
+    aspectRatios: ['square', 'portrait'],
+    targetTab: 'text',
+    promptScaffold: 'professional product photography of {נושא}, clean seamless studio background, soft box lighting, subtle reflection, sharp commercial focus, high detail, e-commerce catalog style',
+    negativePrompt: 'lowres, blurry, watermark, text, deformed, extra objects, hands, people, cluttered background',
+    recommendedParams: { cfg: 5, steps: 30, hd: true },
+    qualityNotes: 'SDXL (RealVisXL או Juggernaut) עם negative. הדלק HD לרזולוציה גבוהה יותר.',
+    pitfalls: 'טקסט על אריזות עלול להתעוות — תכנן חיתוך או מעבר עריכה (Qwen-Edit) לניקוי תוויות.',
+    localReady: true,
+    requiresApi: false,
+    futureProvider: null,
+  },
+  {
+    id: 'local_ad_creative',
+    title: 'Local Ad Creative',
+    titleHe: 'קריאייטיב פרסום מקומי',
+    category: 'ad',
+    useCase: 'ויזואל למודעה / פוסט סושיאל לעסק מקומי',
+    provider: 'local-flux',
+    recommendedModel: 'flux1-dev-fp8.safetensors',
+    modelFamily: 'flux',
+    aspectRatios: ['square', 'portrait', 'landscape'],
+    targetTab: 'text',
+    promptScaffold: 'eye-catching advertising visual for {נושא}, vibrant premium composition, strong focal subject, clean negative space for later text overlay, professional commercial lighting, photorealistic',
+    negativePrompt: '',
+    recommendedParams: { guidance: 3.0, steps: 26 },
+    qualityNotes: 'השאר שטח נקי לכותרת. FLUX לאיכות, SDXL אם צריך מהירות.',
+    pitfalls: 'הוסף את הטקסט של המודעה בעיצוב אחרי היצירה — אל תבקש מה-diffusion לכתוב את הסלוגן.',
+    localReady: true,
+    requiresApi: false,
+    futureProvider: null,
+  },
+  {
+    id: 'photo_restoration',
+    title: 'Photo Restoration / Identity Preservation',
+    titleHe: 'שחזור תמונה · שמירת זהות',
+    category: 'restoration',
+    useCase: 'שחזור תמונה ישנה / פגומה תוך שמירה על הפנים',
+    provider: 'local-qwen-edit',
+    recommendedModel: 'Qwen-Image-Edit-2509-Q8_0.gguf',
+    modelFamily: 'qwen',
+    aspectRatios: [],
+    targetTab: 'img2img',
+    promptScaffold: 'restore this old damaged photograph, remove scratches noise and creases, recover natural detail, keep the exact same person and face unchanged, {נושא}',
+    negativePrompt: '',
+    recommendedParams: { denoise: 0.75, faceDetailer: false },
+    qualityNotes: 'עריכה בהוראת טקסט (Qwen-Edit) שומרת על הזהות במלואה. הרץ בלשונית "עריכה חכמה".',
+    pitfalls: 'שמור על הזהות: אל תעלה את ה-denoise גבוה מדי (משנה פנים), והשאר FaceDetailer כבוי כברירת מחדל כדי לא לייפות או לשנות את הדמות המקורית.',
+    localReady: true,
+    requiresApi: false,
+    futureProvider: null,
+  },
+  {
+    id: 'product_motion_video',
+    title: 'Image-to-Video Product Motion',
+    titleHe: 'תמונה → וידאו · תנועת מוצר',
+    category: 'video',
+    useCase: 'תנועה קצרה למוצר / מודעה מתוך תמונה בודדת',
+    provider: 'local-ltx-video',
+    recommendedModel: 'ltxv-13b-098-distilled-fp8.safetensors',
+    modelFamily: 'ltx',
+    aspectRatios: [],
+    targetTab: 'video',
+    promptScaffold: 'slow orbit around the product, gentle parallax, cinematic light sweep, subtle natural motion, {נושא}',
+    negativePrompt: 'jittery, distorted, deformed, warping, melting, flicker',
+    recommendedParams: { length: 97, fps: 25 },
+    qualityNotes: 'LTX-Video מקומי מהתמונה. תנועות מומלצות: אורביט איטי · פרלקס עדין · מעבר תאורה קולנועי. הרץ בלשונית "תמונה → וידאו".',
+    pitfalls: 'תנועה עדינה עובדת טוב יותר מתנועה קיצונית — בקשות דרמטיות מדי גורמות לעיוותים.',
+    localReady: true,
+    requiresApi: false,
+    futureProvider: null,
+  },
+  {
+    id: 'hebrew_ui_mockup',
+    title: 'Hebrew Dashboard / UI Mockup Visual',
+    titleHe: 'מוקאפ מסך / דשבורד בעברית',
+    category: 'dashboard',
+    useCase: 'מסך CRM / דשבורד עם טקסט עברית קריא',
+    provider: 'gpt-image-2',
+    recommendedModel: null,
+    modelFamily: 'external',
+    aspectRatios: [],
+    targetTab: 'text',
+    promptScaffold: 'clean premium CRM dashboard UI in Hebrew, {נושא}, dark navy theme with lime accents, readable Hebrew labels and data',
+    negativePrompt: '',
+    recommendedParams: {},
+    qualityNotes: 'עתידי — דורש ספק חיצוני (GPT Image 2) לטקסט עברית קריא ב-UI.',
+    pitfalls: 'ה-diffusion המקומי אינו מייצר טקסט עברית קריא ב-UI. עד לחיבור GPT Image 2, השתמש ב-FLUX מקומי לרקע/אווירה בלבד ולא למסך עם טקסט אמיתי.',
+    localReady: false,
+    requiresApi: true,
+    futureProvider: 'gpt-image-2',
+  },
+];
+
+// The subject placeholder inside every promptScaffold (UI can hint the user to replace it).
+export const PRESET_SUBJECT_TOKEN = '{נושא}';
+
+// Presets that fill the Text-to-Image controls directly (prompt/aspect/model),
+// vs. presets applied as copyable guidance for another tab.
+export const isTextImagePreset = (p) =>
+  p.targetTab === 'text' && p.localReady && (p.modelFamily === 'flux' || p.modelFamily === 'sdxl');
+
+export const presetById = (id) => CREATIVE_PRESETS.find((p) => p.id === id) || null;
