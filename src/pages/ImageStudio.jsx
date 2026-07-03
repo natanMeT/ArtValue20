@@ -12,8 +12,19 @@ import {
   generateModelAlbum,
 } from '../lib/geminiImage.js';
 import { addImage as addToGallery, listImages as listGallery, getBlob as getGalleryBlob, removeImage as removeFromGallery, srcToBlob, GALLERY_MAX } from '../lib/galleryStore.js';
+import { CREATIVE_PRESETS, isTextImagePreset } from '../data/creativePresets.js';
 import PosterEditor from '../components/studio/PosterEditor.jsx';
 import MockupStudio from '../components/studio/MockupStudio.jsx';
+
+// Display labels for the business preset recipe card (presentational only).
+const PRESET_PROVIDER_LABEL = {
+  'local-flux': 'FLUX מקומי',
+  'local-sdxl': 'SDXL מקומי',
+  'local-qwen-edit': 'Qwen-Edit מקומי',
+  'local-ltx-video': 'LTX וידאו מקומי',
+  'gpt-image-2': 'GPT Image 2',
+};
+const PRESET_TAB_LABEL = { text: 'טקסט → תמונה', img2img: 'עריכה חכמה', video: 'תמונה → וידאו' };
 
 const EDIT_IDEAS = [
   'שנה את הרקע לחוף ים בשקיעה',
@@ -217,6 +228,7 @@ export default function ImageStudio() {
   const [clipProg, setClipProg] = useState(0);
   const [posterSrc, setPosterSrc] = useState(null);
   const [mockupOpen, setMockupOpen] = useState(false);
+  const [activePresetId, setActivePresetId] = useState(null);
 
   const modes = MODES.filter((m) => !m.needs || (m.needs === 'comfy' && hasLocalComfy) || (m.needs === 'video' && (hasVideoModel || hasLtxVideo)) || (m.needs === 'ltx' && hasLtxVideo) || (m.needs === 'kontext' && hasKontextModel) || (m.needs === 'character' && (hasKontextModel || pulidReady)) || (m.needs === 'pulid' && pulidReady));
 
@@ -237,6 +249,35 @@ export default function ImageStudio() {
 
   const selModel = models.find((m) => m.file === modelFile) || null;
   const isFluxModel = Boolean(selModel?.flux);
+
+  const activePreset = CREATIVE_PRESETS.find((p) => p.id === activePresetId) || null;
+
+  // Apply a business preset into the existing Text-to-Image controls. Explicit
+  // user click only — NEVER generates. Always fills the prompt scaffold; for
+  // text-image presets it also selects a compatible aspect + local model where
+  // those controls exist. Never touches uploaded images, HD, strength, gallery.
+  const applyPreset = (p) => {
+    setActivePresetId(p.id);
+    setPrompt(p.promptScaffold);
+    if (isTextImagePreset(p)) {
+      const asp = (p.aspectRatios || []).find((id) => ASPECTS.some((a) => a.id === id));
+      if (asp) setAspect(asp);
+      if (models.length) {
+        const wantFlux = p.modelFamily === 'flux';
+        const exact = models.find((m) => m.file === p.recommendedModel);
+        const family = models.find((m) => (wantFlux ? m.flux : m.arch === 'sdxl'));
+        const pick = exact || family;
+        if (pick) setModelFile(pick.file);
+      }
+    }
+  };
+
+  // Copy recipe guidance (negative prompt / params) — guarded, non-fatal, no network.
+  const copyText = (text) => {
+    try {
+      if (navigator?.clipboard?.writeText) navigator.clipboard.writeText(text).then(() => toast('הועתק'), () => {});
+    } catch { /* clipboard unavailable — non-fatal */ }
+  };
 
   const pickFile = (e) => {
     const f = e.target.files?.[0];
@@ -558,6 +599,50 @@ export default function ImageStudio() {
                     </div>
                   )}
                 </button>
+              )}
+            </div>
+          )}
+
+          {/* Business preset recipes (Text-to-Image only) — fills the prompt/aspect/model
+              below on click; never generates. */}
+          {mode === 'text' && (
+            <div className="field" style={{ marginBottom: 4 }}>
+              <label>מתכוני עסק · פריסטים</label>
+              <div className="row gap-2 wrap" style={{ display: 'flex' }}>
+                {CREATIVE_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={`idea-chip ${activePresetId === p.id ? 'idea-chip-active' : ''}`}
+                    style={{ width: 'auto', flex: '0 1 auto', fontSize: '0.78rem', padding: '6px 10px', lineHeight: 1.3 }}
+                    onClick={() => applyPreset(p)}
+                    title={p.useCase}
+                  >
+                    {p.titleHe}{!p.localReady && <span className="dim" style={{ fontSize: '0.66rem' }}> · עתידי</span>}
+                  </button>
+                ))}
+              </div>
+              {activePreset && (
+                <div className="card" style={{ marginTop: 10, padding: 12, fontSize: '0.8rem', lineHeight: 1.7 }}>
+                  <div className="row between wrap" style={{ gap: 8, alignItems: 'center' }}>
+                    <b>{activePreset.title}</b>
+                    <span className={`badge ${activePreset.localReady ? 'badge-active' : 'badge-neutral'}`}>
+                      <span className="dot" /> {activePreset.localReady ? PRESET_PROVIDER_LABEL[activePreset.provider] : 'עתידי · GPT Image 2'}
+                    </span>
+                  </div>
+                  <p className="dim" style={{ margin: '4px 0' }}>{activePreset.useCase}</p>
+                  {activePreset.recommendedModel && <div>מודל מומלץ: <code>{activePreset.recommendedModel}</code></div>}
+                  {activePreset.targetTab !== 'text' && (
+                    <div className="muted" style={{ marginTop: 2 }}>↳ הרץ בלשונית: <b>{PRESET_TAB_LABEL[activePreset.targetTab] || activePreset.targetTab}</b></div>
+                  )}
+                  {activePreset.negativePrompt && (
+                    <div className="row between wrap" style={{ gap: 8, marginTop: 4, alignItems: 'center' }}>
+                      <span>Negative: <span className="dim">{activePreset.negativePrompt}</span></span>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => copyText(activePreset.negativePrompt)}><Icon name="copy" size={12} /> העתק</button>
+                    </div>
+                  )}
+                  <p className="muted" style={{ marginTop: 4 }}><Icon name="spark" size={12} style={{ color: 'var(--lime-deep)' }} /> {activePreset.pitfalls}</p>
+                </div>
               )}
             </div>
           )}
