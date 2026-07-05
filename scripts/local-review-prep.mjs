@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // ===================================================================
 // local-review-prep — LOCAL tooling only. Generates a compact markdown
 // review brief (artifacts/local-review-brief.md) from the current git
