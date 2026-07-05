@@ -9,8 +9,9 @@ import {
   generateImage, generateImg2Img, editImage, inpaintImage, animateImage, ltxVideo, flfVideo, montageFromImages, downloadImage,
   isImageAiConfigured, hasFluxModel, hasLocalComfy, hasVideoModel, hasLtxVideo, hasKontextModel,
   checkLocalEngine, localEngineUrl, listImageModels, characterPack, characterPackPulid, hasPulidNode,
-  generateModelAlbum,
+  generateModelAlbum, onComfyJob, markNextComfyJob,
 } from '../lib/geminiImage.js';
+import { watchJob, cancelJob } from '../lib/comfyProgress.js';
 import { addImage as addToGallery, listImages as listGallery, getBlob as getGalleryBlob, removeImage as removeFromGallery, srcToBlob, GALLERY_MAX } from '../lib/galleryStore.js';
 import { CREATIVE_PRESETS, isTextImagePreset } from '../data/creativePresets.js';
 import PosterEditor from '../components/studio/PosterEditor.jsx';
@@ -175,6 +176,18 @@ function EngineStatus() {
   );
 }
 
+// Elapsed-time readout for the live job card. Owns its own 1s interval and
+// derives elapsed from the seam timestamp (robust to background-tab throttling).
+function JobElapsed({ at }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const sec = Math.max(0, Math.floor((Date.now() - at) / 1000));
+  return <span className="dim job-elapsed"><bdi>{Math.floor(sec / 60)}:{String(sec % 60).padStart(2, '0')}</bdi></span>;
+}
+
 export default function ImageStudio() {
   const { toast } = useStore();
   const [mode, setMode] = useState('text');
@@ -229,6 +242,55 @@ export default function ImageStudio() {
   const [posterSrc, setPosterSrc] = useState(null);
   const [mockupOpen, setMockupOpen] = useState(false);
   const [activePresetId, setActivePresetId] = useState(null);
+  // Live job status (single run() jobs only — pack/batch flows keep their own counters).
+  const [job, setJob] = useState(null); // {promptId, clientId, graph, at, phase, node, value, max, position}
+  const watchStopRef = useRef(null);
+  const runTokenRef = useRef(0);       // stale-run guard: bumping it makes an in-flight run's settle a no-op
+  const cancelledRef = useRef(false);
+
+  // Attach the progress watcher to run()-tagged submissions for the component's
+  // lifetime. Untagged submissions (packs, Assistant poster, montage) are ignored.
+  useEffect(() => {
+    const off = onComfyJob((ev) => {
+      if (ev.tag !== 'studio-run') return;
+      if (watchStopRef.current) watchStopRef.current();
+      setJob({ ...ev, phase: 'queued', node: '', value: 0, max: 0, position: 0 });
+      watchStopRef.current = watchJob(localEngineUrl, ev.clientId, ev.promptId, (u) => {
+        setJob((j) => {
+          if (!j || j.promptId !== ev.promptId) return j;
+          const nodeName = (id) => (id && ev.graph?.[id]?.class_type) || j.node;
+          if (u.kind === 'progress') return { ...j, phase: 'running', node: nodeName(u.node), value: u.value, max: u.max };
+          if (u.kind === 'running') return { ...j, phase: 'running', node: nodeName(u.node) };
+          if (u.kind === 'queued') return { ...j, phase: 'queued', position: u.position || 0 };
+          if (u.kind === 'interrupted') return { ...j, phase: 'cancelled' };
+          if (u.kind === 'error') return { ...j, phase: 'failed' };
+          return { ...j, phase: 'done' };
+        });
+      });
+    });
+    return () => { off(); if (watchStopRef.current) watchStopRef.current(); };
+  }, []);
+
+  // Cancel the current run() job. Running → targeted /interrupt (the bridge's
+  // history poll then rejects within ~1.5s and run() maps it to "cancelled").
+  // Pending → queue delete: the job will NEVER reach /history, so stop waiting
+  // immediately and mark the in-flight run stale.
+  const cancelCurrentJob = async () => {
+    const target = job;
+    if (!target?.promptId || cancelledRef.current) return;
+    cancelledRef.current = true;
+    const r = await cancelJob(localEngineUrl, target.promptId);
+    if (r === 'deleted') {
+      runTokenRef.current += 1;
+      if (watchStopRef.current) { watchStopRef.current(); watchStopRef.current = null; }
+      setJob(null);
+      setLoading(false);
+      toast('היצירה בוטלה');
+    } else if (r === 'error') {
+      cancelledRef.current = false;
+      toast('הביטול נכשל — המנוע לא הגיב', 'error');
+    }
+  };
 
   const modes = MODES.filter((m) => !m.needs || (m.needs === 'comfy' && hasLocalComfy) || (m.needs === 'video' && (hasVideoModel || hasLtxVideo)) || (m.needs === 'ltx' && hasLtxVideo) || (m.needs === 'kontext' && hasKontextModel) || (m.needs === 'character' && (hasKontextModel || pulidReady)) || (m.needs === 'pulid' && pulidReady));
 
@@ -313,8 +375,12 @@ export default function ImageStudio() {
     if (mode !== 'text' && !file) { setError(mode === 'flf' ? 'העלה תמונת "לפני"' : 'יש להעלות תמונה תחילה'); return; }
     if (mode === 'flf' && !endFile) { setError('העלה גם תמונת "אחרי"'); return; }
     if (mode === 'inpaint' && !maskRef.current?.hasMask()) { setError('סמן עם המברשת את האזור לעריכה'); return; }
+    const token = ++runTokenRef.current;
+    cancelledRef.current = false;
+    setJob(null);
     setLoading(true); setError(''); setResult(null); setImgReady(false); setImgAttempt(0);
     try {
+      markNextComfyJob('studio-run'); // claim the next engine submission for the job card
       let r;
       if (mode === 'text') {
         const asp = ASPECTS.find((a) => a.id === aspect) || ASPECTS[0];
@@ -326,6 +392,7 @@ export default function ImageStudio() {
       else if (mode === 'inpaint') { const mask = await maskRef.current.exportMask(); r = await inpaintImage(file, mask, prompt); }
       else if (mode === 'flf') { const len = (VID_LENGTHS.find((v) => v.sec === vidSec) || VID_LENGTHS[0]).frames; r = await flfVideo(file, endFile, prompt, { length: len, ...ltxRes() }); }
       else { const len = (VID_LENGTHS.find((v) => v.sec === vidSec) || VID_LENGTHS[0]).frames; r = hasLtxVideo ? await ltxVideo(file, prompt, { length: len, ...ltxRes() }) : await animateImage(file, {}); }
+      if (token !== runTokenRef.current) return; // cancelled (pending-delete) — ignore the orphan
       setResult(r);
       if (r.demo) toast('נוצר דרך המחולל החינמי');
       // collect still images into the gallery (not videos)
@@ -333,9 +400,15 @@ export default function ImageStudio() {
         try { await addToGallery(await srcToBlob(r.src)); await refreshGallery(); } catch { /* noop */ }
       }
     } catch (e) {
-      setError(e.message || 'שגיאה ביצירת התוכן');
+      if (token !== runTokenRef.current) return; // stale run — already handled by cancel
+      if (cancelledRef.current) toast('היצירה בוטלה');
+      else setError(e.message || 'שגיאה ביצירת התוכן');
     } finally {
-      setLoading(false);
+      if (token === runTokenRef.current) {
+        setLoading(false);
+        setJob(null);
+        if (watchStopRef.current) { watchStopRef.current(); watchStopRef.current = null; }
+      }
     }
   };
 
@@ -872,7 +945,28 @@ export default function ImageStudio() {
             <div className="diag-empty">
               <span className="loader-ring" style={{ width: 40, height: 40 }} />
               <h3 style={{ marginTop: 14 }}>{isVideoMode ? 'יוצר סרטון…' : 'מחולל את התמונה…'}</h3>
-              <p className="muted">{isVideoMode ? 'עיבוד וידאו כבד יותר — עד 2-3 דקות.' : 'זה עשוי לקחת כמה שניות.'}</p>
+              {job ? (
+                <div className="job-card">
+                  <div className="job-row">
+                    <span className={`badge ${job.phase === 'running' ? 'badge-active' : 'badge-neutral'}`}>
+                      <span className="dot" /> {job.phase === 'queued' ? (job.position > 1 ? `בתור (${job.position})` : 'בתור') : 'רץ'}
+                    </span>
+                    {job.node && <span className="dim job-node"><bdi>{job.node}</bdi></span>}
+                    <JobElapsed at={job.at} />
+                  </div>
+                  {job.max > 0 && (
+                    <div className="job-bar" role="progressbar" aria-valuenow={job.value} aria-valuemax={job.max}>
+                      <span style={{ width: `${Math.min(100, Math.round((job.value / job.max) * 100))}%` }} />
+                    </div>
+                  )}
+                  {job.max > 0 && <span className="dim job-pct"><bdi>{Math.min(100, Math.round((job.value / job.max) * 100))}%</bdi></span>}
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={cancelCurrentJob} disabled={cancelledRef.current}>
+                    <Icon name="x" size={14} /> ביטול
+                  </button>
+                </div>
+              ) : (
+                <p className="muted">{isVideoMode ? 'עיבוד וידאו כבד יותר — עד 2-3 דקות.' : 'זה עשוי לקחת כמה שניות.'}</p>
+              )}
             </div>
           )}
 
