@@ -202,14 +202,30 @@ function inpaintGraph(imageName, maskName, prompt, seed) {
 // --- ComfyUI low-level helpers (shared by all local modes) ---
 function rndSeed() { return Math.floor(Math.random() * 1e15); }
 
+// --- Job-event seam (additive) ---
+// Subscribers learn when a prompt lands on the engine, with the per-job
+// client_id (ComfyUI routes progress events ONLY to the submitting client_id)
+// and the graph (to map node ids → class names). A one-shot tag lets a caller
+// claim its next submission; untagged submissions (packs, poster, montage)
+// carry tag null. Listener exceptions must never reach the generation flow.
+const jobListeners = new Set();
+let nextJobTag = null;
+export function onComfyJob(cb) { jobListeners.add(cb); return () => jobListeners.delete(cb); }
+export function markNextComfyJob(tag) { nextJobTag = tag; }
+
 async function comfySubmit(graph) {
+  const tag = nextJobTag; nextJobTag = null;
+  const clientId = `artvalue-${rndSeed()}`;
   const res = await fetch(`${COMFY_URL}/prompt`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt: graph, client_id: `artvalue-${rndSeed()}` }),
+    body: JSON.stringify({ prompt: graph, client_id: clientId }),
   });
   if (!res.ok) throw new Error(`comfy ${res.status}`);
   const { prompt_id } = await res.json();
   if (!prompt_id) throw new Error('comfy: no prompt id');
+  for (const cb of [...jobListeners]) {
+    try { cb({ promptId: prompt_id, clientId, tag, graph, at: Date.now() }); } catch { /* noop */ }
+  }
   return prompt_id;
 }
 

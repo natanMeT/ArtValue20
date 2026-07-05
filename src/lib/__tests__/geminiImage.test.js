@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { parseComfyOptions, hasFluxModel, hasLocalComfy } from '../geminiImage.js';
 
 // ===================================================================
@@ -54,6 +54,90 @@ describe('parseComfyOptions — defensive against malformed input', () => {
     const before = JSON.stringify(field);
     expect(parseComfyOptions(field)).toEqual(parseComfyOptions(field));
     expect(JSON.stringify(field)).toBe(before); // input not mutated
+  });
+});
+
+// ===================================================================
+// Job-event seam (Studio queue/progress/cancel slice) — exercised through
+// the public generateImage() with a stubbed env + fetch + fake timers.
+// ===================================================================
+
+describe('geminiImage — onComfyJob seam', () => {
+  const BASE = 'http://127.0.0.1:9999';
+
+  async function loadWithEngine() {
+    vi.stubEnv('VITE_COMFYUI_URL', BASE);
+    vi.resetModules();
+    return import('../geminiImage.js');
+  }
+
+  function engineFetch(capture) {
+    return vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.endsWith('/prompt') && init?.method === 'POST') {
+        capture.body = JSON.parse(init.body);
+        return { ok: true, json: async () => ({ prompt_id: 'p1' }) };
+      }
+      if (u.includes('/history/p1')) {
+        return { ok: true, json: async () => ({ p1: { outputs: { 9: { images: [{ filename: 'a.png', subfolder: '', type: 'output' }] } } } }) };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+  }
+
+  afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+  it('dispatches {promptId, clientId, tag, graph, at}; a throwing listener never breaks generation', async () => {
+    vi.useFakeTimers();
+    const m = await loadWithEngine();
+    const capture = {};
+    vi.stubGlobal('fetch', engineFetch(capture));
+    const events = [];
+    const offThrow = m.onComfyJob(() => { throw new Error('bad subscriber'); });
+    const off = m.onComfyJob((ev) => events.push(ev));
+    m.markNextComfyJob('studio-run');
+    const p = m.generateImage('test prompt', {});
+    await vi.advanceTimersByTimeAsync(1500);
+    const r = await p;
+    expect(r.src).toContain(`${BASE}/view?`);           // generation survived the throwing listener
+    expect(events).toHaveLength(1);
+    const ev = events[0];
+    expect(ev.promptId).toBe('p1');
+    expect(ev.tag).toBe('studio-run');                   // one-shot tag delivered
+    expect(ev.clientId).toBe(capture.body.client_id);    // WS routing invariant: same client_id as POSTed
+    expect(ev.graph).toEqual(capture.body.prompt);       // graph included for node-name mapping
+    expect(typeof ev.at).toBe('number');
+    // POST body shape unchanged beyond client_id: exactly {prompt, client_id}
+    expect(Object.keys(capture.body).sort()).toEqual(['client_id', 'prompt']);
+    offThrow(); off();
+  });
+
+  it('failed submission dispatches nothing; unsubscribe works; untagged submits carry tag null', async () => {
+    vi.useFakeTimers();
+    const m = await loadWithEngine();
+    const events = [];
+    const off = m.onComfyJob((ev) => events.push(ev));
+    // failed POST → no dispatch
+    vi.stubGlobal('fetch', vi.fn(async (url) => (String(url).endsWith('/prompt')
+      ? { ok: false, status: 500 }
+      : { ok: true, json: async () => ({}) })));
+    m.markNextComfyJob('studio-run');
+    await expect(m.generateImage('x', {})).rejects.toThrow();
+    expect(events).toHaveLength(0);
+    // successful untagged submit → tag null (the failed attempt consumed the mark)
+    const capture = {};
+    vi.stubGlobal('fetch', engineFetch(capture));
+    const p = m.generateImage('x', {});
+    await vi.advanceTimersByTimeAsync(1500);
+    await p;
+    expect(events).toHaveLength(1);
+    expect(events[0].tag).toBeNull();
+    // unsubscribe → no further events
+    off();
+    const p2 = m.generateImage('x', {});
+    await vi.advanceTimersByTimeAsync(1500);
+    await p2;
+    expect(events).toHaveLength(1);
   });
 });
 
