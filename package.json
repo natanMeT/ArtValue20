@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "preview:local": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
     "test": "vitest run",
-    "test:creative": "vitest run src/creative/v2"
+    "test:creative": "vitest run src/creative/v2",
+    "local:review-prep": "node scripts/local-review-prep.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
