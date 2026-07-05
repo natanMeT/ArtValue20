@@ -1775,6 +1775,21 @@
 }
 .gallery-btn:hover { background: var(--lime); color: var(--on-lime); }
 .gallery-btn.del:hover { background: #ef5a5a; color: #fff; }
+/* Render-history filter tabs + video badge */
+.gallery-filters { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
+.gallery-filter {
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2);
+  border-radius: 999px; padding: 4px 12px; font-size: 0.78rem; cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.gallery-filter:hover { color: var(--text); }
+.gallery-filter.active { background: var(--lime); color: var(--on-lime); border-color: var(--lime); }
+.gallery-kind {
+  position: absolute; top: 6px; inset-inline-end: 6px;
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 2px 7px; border-radius: 999px; font-size: 0.66rem; font-weight: 700;
+  background: rgba(20,20,20,0.82); color: var(--lime-deep); backdrop-filter: blur(4px);
+}
 .qty-btn {
   width: 26px;
   height: 26px;

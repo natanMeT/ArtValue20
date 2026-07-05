@@ -9,6 +9,45 @@ const DB_NAME = 'artvalue_gallery';
 const STORE = 'items';
 export const GALLERY_MAX = 40;
 
+// --- Record normalization (pure) ------------------------------------
+// Records gained kind/meta over time. Old rows ({id,blob,createdAt}) must
+// still read cleanly, so every read is normalized: unknown/invalid kind →
+// 'image', missing meta → {}. No IndexedDB version bump or migration — new
+// rows just carry the extra fields and old rows default on read.
+export const GALLERY_KINDS = ['image', 'video'];
+
+export function normalizeGalleryKind(kind) {
+  return GALLERY_KINDS.includes(kind) ? kind : 'image';
+}
+
+// Keep only the small known string fields; drop anything else / non-strings.
+export function normalizeGalleryMeta(meta) {
+  if (!meta || typeof meta !== 'object') return {};
+  const out = {};
+  for (const k of ['source', 'prompt', 'preset', 'engine']) {
+    if (typeof meta[k] === 'string' && meta[k]) out[k] = meta[k];
+  }
+  return out;
+}
+
+// Normalize a raw stored row into the public shape (without the blob).
+export function normalizeGalleryRecord(record) {
+  const r = record || {};
+  return {
+    id: r.id,
+    createdAt: r.createdAt,
+    kind: normalizeGalleryKind(r.kind),
+    meta: normalizeGalleryMeta(r.meta),
+  };
+}
+
+// Filter listed items by the UI tab. 'all' (or unknown) → everything.
+export function filterGalleryItems(items, tab) {
+  const list = Array.isArray(items) ? items : [];
+  if (tab === 'image' || tab === 'video') return list.filter((it) => normalizeGalleryKind(it.kind) === tab);
+  return list;
+}
+
 let _db;
 function db() {
   if (_db) return Promise.resolve(_db);
@@ -26,12 +65,16 @@ function db() {
 
 function rndId() { return `g_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`; }
 
-export async function addImage(blob) {
+// Store one asset. `meta` may carry { kind, source, prompt, preset, engine };
+// kind defaults to 'image', meta fields are sanitized to small strings.
+export async function addImage(blob, meta = {}) {
   const d = await db();
   const id = rndId();
+  const kind = normalizeGalleryKind(meta.kind);
+  const cleanMeta = normalizeGalleryMeta(meta);
   await new Promise((res, rej) => {
     const tx = d.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).put({ id, blob, createdAt: Date.now() });
+    tx.objectStore(STORE).put({ id, blob, createdAt: Date.now(), kind, meta: cleanMeta });
     tx.oncomplete = () => res();
     tx.onerror = () => rej(tx.error);
   });
@@ -49,7 +92,7 @@ export async function listImages() {
   });
   return rows
     .sort((a, b) => b.createdAt - a.createdAt)
-    .map((it) => ({ id: it.id, createdAt: it.createdAt, url: URL.createObjectURL(it.blob) }));
+    .map((it) => ({ ...normalizeGalleryRecord(it), url: URL.createObjectURL(it.blob) }));
 }
 
 export async function getBlob(id) {

@@ -12,7 +12,7 @@ import {
   generateModelAlbum, onComfyJob, markNextComfyJob,
 } from '../lib/geminiImage.js';
 import { watchJob, cancelJob } from '../lib/comfyProgress.js';
-import { addImage as addToGallery, listImages as listGallery, getBlob as getGalleryBlob, removeImage as removeFromGallery, srcToBlob, GALLERY_MAX } from '../lib/galleryStore.js';
+import { addImage as addToGallery, listImages as listGallery, getBlob as getGalleryBlob, removeImage as removeFromGallery, srcToBlob, GALLERY_MAX, filterGalleryItems } from '../lib/galleryStore.js';
 import { CREATIVE_PRESETS, isTextImagePreset } from '../data/creativePresets.js';
 import PosterEditor from '../components/studio/PosterEditor.jsx';
 import MockupStudio from '../components/studio/MockupStudio.jsx';
@@ -234,6 +234,7 @@ export default function ImageStudio() {
   const [error, setError] = useState('');
   const fileRef = useRef(null);
   const [gallery, setGallery] = useState([]);
+  const [galleryTab, setGalleryTab] = useState('all'); // all | image | video
   const [selectedIds, setSelectedIds] = useState([]);
   const [galleryBusy, setGalleryBusy] = useState(false);
   const [clips, setClips] = useState([]);          // batch-animated videos (one per image)
@@ -370,6 +371,22 @@ export default function ImageStudio() {
     setError('');
   };
 
+  // Map a studio mode to a render-history source label (simple, best-effort).
+  const SOURCE_BY_MODE = {
+    text: 'text-to-image', img2img: 'smart-edit', inpaint: 'area-edit',
+    video: 'image-to-video', flf: 'before-after',
+  };
+
+  // Build the small metadata bag saved alongside a gallery asset. kind comes
+  // from the result's isVideo flag; meta strings are sanitized in galleryStore.
+  const galleryMeta = (r, source) => ({
+    kind: r?.isVideo ? 'video' : 'image',
+    source: source || 'unknown',
+    prompt: prompt.trim() || undefined,
+    preset: activePreset?.titleHe || activePresetId || undefined,
+    engine: r?.engine || 'local',
+  });
+
   const run = async () => {
     if (mode === 'text' && !prompt.trim()) { setError('יש להזין תיאור לתמונה'); return; }
     if (mode !== 'text' && !file) { setError(mode === 'flf' ? 'העלה תמונת "לפני"' : 'יש להעלות תמונה תחילה'); return; }
@@ -395,9 +412,9 @@ export default function ImageStudio() {
       if (token !== runTokenRef.current) return; // cancelled (pending-delete) — ignore the orphan
       setResult(r);
       if (r.demo) toast('נוצר דרך המחולל החינמי');
-      // collect still images into the gallery (not videos)
-      if (r && !r.isVideo && r.src) {
-        try { await addToGallery(await srcToBlob(r.src)); await refreshGallery(); } catch { /* noop */ }
+      // collect the output (image OR animated-WebP video) into the gallery
+      if (r && r.src) {
+        try { await addToGallery(await srcToBlob(r.src), galleryMeta(r, SOURCE_BY_MODE[mode] || 'unknown')); await refreshGallery(); } catch { /* noop */ }
       }
     } catch (e) {
       if (token !== runTokenRef.current) return; // stale run — already handled by cancel
@@ -420,7 +437,7 @@ export default function ImageStudio() {
     try {
       const onResult = async (r) => {
         setPack((p) => [...p, r]);
-        try { await addToGallery(await srcToBlob(r.src)); } catch { /* noop */ }
+        try { await addToGallery(await srcToBlob(r.src), galleryMeta(r, 'pack')); } catch { /* noop */ }
       };
       const usePulid = pulidReady && packEngine === 'pulid';
       if (usePulid) await characterPackPulid(file, packCount, onResult, { portrait: true });
@@ -442,7 +459,7 @@ export default function ImageStudio() {
     try {
       const onResult = async (r) => {
         setPack((p) => [...p, r]);
-        try { await addToGallery(await srcToBlob(r.src)); } catch { /* noop */ }
+        try { await addToGallery(await srcToBlob(r.src), galleryMeta(r, 'album')); } catch { /* noop */ }
       };
       await generateModelAlbum(file, clothing, onResult, { count: 8 });
       await refreshGallery();
@@ -487,6 +504,7 @@ export default function ImageStudio() {
       for (const g of ordered) { const b = await getGalleryBlob(g.id); if (b) blobs.push(b); } // eslint-disable-line no-await-in-loop
       const r = await montageFromImages(blobs, {});
       setResult(r);
+      if (r?.src) { try { await addToGallery(await srcToBlob(r.src), galleryMeta(r, 'montage')); await refreshGallery(); } catch { /* noop */ } }
       toast('הסרטון הורכב!');
     } catch (e) {
       setError(e.message || 'שגיאה בהרכבת הסרטון');
@@ -522,7 +540,9 @@ export default function ImageStudio() {
         const r = await ltxVideo(f, prompt, { length: len, ...res }); // eslint-disable-line no-await-in-loop
         setClips((c) => [...c, r]);
         setClipProg(i + 1);
+        try { await addToGallery(await srcToBlob(r.src), galleryMeta(r, 'batch-animate')); } catch { /* noop */ } // eslint-disable-line no-await-in-loop
       }
+      await refreshGallery();
       toast('כל הסרטונים מוכנים ✓');
     } catch (e) {
       setError(e.message || 'שגיאה ביצירת הסרטונים');
@@ -1034,16 +1054,34 @@ export default function ImageStudio() {
               )}
             </div>
           </div>
-          <p className="dim" style={{ fontSize: '0.8rem', margin: '0 0 12px' }}>
-            לחץ תמונה לבחירה לסרטון{hasKontextModel ? ' · «↻» יוצר וריאציה של אותה דמות' : ''} · נשמרות עד {GALLERY_MAX} תמונות
+          <p className="dim" style={{ fontSize: '0.8rem', margin: '0 0 10px' }}>
+            לחץ תמונה לבחירה לסרטון{hasKontextModel ? ' · «↻» יוצר וריאציה של אותה דמות' : ''} · נשמרות עד {GALLERY_MAX} פריטים
           </p>
+          {/* Render-history filter: all / images / videos (animated WebP) */}
+          <div className="gallery-filters">
+            {[
+              { id: 'all', label: 'הכל' },
+              { id: 'image', label: 'תמונות' },
+              { id: 'video', label: 'וידאו' },
+            ].map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`gallery-filter ${galleryTab === t.id ? 'active' : ''}`}
+                onClick={() => setGalleryTab(t.id)}
+              >
+                {t.label} ({filterGalleryItems(gallery, t.id).length})
+              </button>
+            ))}
+          </div>
           <div className="gallery-grid">
-            {gallery.map((g) => (
+            {filterGalleryItems(gallery, galleryTab).map((g) => (
               <div key={g.id} className={`gallery-item ${selectedIds.includes(g.id) ? 'selected' : ''}`} onClick={() => toggleSelect(g.id)}>
                 <img src={g.url} alt="" loading="lazy" />
+                {g.kind === 'video' && <span className="gallery-kind"><Icon name="spark" size={11} /> וידאו</span>}
                 {selectedIds.includes(g.id) && <span className="gallery-check"><Icon name="check" size={14} strokeWidth={3} /></span>}
                 <div className="gallery-actions" onClick={(e) => e.stopPropagation()}>
-                  {hasKontextModel && <button className="gallery-btn" title="וריאציה של אותה דמות" onClick={() => makeVariation(g)}><Icon name="refresh" size={13} /></button>}
+                  {hasKontextModel && g.kind !== 'video' && <button className="gallery-btn" title="וריאציה של אותה דמות" onClick={() => makeVariation(g)}><Icon name="refresh" size={13} /></button>}
                   <button className="gallery-btn del" title="מחיקה" onClick={() => removeGalleryItem(g.id)}><Icon name="trash" size={13} /></button>
                 </div>
               </div>
