@@ -16,6 +16,7 @@ import { addImage as addToGallery, listImages as listGallery, getBlob as getGall
 import { CREATIVE_PRESETS, isTextImagePreset } from '../data/creativePresets.js';
 import PosterEditor from '../components/studio/PosterEditor.jsx';
 import MockupStudio from '../components/studio/MockupStudio.jsx';
+import CreativeWorkflowMap from '../components/studio/CreativeWorkflowMap.jsx';
 
 // Display labels for the business preset recipe card (presentational only).
 const PRESET_PROVIDER_LABEL = {
@@ -614,6 +615,13 @@ export default function ImageStudio() {
       />
 
       <EngineStatus />
+
+      {/* Creative Workflow Map — presentational catalog; live cards jump to the
+          matching existing mode/route, coming-soon cards are disabled. */}
+      <CreativeWorkflowMap
+        activeMode={mode}
+        onSelectMode={(m) => { setMode(m); setResult(null); setError(''); }}
+      />
 
       {/* Mode tiles (Higgsfield-style) */}
       <div className="hf-modes">
