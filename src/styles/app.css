@@ -2917,3 +2917,52 @@
 .job-elapsed, .job-pct { font-size: 0.78rem; font-variant-numeric: tabular-nums; }
 .job-bar { width: 100%; height: 6px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
 .job-bar > span { display: block; height: 100%; border-radius: 4px; background: var(--lime-deep); transition: width 0.3s ease; }
+
+/* ---- Creative Workflow Map (presentational catalog) ---- */
+.creative-workflow-map { margin: 6px 0 18px; }
+.creative-workflow-head { margin-bottom: 12px; }
+.creative-workflow-h-title { font-size: 1.02rem; font-weight: 700; display: inline-flex; align-items: center; }
+.creative-workflow-h-sub { margin: 4px 0 0; font-size: 0.82rem; color: var(--text-2); line-height: 1.6; }
+.creative-workflow-group-title {
+  font-size: 0.74rem; font-weight: 700; letter-spacing: 0.04em; color: var(--text-3);
+  margin: 14px 0 8px;
+}
+.creative-workflow-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px;
+}
+.creative-workflow-card {
+  display: flex; flex-direction: column; gap: 6px; text-align: start;
+  padding: 13px 14px; border-radius: 14px;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); cursor: pointer; text-decoration: none;
+  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.creative-workflow-card:hover {
+  transform: translateY(-2px); border-color: var(--lime-deep);
+  box-shadow: 0 12px 30px -18px var(--lime-glow, rgba(180,240,60,0.4));
+}
+.creative-workflow-card.is-active { border-color: var(--lime); box-shadow: 0 0 0 1px var(--lime) inset; }
+.creative-workflow-card.is-soon { cursor: default; opacity: 0.72; }
+.creative-workflow-card.is-soon:hover { transform: none; border-color: var(--border); box-shadow: none; }
+.creative-workflow-top { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.creative-workflow-badge {
+  font-size: 0.64rem; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+  background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border);
+}
+.creative-workflow-badge.cwm-engine-comfyui { color: var(--lime-deep); }
+.creative-workflow-badge.cwm-engine-fooocus { color: #8bd0ff; }
+.creative-workflow-badge.cwm-soon { color: var(--text-3); }
+.creative-workflow-title { font-size: 0.94rem; font-weight: 700; }
+.creative-workflow-sub { font-size: 0.74rem; color: var(--text-3); }
+.creative-workflow-desc { margin: 2px 0 0; font-size: 0.78rem; line-height: 1.55; color: var(--text-2); }
+.creative-workflow-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.creative-workflow-tag {
+  font-size: 0.64rem; padding: 1px 7px; border-radius: 999px;
+  background: var(--surface-2); color: var(--text-3);
+}
+.creative-workflow-consent { margin: 4px 0 0; font-size: 0.68rem; color: var(--text-3); line-height: 1.5; display: flex; align-items: center; gap: 4px; }
+.creative-workflow-cta {
+  margin-top: auto; padding-top: 6px; font-size: 0.8rem; font-weight: 700; color: var(--lime-deep);
+  display: inline-flex; align-items: center; gap: 3px;
+}
+.creative-workflow-cta.is-disabled { color: var(--text-3); }
