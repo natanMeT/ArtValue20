@@ -13,6 +13,10 @@ const progress = {
   role: 'assistant',
   productionProgress: { campaignId: 'c1', conceptName: 'x', statuses: { copy: 'active' }, startedAt: 0, nowTs: 1000, error: null, done: false },
 };
+const handoff = {
+  role: 'assistant',
+  handoff: { id: 'jake-studio_marketing_asset', source: 'jake', target: 'studio', planType: 'studio_marketing_asset', workflow: 'fast-image', prompt: 'a long business prompt with ArtValue positioning…', requiresConfirmation: true },
+};
 
 describe('chatPersistence — transient progress cards excluded from history', () => {
   it('excludes a productionProgress message from persisted history', () => {
@@ -37,6 +41,18 @@ describe('chatPersistence — transient progress cards excluded from history', (
     // simulates reading storage that a buggy build left a progress card in
     expect(persistableChatMessages([progress])).toEqual([]);
     expect(persistableChatMessages([normal, progress])).toEqual([normal]);
+  });
+
+  it('excludes a Studio handoff card from persisted history (privacy: prompt payload)', () => {
+    const out = persistableChatMessages([normal, handoff, system]);
+    expect(out).toEqual([normal, system]);
+    expect(out.some((m) => m.handoff)).toBe(false);
+    expect(isTransientChatMessage(handoff)).toBe(true);
+  });
+
+  it('hydration of a (legacy) stored handoff card restores NOTHING', () => {
+    expect(persistableChatMessages([handoff])).toEqual([]);
+    expect(persistableChatMessages([userMsg, handoff, normal])).toEqual([userMsg, normal]);
   });
 
   it('isTransientChatMessage flags only progress messages', () => {

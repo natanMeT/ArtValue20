@@ -28,6 +28,12 @@
 // After reload, with no critique present, the card falls back to the original V1
 // order + V1 recommendation until critique is recomputed in the current session.
 //
+// A `handoff` message (the Assistant → Studio handoff card) is TRANSIENT BY
+// DESIGN: its payload carries the full resolved business prompt text, which
+// must never sit in localStorage (privacy), and a restored card could hand
+// Studio stale state. It is recomputable by simply asking Jake again — so it
+// is never persisted, and any legacy-stored one drops on hydration.
+//
 // Everything else (normal/system messages, campaign cards, review cards, saved
 // confirmations) persists exactly as before.
 // ===================================================================
@@ -35,7 +41,7 @@
 /** A chat message that is live-only UI state and must NOT be persisted. */
 export function isTransientChatMessage(m) {
   return !!(m && (m.productionProgress || m.offerForm || m.offerBrief
-    || m.posterProgress || m.posterResult || m.posterError));
+    || m.posterProgress || m.posterResult || m.posterError || m.handoff));
 }
 
 /**

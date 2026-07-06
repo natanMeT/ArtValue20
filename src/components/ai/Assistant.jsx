@@ -10,6 +10,7 @@ import { chatJake, forceActionsJake, draftWithJake, jakeBrainLabel, jakeBrainPre
 import { extractActions, executeActions, describeActions, detectBulkDelete, buildBulkDeleteGate } from '../../lib/jakeAgent.js';
 import { activePack } from '../../lib/jakePack.js';
 import { withBusinessBrain } from '../../lib/jakeBusinessContext.js';
+import { studioHandoffFor } from '../../lib/assistantStudioHandoff.js';
 import { createArtValueCreative } from '../../creative/v2/createArtValueCreative.js';
 import { PRODUCTION_STAGES, PRODUCTION_STAGE_ORDER } from '../../creative/v2/productionProgress.js';
 import { generatePosterFromOffer } from '../../lib/comfyPoster.js';
@@ -695,6 +696,16 @@ export default function Assistant() {
     });
   };
 
+  // Studio handoff card click (user click ONLY — never called from render/
+  // effects): close the chat and hand the payload to Studio via router state.
+  // ImageStudio consumes it one-shot and prefills prompt/mode; generation
+  // still happens only when the user clicks Generate there.
+  const handleOpenStudioHandoff = (handoff) => {
+    if (!handoff || handoff.target !== 'studio' || !handoff.prompt) return;
+    setOpen(false);
+    navigate('/studio', { state: { jakeHandoff: handoff } });
+  };
+
   // Click a reminder: navigate to its page (and sit back), or open chat about it.
   const handleReminderClick = (r) => {
     if (r.to) {
@@ -836,6 +847,10 @@ export default function Assistant() {
         const clean = extractActions(draft).clean || draft; // strip any stray actions block
         setMessages((m) => [...m, { role: 'assistant', text: clean }]);
         speak(clean);
+        // Studio handoff card (deterministic, model-free): appended AFTER the
+        // answer, only when the request resolves to a studio-target payload.
+        const handoff = studioHandoffFor(text);
+        if (handoff) setMessages((m) => [...m, { role: 'assistant', handoff }]);
       } catch (e) {
         setMessages((m) => [...m, { role: 'assistant', system: true, text: gentleError(e) }]);
       } finally { setLoading(false); }
@@ -907,6 +922,11 @@ export default function Assistant() {
         setMessages((m) => [...m, { role: 'assistant', text: body }]);
         speak(body);
       }
+
+      // Studio handoff card (deterministic, model-free): appended AFTER the
+      // answer, only when the request resolves to a studio-target payload.
+      const handoff = studioHandoffFor(text);
+      if (handoff) setMessages((m) => [...m, { role: 'assistant', handoff }]);
 
       // Compound "command + number-question": append the authoritative store figure.
       if (dataAns && actionish) {
@@ -1053,6 +1073,15 @@ export default function Assistant() {
                       <div className="ai-confirm-actions">
                         <button className="btn btn-sm ai-confirm-yes" onClick={() => confirmAction(i, m.confirm)}>אשר מחיקה</button>
                         <button className="btn btn-sm btn-ghost" onClick={() => cancelAction(i)}>ביטול</button>
+                      </div>
+                    </div>
+                  ) : m.handoff && m.handoff.target === 'studio' && m.handoff.prompt ? (
+                    <div key={i} className="ai-msg assistant ai-preview">
+                      <div className="ai-preview-q">🎨 {m.handoff.title}</div>
+                      <p className="muted" style={{ margin: '4px 0 4px', fontSize: '0.82rem', lineHeight: 1.6 }}>{m.handoff.description}</p>
+                      <p className="dim" style={{ margin: '0 0 8px', fontSize: '0.74rem', lineHeight: 1.5 }}>הפרומפט מוכן — היצירה תתחיל רק אחרי לחיצה על Generate ב-Studio.</p>
+                      <div className="ai-confirm-actions">
+                        <button className="btn btn-sm ai-approve" onClick={() => handleOpenStudioHandoff(m.handoff)}>פתח ב-Studio עם הפרומפט מוכן</button>
                       </div>
                     </div>
                   ) : m.preview ? (
