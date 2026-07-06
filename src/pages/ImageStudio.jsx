@@ -35,6 +35,16 @@ const EDIT_IDEAS = [
   'הוסף אווירה קולנועית ותאורה דרמטית',
 ];
 
+// Product Presenter composition templates — Hebrew labels, English prompt text
+// (Qwen responds better to English). Each embeds identity/skin/anatomy
+// preservation cues to reduce the arm-skin / hand artifacts seen in live QA.
+const PRESENTER_IDEAS = [
+  { label: 'שעון על פרק היד', prompt: "Place the watch from the second image naturally on the presenter's wrist. Keep the presenter's face, pose, lighting and natural skin texture unchanged. Realistic hand and wrist anatomy, no extra hair, professional product photography." },
+  { label: 'מוצר ביד', prompt: 'The presenter holds the product from the second image, presenting it to the camera. Keep identity, pose and lighting unchanged. Natural fingers and grip, clean studio look.' },
+  { label: 'תכשיט על הצוואר', prompt: "Place the jewelry from the second image naturally on the presenter's neck. Preserve the presenter's face, skin texture and lighting. Elegant campaign photography." },
+  { label: 'ויזואל קמפיין נקי', prompt: 'Create a clean marketing visual: the presenter featured with the product from the second image, premium studio lighting, natural skin, professional campaign composition.' },
+];
+
 const IDEA_POOL = [
   // לוגואים ומיתוג
   'לוגו מודרני מטאלי לעסק דיגיטלי, צבעי ליים וכסף, רקע כהה',
@@ -861,6 +871,12 @@ export default function ImageStudio() {
               </p>
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>לשימוש בתמונות שיש לך הרשאה להשתמש בהן בלבד.</p>
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>הערה: בהרצה הראשונה Qwen טוען מודל גדול וייתכן שהתהליך יימשך כמה דקות. זה תקין בזמן טעינת המנוע.</p>
+              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>טיפ: בחר תמונת פרזנטור שבה אזור היעד — פרק יד, יד או צוואר — גלוי וברור, ותמונת מוצר על רקע נקי. התוצאה הראשונה עשויה להיות מקורבת; אפשר לחדד את ההוראה וליצור שוב.</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                {PRESENTER_IDEAS.map((p) => (
+                  <button key={p.label} type="button" className="idea-chip" style={{ width: 'auto', flex: '0 1 auto', fontSize: '0.78rem', padding: '6px 10px' }} onClick={() => setPrompt(p.prompt)}>{p.label}</button>
+                ))}
+              </div>
             </>
           )}
 
@@ -1041,7 +1057,7 @@ export default function ImageStudio() {
               </div>
               <div className="row between wrap" style={{ gap: 10 }}>
                 <span className={`badge ${result.demo ? 'badge-neutral' : 'badge-active'}`}>
-                  <span className="dot" />{result.isVideo ? (result.flf ? 'מקומי · לפני/אחרי (LTX)' : result.montage ? 'מקומי · מונטאז׳' : result.ltx ? 'מקומי · וידאו (LTX)' : 'מקומי · אנימציה (SVD)') : result.inpaint ? 'מקומי · עריכת אזור' : result.kontext ? 'מקומי · עריכה (Kontext)' : result.engine === 'gemini' ? 'Nano Banana · Gemini' : result.engine === 'local' ? `מקומי · ${result.modelLabel || (result.quality === 'max' ? 'FLUX.1' : 'SDXL')}` : 'Pollinations · Flux'}
+                  <span className="dot" />{result.isVideo ? (result.flf ? 'מקומי · לפני/אחרי (LTX)' : result.montage ? 'מקומי · מונטאז׳' : result.ltx ? 'מקומי · וידאו (LTX)' : 'מקומי · אנימציה (SVD)') : result.presenter ? 'מקומי · פרזנטור (Qwen)' : result.inpaint ? 'מקומי · עריכת אזור' : result.kontext ? 'מקומי · עריכה (Kontext)' : result.engine === 'gemini' ? 'Nano Banana · Gemini' : result.engine === 'local' ? `מקומי · ${result.modelLabel || (result.quality === 'max' ? 'FLUX.1' : 'SDXL')}` : 'Pollinations · Flux'}
                 </span>
                 <div className="row gap-2 wrap">
                   {!result.isVideo && (
