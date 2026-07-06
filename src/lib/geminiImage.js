@@ -566,6 +566,40 @@ function qwenEditGraph(imageName, prompt, seed, opts = {}) {
   return g;
 }
 
+// Qwen multi-image COMPOSE (Product Presenter) — ADDITIVE. Same 2509 stack as
+// qwenEditGraph, but TextEncodeQwenImageEditPlus receives TWO reference images:
+// image1 = presenter (also the VAEEncode latent/canvas, so identity + framing
+// anchor on the person) and image2 = the product/accessory to place. The
+// instruction prompt drives the composition. image3 is intentionally unused.
+// Exported for pure graph-topology tests; qwenEditGraph stays single-image.
+export function qwenComposeGraph(presenterName, productName, prompt, seed, opts = {}) {
+  const lightning = opts.lightning !== false;
+  const steps = opts.steps ?? (lightning ? 8 : 20);
+  const cfg = opts.cfg ?? (lightning ? 1.0 : 2.5);
+  const shift = opts.shift ?? 3.0;
+  const denoise = opts.denoise ?? 1.0;
+  const modelSrc = lightning ? ['41', 0] : ['37', 0];
+  const g = {
+    '37': { class_type: 'UnetLoaderGGUF', inputs: { unet_name: QWEN_UNET } },
+    '38': { class_type: 'CLIPLoader', inputs: { clip_name: QWEN_CLIP, type: 'qwen_image' } },
+    '39': { class_type: 'VAELoader', inputs: { vae_name: QWEN_VAE } },
+    '10': { class_type: 'LoadImage', inputs: { image: presenterName } },
+    '12': { class_type: 'LoadImage', inputs: { image: productName } },
+    '42': { class_type: 'ModelSamplingAuraFlow', inputs: { model: modelSrc, shift: shift } },
+    '43': { class_type: 'CFGNorm', inputs: { model: ['42', 0], strength: 1.0 } },
+    '6': { class_type: 'TextEncodeQwenImageEditPlus', inputs: { clip: ['38', 0], prompt: prompt, vae: ['39', 0], image1: ['10', 0], image2: ['12', 0] } },
+    '7': { class_type: 'TextEncodeQwenImageEditPlus', inputs: { clip: ['38', 0], prompt: '', vae: ['39', 0], image1: ['10', 0], image2: ['12', 0] } },
+    '11': { class_type: 'VAEEncode', inputs: { pixels: ['10', 0], vae: ['39', 0] } },
+    '3': { class_type: 'KSampler', inputs: { seed, steps: steps, cfg: cfg, sampler_name: 'euler', scheduler: 'simple', denoise: denoise, model: ['43', 0], positive: ['6', 0], negative: ['7', 0], latent_image: ['11', 0] } },
+    '8': { class_type: 'VAEDecode', inputs: { samples: ['3', 0], vae: ['39', 0] } },
+    '9': { class_type: 'SaveImage', inputs: { filename_prefix: 'artvalue_presenter', images: ['8', 0] } },
+  };
+  if (lightning) {
+    g['41'] = { class_type: 'LoraLoaderModelOnly', inputs: { model: ['37', 0], lora_name: QWEN_LIGHTNING, strength_model: 1.0 } };
+  }
+  return g;
+}
+
 // Runtime check: is the PuLID-Flux custom node installed in this ComfyUI? (cached)
 let pulidNodeCache = null;
 export async function hasPulidNode() {
@@ -659,6 +693,23 @@ export async function qwenEdit(file, instruction, opts = {}) {
   const graph = qwenEditGraph(name, text, rndSeed(), opts);
   const src = await comfyWait(await comfySubmit(graph), 320);
   return { src, engine: 'local', demo: false, qwen: true };
+}
+
+// Product Presenter — Qwen multi-image compose: presenter photo + product photo
+// + an instruction → one composed marketing image. Instruction-based and
+// approximate by design (exact product replication needs future IP-Adapter/
+// ControlNet work). ADDITIVE — reuses upload/submit/wait, touches nothing else.
+export async function qwenCompose(presenterFile, productFile, instruction, opts = {}) {
+  if (!presenterFile) throw new Error('יש להעלות תמונת פרזנטור');
+  if (!productFile) throw new Error('יש להעלות תמונת מוצר');
+  const text = (instruction || '').trim();
+  if (!text) throw new Error('יש לכתוב הוראת שילוב — מה לעשות עם המוצר');
+  if (!await hasQwenEditNode()) throw new Error('Qwen-Image-Edit אינו מותקן במנוע');
+  const presenterName = await uploadToComfy(presenterFile);
+  const productName = await uploadToComfy(productFile);
+  const graph = qwenComposeGraph(presenterName, productName, text, rndSeed(), opts);
+  const src = await comfyWait(await comfySubmit(graph), 320);
+  return { src, engine: 'local', demo: false, qwen: true, presenter: true };
 }
 
 // Curated 8-angle "model album" — the sellable product. Each angle keeps the SAME
