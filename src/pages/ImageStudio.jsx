@@ -9,7 +9,7 @@ import {
   generateImage, generateImg2Img, editImage, inpaintImage, animateImage, ltxVideo, flfVideo, montageFromImages, downloadImage,
   isImageAiConfigured, hasFluxModel, hasLocalComfy, hasVideoModel, hasLtxVideo, hasKontextModel,
   checkLocalEngine, localEngineUrl, listImageModels, characterPack, characterPackPulid, hasPulidNode,
-  generateModelAlbum, onComfyJob, markNextComfyJob,
+  generateModelAlbum, onComfyJob, markNextComfyJob, hasQwenEditNode, qwenCompose,
 } from '../lib/geminiImage.js';
 import { watchJob, cancelJob } from '../lib/comfyProgress.js';
 import { addImage as addToGallery, listImages as listGallery, getBlob as getGalleryBlob, removeImage as removeFromGallery, srcToBlob, GALLERY_MAX, filterGalleryItems } from '../lib/galleryStore.js';
@@ -100,6 +100,7 @@ const MODES = [
   { id: 'inpaint', label: 'עריכת אזור', sub: 'החלפת אזור מסומן', icon: 'wand', needs: 'comfy' },
   { id: 'video', label: 'תמונה → וידאו', sub: 'הנפשה מתמונה', icon: 'spark', needs: 'video' },
   { id: 'flf', label: 'לפני / אחרי', sub: 'מעבר בין 2 פריימים', icon: 'spark', needs: 'ltx' },
+  { id: 'presenter', label: 'פרזנטור מוצר', sub: 'פרזנטור + מוצר → ויזואל', icon: 'image', needs: 'qwen' },
   { id: 'character', label: 'ערכת דמות', sub: 'דמות עקבית · וריאציות', icon: 'image', needs: 'character' },
   { id: 'album', label: 'אלבום דוגמנית', sub: '8 זוויות מתמונה + בגד', icon: 'image', needs: 'pulid' },
 ];
@@ -200,6 +201,7 @@ export default function ImageStudio() {
   const [pack, setPack] = useState([]);            // streamed character variations
   const [packBusy, setPackBusy] = useState(false);
   const [pulidReady, setPulidReady] = useState(false); // PuLID-Flux node installed?
+  const [qwenReady, setQwenReady] = useState(false);   // Qwen-Image-Edit stack installed?
   const [packEngine, setPackEngine] = useState('kontext'); // 'kontext' | 'pulid'
   const [clothing, setClothing] = useState(''); // model-album clothing/style prompt
   const [aspect, setAspect] = useState('square');
@@ -294,7 +296,7 @@ export default function ImageStudio() {
     }
   };
 
-  const modes = MODES.filter((m) => !m.needs || (m.needs === 'comfy' && hasLocalComfy) || (m.needs === 'video' && (hasVideoModel || hasLtxVideo)) || (m.needs === 'ltx' && hasLtxVideo) || (m.needs === 'kontext' && hasKontextModel) || (m.needs === 'character' && (hasKontextModel || pulidReady)) || (m.needs === 'pulid' && pulidReady));
+  const modes = MODES.filter((m) => !m.needs || (m.needs === 'comfy' && hasLocalComfy) || (m.needs === 'video' && (hasVideoModel || hasLtxVideo)) || (m.needs === 'ltx' && hasLtxVideo) || (m.needs === 'kontext' && hasKontextModel) || (m.needs === 'character' && (hasKontextModel || pulidReady)) || (m.needs === 'pulid' && pulidReady) || (m.needs === 'qwen' && qwenReady));
 
   const refreshGallery = async () => { try { setGallery(await listGallery()); } catch { /* noop */ } };
   useEffect(() => { refreshGallery(); }, []);
@@ -308,6 +310,7 @@ export default function ImageStudio() {
       setModelFile((cur) => cur || (m.find((x) => /juggernaut/i.test(x.file)) || m.find((x) => x.arch === 'sdxl') || m[0]).file);
     });
     hasPulidNode().then((ok) => { if (alive && ok) { setPulidReady(true); setPackEngine('pulid'); } });
+    hasQwenEditNode().then((ok) => { if (alive && ok) setQwenReady(true); });
     return () => { alive = false; };
   }, []);
 
@@ -375,7 +378,7 @@ export default function ImageStudio() {
   // Map a studio mode to a render-history source label (simple, best-effort).
   const SOURCE_BY_MODE = {
     text: 'text-to-image', img2img: 'smart-edit', inpaint: 'area-edit',
-    video: 'image-to-video', flf: 'before-after',
+    video: 'image-to-video', flf: 'before-after', presenter: 'product-presenter',
   };
 
   // Build the small metadata bag saved alongside a gallery asset. kind comes
@@ -390,8 +393,10 @@ export default function ImageStudio() {
 
   const run = async () => {
     if (mode === 'text' && !prompt.trim()) { setError('יש להזין תיאור לתמונה'); return; }
-    if (mode !== 'text' && !file) { setError(mode === 'flf' ? 'העלה תמונת "לפני"' : 'יש להעלות תמונה תחילה'); return; }
+    if (mode !== 'text' && !file) { setError(mode === 'flf' ? 'העלה תמונת "לפני"' : mode === 'presenter' ? 'העלה תמונת פרזנטור' : 'יש להעלות תמונה תחילה'); return; }
     if (mode === 'flf' && !endFile) { setError('העלה גם תמונת "אחרי"'); return; }
+    if (mode === 'presenter' && !endFile) { setError('העלה גם תמונת מוצר'); return; }
+    if (mode === 'presenter' && !prompt.trim()) { setError('כתוב הוראת שילוב — מה לעשות עם המוצר'); return; }
     if (mode === 'inpaint' && !maskRef.current?.hasMask()) { setError('סמן עם המברשת את האזור לעריכה'); return; }
     const token = ++runTokenRef.current;
     cancelledRef.current = false;
@@ -407,6 +412,7 @@ export default function ImageStudio() {
         r = { ...r, quality: isFluxModel ? 'max' : 'fast', modelLabel: selModel?.label };
       }
       else if (mode === 'img2img') { r = hasKontextModel ? await editImage(file, prompt) : await generateImg2Img(file, prompt, { strength }); }
+      else if (mode === 'presenter') { r = await qwenCompose(file, endFile, prompt); }
       else if (mode === 'inpaint') { const mask = await maskRef.current.exportMask(); r = await inpaintImage(file, mask, prompt); }
       else if (mode === 'flf') { const len = (VID_LENGTHS.find((v) => v.sec === vidSec) || VID_LENGTHS[0]).frames; r = await flfVideo(file, endFile, prompt, { length: len, ...ltxRes() }); }
       else { const len = (VID_LENGTHS.find((v) => v.sec === vidSec) || VID_LENGTHS[0]).frames; r = hasLtxVideo ? await ltxVideo(file, prompt, { length: len, ...ltxRes() }) : await animateImage(file, {}); }
@@ -596,7 +602,7 @@ export default function ImageStudio() {
   const isAlbum = mode === 'album';
   const isCharacter = mode === 'character';
   const isPack = isCharacter || isAlbum; // both stream into the pack grid
-  const ctaLabel = isAlbum ? 'צור אלבום 8 זוויות' : isCharacter ? 'צור ערכת דמות' : mode === 'flf' ? 'צור סרטון לפני/אחרי' : mode === 'video' ? 'צור אנימציה' : mode === 'inpaint' ? 'ערוך אזור מסומן' : mode === 'img2img' ? (hasKontextModel ? 'ערוך תמונה' : 'שנה תמונה') : 'צור תמונה עם AI';
+  const ctaLabel = isAlbum ? 'צור אלבום 8 זוויות' : isCharacter ? 'צור ערכת דמות' : mode === 'presenter' ? 'צור ויזואל מוצר' : mode === 'flf' ? 'צור סרטון לפני/אחרי' : mode === 'video' ? 'צור אנימציה' : mode === 'inpaint' ? 'ערוך אזור מסומן' : mode === 'img2img' ? (hasKontextModel ? 'ערוך תמונה' : 'שנה תמונה') : 'צור תמונה עם AI';
   const loadingLabel = isAlbum ? `יוצר אלבום… (${pack.length}/8)` : isCharacter ? `יוצר דמות… (${pack.length}/${packCount})` : isVideoMode ? 'יוצר סרטון… (עד 2-3 דק׳)' : 'מחולל…';
   const ctaBusy = isPack ? packBusy : loading;
   const onCta = isAlbum ? buildAlbum : isCharacter ? buildCharacterPack : run;
@@ -645,27 +651,27 @@ export default function ImageStudio() {
         <div className="card panel">
           <div className="panel-title row gap-2" style={{ marginBottom: 16 }}><Icon name="wand" size={18} style={{ color: 'var(--lime-deep)' }} /> {mode === 'video' ? 'הגדרות אנימציה' : 'הנחיית עיצוב'}</div>
 
-          {/* Before/after dual uploader (start + end frame → morphing video) */}
-          {mode === 'flf' && (
+          {/* Dual uploader — before/after frames (flf) OR presenter + product (presenter) */}
+          {(mode === 'flf' || mode === 'presenter') && (
             <div className="field">
-              <label>שתי תמונות — המעבר ביניהן יהפוך לסרטון</label>
+              <label>{mode === 'presenter' ? 'תמונת פרזנטור + תמונת מוצר' : 'שתי תמונות — המעבר ביניהן יהפוך לסרטון'}</label>
               <div className="flf-slots">
                 <div className="flf-slot">
-                  <span className="flf-slot-tag">לפני</span>
+                  <span className="flf-slot-tag">{mode === 'presenter' ? 'פרזנטור' : 'לפני'}</span>
                   <input ref={fileRef} type="file" accept="image/*" onChange={pickFile} style={{ display: 'none' }} />
                   <button type="button" className="upload-zone flf-zone" onClick={() => fileRef.current?.click()}>
-                    {filePreview ? <img src={filePreview} alt="לפני" className="upload-preview" /> : (
-                      <div className="upload-placeholder"><Icon name="image" size={22} /><span>תמונת התחלה</span></div>
+                    {filePreview ? <img src={filePreview} alt={mode === 'presenter' ? 'פרזנטור' : 'לפני'} className="upload-preview" /> : (
+                      <div className="upload-placeholder"><Icon name="image" size={22} /><span>{mode === 'presenter' ? 'תמונת פרזנטור' : 'תמונת התחלה'}</span></div>
                     )}
                   </button>
                 </div>
                 <div className="flf-arrow"><Icon name="chevronL" size={20} style={{ color: 'var(--lime-deep)' }} /></div>
                 <div className="flf-slot">
-                  <span className="flf-slot-tag">אחרי</span>
+                  <span className="flf-slot-tag">{mode === 'presenter' ? 'מוצר' : 'אחרי'}</span>
                   <input ref={endRef} type="file" accept="image/*" onChange={pickEndFile} style={{ display: 'none' }} />
                   <button type="button" className="upload-zone flf-zone" onClick={() => endRef.current?.click()}>
-                    {endPreview ? <img src={endPreview} alt="אחרי" className="upload-preview" /> : (
-                      <div className="upload-placeholder"><Icon name="image" size={22} /><span>תמונת סיום</span></div>
+                    {endPreview ? <img src={endPreview} alt={mode === 'presenter' ? 'מוצר' : 'אחרי'} className="upload-preview" /> : (
+                      <div className="upload-placeholder"><Icon name="image" size={22} /><span>{mode === 'presenter' ? 'תמונת מוצר' : 'תמונת סיום'}</span></div>
                     )}
                   </button>
                 </div>
@@ -674,7 +680,7 @@ export default function ImageStudio() {
           )}
 
           {/* Image uploader (single-image modes) */}
-          {needsImage && mode !== 'flf' && (
+          {needsImage && mode !== 'flf' && mode !== 'presenter' && (
             <div className="field">
               <label>{mode === 'inpaint' ? 'סמן עם המברשת את האזור לעריכה' : mode === 'character' ? 'תמונת הדמות (ייחוס)' : mode === 'album' ? 'תמונת הדוגמנית (פנים)' : 'תמונת מקור'}</label>
               <input ref={fileRef} type="file" accept="image/*" onChange={pickFile} style={{ display: 'none' }} />
@@ -751,8 +757,8 @@ export default function ImageStudio() {
           {/* Prompt (text + img2img + inpaint + LTX video motion) */}
           {mode !== 'character' && mode !== 'album' && (mode !== 'video' || hasLtxVideo) && (
             <div className="field" style={needsImage ? { marginTop: 14 } : undefined}>
-              <label>{mode === 'flf' ? 'תיאור המעבר (אופציונלי)' : mode === 'video' ? 'תיאור התנועה (אופציונלי)' : mode === 'inpaint' ? 'מה למלא באזור המסומן?' : mode === 'img2img' ? (hasKontextModel ? 'מה לשנות? (הוראת עריכה)' : 'תיאור היעד (סגנון מחדש)') : 'תיאור התמונה (עברית או אנגלית)'}</label>
-              <textarea className="textarea" style={{ minHeight: needsImage ? 80 : 130 }} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={mode === 'flf' ? 'למשל: מעבר חלק, השיער גדל, הרקע משתנה לאט' : mode === 'video' ? 'למשל: המצלמה מתקרבת, השיער מתנופף ברוח, חיוך עדין' : mode === 'inpaint' ? 'כתוב בעברית פשוטה — למשל: רקע חוף ים טרופי' : mode === 'img2img' ? (hasKontextModel ? 'כתוב בעברית פשוטה — למשל: שנה את הרקע לחוף בשקיעה' : 'כתוב בעברית פשוטה — למשל: סגנון ציור שמן') : 'כתוב בעברית פשוטה — למשל: לוגו מודרני לעסק דיגיטלי'} />
+              <label>{mode === 'presenter' ? 'הוראת שילוב (מה לעשות עם המוצר?)' : mode === 'flf' ? 'תיאור המעבר (אופציונלי)' : mode === 'video' ? 'תיאור התנועה (אופציונלי)' : mode === 'inpaint' ? 'מה למלא באזור המסומן?' : mode === 'img2img' ? (hasKontextModel ? 'מה לשנות? (הוראת עריכה)' : 'תיאור היעד (סגנון מחדש)') : 'תיאור התמונה (עברית או אנגלית)'}</label>
+              <textarea className="textarea" style={{ minHeight: needsImage ? 80 : 130 }} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={mode === 'presenter' ? 'למשל: הפרזנטורית מחזיקה את הבקבוק ביד ומציגה אותו למצלמה, תאורת סטודיו נקייה' : mode === 'flf' ? 'למשל: מעבר חלק, השיער גדל, הרקע משתנה לאט' : mode === 'video' ? 'למשל: המצלמה מתקרבת, השיער מתנופף ברוח, חיוך עדין' : mode === 'inpaint' ? 'כתוב בעברית פשוטה — למשל: רקע חוף ים טרופי' : mode === 'img2img' ? (hasKontextModel ? 'כתוב בעברית פשוטה — למשל: שנה את הרקע לחוף בשקיעה' : 'כתוב בעברית פשוטה — למשל: סגנון ציור שמן') : 'כתוב בעברית פשוטה — למשל: לוגו מודרני לעסק דיגיטלי'} />
               <button type="button" className="btn btn-ghost btn-sm enhance-btn" onClick={enhance} disabled={enhancing} style={{ marginTop: 8 }}>
                 {enhancing ? <><span className="loader-ring" style={{ width: 14, height: 14, borderWidth: 2 }} /> משדרג…</> : <><Icon name="spark" size={14} style={{ color: 'var(--lime-deep)' }} /> שדרג לפרומפט מקצועי (עברית → AI)</>}
               </button>
@@ -847,6 +853,15 @@ export default function ImageStudio() {
           )}
 
           {mode === 'img2img' && hasKontextModel && <p className="muted" style={{ fontSize: '0.82rem', lineHeight: 1.6, marginTop: 6 }}><Icon name="spark" size={13} style={{ color: 'var(--lime-deep)' }} /> מודל עריכה חכם — מבצע רק את השינוי שתבקש ושומר על הדמות, הפנים והקומפוזיציה המקוריים.</p>}
+
+          {mode === 'presenter' && (
+            <>
+              <p className="muted" style={{ fontSize: '0.82rem', lineHeight: 1.6, marginTop: 6 }}>
+                <Icon name="spark" size={13} style={{ color: 'var(--lime-deep)' }} /> שלב תמונת מוצר עם פרזנטור ליצירת ויזואל שיווקי (Qwen ריבוי-תמונות). הקומפוזיציה מבוססת AI ועשויה להיות מקורבת; לשמירה מדויקת של מוצר נדרש בהמשך Workflow ייעודי.
+              </p>
+              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>לשימוש בתמונות שיש לך הרשאה להשתמש בהן בלבד.</p>
+            </>
+          )}
 
           {mode === 'inpaint' && <p className="muted" style={{ fontSize: '0.82rem', lineHeight: 1.6, marginTop: 6 }}><Icon name="spark" size={13} style={{ color: 'var(--lime-deep)' }} /> מודל ריאליסטי לא-מוגבל (SDXL) — משנה רק את האזור שסימנת, השאר נשאר מדויק. מתאים לאופנה, בגדי ים והחלפת רקע.</p>}
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { parseComfyOptions, hasFluxModel, hasLocalComfy } from '../geminiImage.js';
+import { parseComfyOptions, hasFluxModel, hasLocalComfy, qwenComposeGraph } from '../geminiImage.js';
 
 // ===================================================================
 // ComfyUI object_info option parser — the capability-detection fix.
@@ -54,6 +54,69 @@ describe('parseComfyOptions — defensive against malformed input', () => {
     const before = JSON.stringify(field);
     expect(parseComfyOptions(field)).toEqual(parseComfyOptions(field));
     expect(JSON.stringify(field)).toBe(before); // input not mutated
+  });
+});
+
+// ===================================================================
+// qwenComposeGraph — Product Presenter multi-image graph topology.
+// Pure builder: no network, no ComfyUI, no generation.
+// ===================================================================
+
+describe('qwenComposeGraph — Qwen multi-image compose (Product Presenter)', () => {
+  const g = qwenComposeGraph('presenter.png', 'product.png', 'place the product in her hand', 12345);
+
+  it('loads TWO images: presenter (10) and product (12)', () => {
+    expect(g['10']).toEqual({ class_type: 'LoadImage', inputs: { image: 'presenter.png' } });
+    expect(g['12']).toEqual({ class_type: 'LoadImage', inputs: { image: 'product.png' } });
+  });
+
+  it('positive text node wires image1=presenter, image2=product and the instruction', () => {
+    const pos = g['6'];
+    expect(pos.class_type).toBe('TextEncodeQwenImageEditPlus');
+    expect(pos.inputs.image1).toEqual(['10', 0]);
+    expect(pos.inputs.image2).toEqual(['12', 0]);
+    expect(pos.inputs.prompt).toBe('place the product in her hand');
+  });
+
+  it('negative text node wires image1=presenter, image2=product with an empty prompt', () => {
+    const neg = g['7'];
+    expect(neg.class_type).toBe('TextEncodeQwenImageEditPlus');
+    expect(neg.inputs.image1).toEqual(['10', 0]);
+    expect(neg.inputs.image2).toEqual(['12', 0]);
+    expect(neg.inputs.prompt).toBe('');
+  });
+
+  it('does NOT wire image3 (reserved for a future third reference)', () => {
+    expect('image3' in g['6'].inputs).toBe(false);
+    expect('image3' in g['7'].inputs).toBe(false);
+  });
+
+  it('the VAEEncode latent/canvas comes from the PRESENTER image', () => {
+    expect(g['11']).toEqual({ class_type: 'VAEEncode', inputs: { pixels: ['10', 0], vae: ['39', 0] } });
+    expect(g['3'].inputs.latent_image).toEqual(['11', 0]);
+  });
+
+  it('keeps the Qwen edit stack defaults: Lightning LoRA path, 8 steps, cfg 1', () => {
+    expect(g['41'].class_type).toBe('LoraLoaderModelOnly');
+    expect(g['42'].inputs.model).toEqual(['41', 0]); // AuraFlow fed by Lightning
+    expect(g['3'].inputs.steps).toBe(8);
+    expect(g['3'].inputs.cfg).toBe(1.0);
+    // lightning:false → no LoRA node, base UNet feeds AuraFlow, 20 steps / cfg 2.5
+    const slow = qwenComposeGraph('p.png', 'q.png', 'x', 1, { lightning: false });
+    expect(slow['41']).toBeUndefined();
+    expect(slow['42'].inputs.model).toEqual(['37', 0]);
+    expect(slow['3'].inputs.steps).toBe(20);
+    expect(slow['3'].inputs.cfg).toBe(2.5);
+  });
+
+  it('is pure and deterministic (same input → deep-equal graph, no mutation)', () => {
+    expect(qwenComposeGraph('a.png', 'b.png', 'p', 7)).toEqual(qwenComposeGraph('a.png', 'b.png', 'p', 7));
+  });
+
+  it('renders through the standard KSampler → VAEDecode → SaveImage tail', () => {
+    expect(g['8']).toEqual({ class_type: 'VAEDecode', inputs: { samples: ['3', 0], vae: ['39', 0] } });
+    expect(g['9'].class_type).toBe('SaveImage');
+    expect(g['9'].inputs.images).toEqual(['8', 0]);
   });
 });
 

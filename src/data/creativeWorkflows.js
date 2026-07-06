@@ -147,21 +147,21 @@ export const CREATIVE_WORKFLOWS = [
     cta: 'פתח',
     tags: ['מהיר', 'קונספט', 'חקירה'],
   },
-  // ---- Coming soon (no runtime target) ----
   {
     id: 'product-presenter',
     title: 'פרזנטור מוצר',
     subtitle: 'פרזנטור + מוצר',
-    description: 'הצבת מוצר באופן טבעי עם פרזנטור לתמונת שיווק. Workflow עתידי מבוסס Qwen ריבוי-תמונות.',
+    description: 'שילוב תמונת מוצר עם פרזנטור ליצירת ויזואל שיווקי (Qwen ריבוי-תמונות). הקומפוזיציה מבוססת AI ועשויה להיות מקורבת.',
     engine: 'comfyui',
-    status: 'soon',
+    status: 'live',
     category: 'commerce',
-    mode: null,
+    mode: 'presenter',
     route: null,
-    cta: 'בקרוב',
-    tags: ['מוצר', 'שיווק', 'עתידי'],
+    cta: 'פתח',
+    tags: ['מוצר', 'שיווק', 'Qwen'],
     consent: true,
   },
+  // ---- Coming soon (no runtime target) ----
   {
     id: 'jewelry-composer',
     title: 'שילוב תכשיט',

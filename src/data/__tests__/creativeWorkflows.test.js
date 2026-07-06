@@ -10,7 +10,7 @@ import {
 // ===================================================================
 
 // The existing ImageStudio MODES ids a live card may activate.
-const VALID_MODES = ['text', 'img2img', 'inpaint', 'video', 'flf', 'character', 'album'];
+const VALID_MODES = ['text', 'img2img', 'inpaint', 'video', 'flf', 'presenter', 'character', 'album'];
 // Existing hash routes a live card may link to.
 const VALID_ROUTES = ['#/workflow', '#/fooocus'];
 const REQUIRED_FIELDS = ['id', 'title', 'subtitle', 'description', 'engine', 'status', 'category', 'cta', 'tags'];
@@ -75,8 +75,19 @@ describe('creativeWorkflows · live vs soon targeting', () => {
 describe('creativeWorkflows · specific cards', () => {
   const byId = (id) => CREATIVE_WORKFLOWS.find((w) => w.id === id);
 
-  it('Product Presenter / Jewelry / Outfit / Identity Pack are marked soon', () => {
-    for (const id of ['product-presenter', 'jewelry-composer', 'outfit-change', 'identity-pack']) {
+  it('Product Presenter is LIVE with the presenter mode (no route)', () => {
+    const pp = byId('product-presenter');
+    expect(pp).toBeTruthy();
+    expect(pp.status).toBe('live');
+    expect(pp.mode).toBe('presenter');
+    expect(pp.route).toBeNull();
+    expect(pp.engine).toBe('comfyui');
+    // not accidentally still listed as coming soon
+    expect(soonWorkflows().some((w) => w.id === 'product-presenter')).toBe(false);
+  });
+
+  it('Jewelry / Outfit / Identity Pack remain soon', () => {
+    for (const id of ['jewelry-composer', 'outfit-change', 'identity-pack']) {
       expect(byId(id), id).toBeTruthy();
       expect(byId(id).status).toBe('soon');
     }
