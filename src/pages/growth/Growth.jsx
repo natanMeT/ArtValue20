@@ -3,6 +3,7 @@ import { StaggerGroup, Reveal } from '../../components/ui/motion.jsx';
 import Icon from '../../components/ui/Icon.jsx';
 import { SectionHeader } from '../../components/ui/atoms.jsx';
 import { GROWTH_MODULES } from './growthNav.js';
+import BusinessBrainPanel from '../../components/growth/BusinessBrainPanel.jsx';
 
 // Growth OS hub — entry point to the ArtValue business-growth modules.
 // Slice 1: navigation + scaffold only (no logic, no persistence).
@@ -22,6 +23,10 @@ export default function Growth() {
             המודולים פעילים ומחוברים — זהו המסך המרכזי שמחבר ביניהם.
           </p>
         </div>
+      </Reveal>
+
+      <Reveal>
+        <BusinessBrainPanel />
       </Reveal>
 
       <StaggerGroup className="client-grid">
