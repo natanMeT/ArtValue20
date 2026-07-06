@@ -15,7 +15,7 @@
 // Consent-safe note surfaced on presenter/reference workflows.
 export const CONSENT_NOTE = 'לשימוש בתמונות שיש לך הרשאה להשתמש בהן בלבד.';
 
-export const WORKFLOW_ENGINES = ['comfyui', 'fooocus', 'mixed'];
+export const WORKFLOW_ENGINES = ['comfyui', 'fooocus', 'mixed', 'browser'];
 export const WORKFLOW_STATUSES = ['live', 'soon'];
 
 // Human-friendly engine labels for badges (presentational).
@@ -23,6 +23,7 @@ export const ENGINE_LABEL = {
   comfyui: 'ComfyUI',
   fooocus: 'Fooocus',
   mixed: 'Mixed',
+  browser: 'דפדפן',
 };
 
 export const CREATIVE_WORKFLOWS = [
@@ -159,6 +160,20 @@ export const CREATIVE_WORKFLOWS = [
     route: null,
     cta: 'פתח',
     tags: ['מוצר', 'שיווק', 'Qwen'],
+    consent: true,
+  },
+  {
+    id: 'product-lock',
+    title: 'מוצר מדויק',
+    subtitle: 'Product Lock · קומפוזיט',
+    description: 'שימור מוצר מדויק עם קומפוזיט מונחה: מתאים ללוגו, טקסט, שעון, אריזה וסימני מותג שצריכים להישאר נאמנים למקור. הצללה וחיבור AI — בשלב הבא.',
+    engine: 'browser',
+    status: 'live',
+    category: 'commerce',
+    mode: 'lock',
+    route: null,
+    cta: 'פתח',
+    tags: ['מוצר', 'דיוק', 'קומפוזיט'],
     consent: true,
   },
   // ---- Coming soon (no runtime target) ----

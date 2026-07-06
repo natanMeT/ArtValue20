@@ -2966,3 +2966,12 @@
   display: inline-flex; align-items: center; gap: 3px;
 }
 .creative-workflow-cta.is-disabled { color: var(--text-3); }
+
+/* ---- Product Lock placement workspace ---- */
+.product-placer { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.pp-stage { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface-2); }
+.pp-canvas { display: block; width: 100%; height: auto; touch-action: none; cursor: grab; }
+.pp-canvas:active { cursor: grabbing; }
+.pp-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pp-hint { margin: 0; font-size: 0.72rem; line-height: 1.5; }
+.creative-workflow-badge.cwm-engine-browser { color: #d8b4fe; }
