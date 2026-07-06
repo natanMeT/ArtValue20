@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import Icon from '../ui/Icon.jsx';
 import {
   defaultPlacement, clampPlacement, placementToPixels, hasTransparency, applyCleanCutout,
+  buildSeamRingMask, seamRingSizes, shadowEllipseFor,
 } from '../../lib/productLock.js';
 
 // ===================================================================
@@ -136,7 +137,47 @@ const ProductPlacer = forwardRef(function ProductPlacer({ baseUrl, productUrl },
       drawComposite(c.getContext('2d'), c.width, c.height);
       c.toBlob((blob) => resolve(blob), 'image/png');
     }),
-  }), [baseReady, drawComposite]);
+    // B2: exact composite + pixel-aligned seam-ring mask, rendered in the SAME
+    // call from the SAME transform at native resolution. The mask is built from
+    // the product's alpha silhouette only — the interior stays excluded.
+    exportForBlend: () => new Promise((resolve) => {
+      const base = baseImgRef.current;
+      const prod = productCanvasRef.current;
+      if (!base || !prod) { resolve(null); return; }
+      const W = base.naturalWidth || 1;
+      const H = base.naturalHeight || 1;
+      const compCanvas = document.createElement('canvas');
+      compCanvas.width = W; compCanvas.height = H;
+      drawComposite(compCanvas.getContext('2d'), W, H);
+      const px = placementToPixels(placement, W, H, prod.width, prod.height);
+      const silCanvas = document.createElement('canvas');
+      silCanvas.width = W; silCanvas.height = H;
+      const sctx = silCanvas.getContext('2d');
+      sctx.save();
+      sctx.translate(px.cx, px.cy);
+      sctx.rotate((px.rotation * Math.PI) / 180);
+      sctx.drawImage(prod, -px.w / 2, -px.h / 2, px.w, px.h);
+      sctx.restore();
+      let ring = null;
+      try {
+        ring = buildSeamRingMask(sctx.getImageData(0, 0, W, H), {
+          ...seamRingSizes(px.w),
+          shadow: shadowEllipseFor(px),
+        });
+      } catch { /* pixel access unavailable */ }
+      if (!ring) { resolve(null); return; }
+      const maskCanvas = document.createElement('canvas');
+      maskCanvas.width = W; maskCanvas.height = H;
+      const mctx = maskCanvas.getContext('2d');
+      const maskData = mctx.createImageData(W, H);
+      maskData.data.set(ring.data);
+      mctx.putImageData(maskData, 0, 0);
+      compCanvas.toBlob((composite) => {
+        if (!composite) { resolve(null); return; }
+        maskCanvas.toBlob((ringMask) => resolve(ringMask ? { composite, ringMask } : null), 'image/png');
+      }, 'image/png');
+    }),
+  }), [baseReady, drawComposite, placement]);
 
   return (
     <div className="product-placer">

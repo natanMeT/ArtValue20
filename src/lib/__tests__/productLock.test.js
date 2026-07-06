@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   defaultPlacement, clampPlacement, placementToPixels, hasTransparency, applyCleanCutout,
+  buildSeamRingMask, seamRingSizes, shadowEllipseFor,
 } from '../productLock.js';
+import { productLockBlendGraph } from '../geminiImage.js';
 
 // ===================================================================
 // productLock — pure placement math + cutout coverage. No DOM, no
@@ -130,5 +132,144 @@ describe('applyCleanCutout', () => {
     const source = img([[230, 230, 230, 255]]);
     expect(applyCleanCutout(source).data[3]).toBe(255);                    // default 240 keeps it
     expect(applyCleanCutout(source, { threshold: 220 }).data[3]).toBe(0);  // looser threshold cuts it
+  });
+});
+
+// ===================================================================
+// B2 — seam-ring mask + blend-graph safety. The graph shape assertions
+// are product-protection guarantees: interior excluded by geometry,
+// grow_mask_by 0, terminal paste-back of the original composite.
+// ===================================================================
+
+// 60×60 canvas with an opaque 20×20 product square at (20..39, 20..39).
+const squareSilhouette = () => {
+  const w = 60; const h = 60;
+  const data = new Uint8ClampedArray(w * h * 4);
+  for (let y = 20; y < 40; y += 1) {
+    for (let x = 20; x < 40; x += 1) data[(y * w + x) * 4 + 3] = 255;
+  }
+  return { data, width: w, height: h };
+};
+const maskAt = (mask, x, y) => mask.data[(y * mask.width + x) * 4]; // red channel
+
+describe('seamRingSizes', () => {
+  it('scales with product width and enforces floors', () => {
+    expect(seamRingSizes(1000)).toEqual({ inner: 15, outer: 60 });
+    expect(seamRingSizes(100)).toEqual({ inner: 3, outer: 10 });  // floors kick in
+    expect(seamRingSizes(0)).toEqual({ inner: 3, outer: 10 });
+    expect(seamRingSizes('x')).toEqual({ inner: 3, outer: 10 });
+  });
+});
+
+describe('shadowEllipseFor', () => {
+  it('places the ellipse at the product bottom-center, sized from the width', () => {
+    const s = shadowEllipseFor({ cx: 100, cy: 100, w: 200, h: 100 });
+    expect(s.cx).toBe(100);
+    expect(s.cy).toBe(150);              // bottom edge
+    expect(s.rx).toBeCloseTo(110);       // 0.55 × w
+    expect(s.ry).toBeCloseTo(18);        // 0.09 × w
+  });
+});
+
+describe('buildSeamRingMask', () => {
+  const OPTS = { inner: 3, outer: 10, feather: 0 };
+
+  it('excludes the product interior (deep pixels stay black)', () => {
+    const mask = buildSeamRingMask(squareSilhouette(), OPTS);
+    expect(maskAt(mask, 30, 30)).toBe(0); // center — 10px deep, way past inner=3
+    expect(maskAt(mask, 25, 25)).toBe(0); // 5px deep > inner
+  });
+
+  it('covers the boundary band inside and outside the edge', () => {
+    const mask = buildSeamRingMask(squareSilhouette(), OPTS);
+    expect(maskAt(mask, 20, 30)).toBe(255); // edge pixel (1px from bg ≤ inner)
+    expect(maskAt(mask, 15, 30)).toBe(255); // 5px outside ≤ outer
+    expect(maskAt(mask, 10, 30)).toBe(255); // exactly outer=10 outside
+  });
+
+  it('respects inner/outer sizing (beyond the band stays black)', () => {
+    const mask = buildSeamRingMask(squareSilhouette(), OPTS);
+    expect(maskAt(mask, 8, 30)).toBe(0);    // 12px outside > outer=10 (no feather)
+    expect(maskAt(mask, 30, 24)).toBe(0);   // 4px deep inside > inner=3
+    const wide = buildSeamRingMask(squareSilhouette(), { inner: 3, outer: 15, feather: 0 });
+    expect(maskAt(wide, 8, 30)).toBe(255);  // wider outer now covers it
+  });
+
+  it('feathers the OUTER edge only — never the inner edge into the product', () => {
+    const mask = buildSeamRingMask(squareSilhouette(), { inner: 3, outer: 10, feather: 2 });
+    const soft = maskAt(mask, 9, 30);       // 11px outside — inside the feather band
+    expect(soft).toBeGreaterThan(0);
+    expect(soft).toBeLessThan(255);
+    expect(maskAt(mask, 30, 30)).toBe(0);   // interior untouched by feather
+    expect(maskAt(mask, 30, 24)).toBe(0);
+  });
+
+  it('unions the shadow ellipse below the product without repainting the interior', () => {
+    const shadow = { cx: 30, cy: 55, rx: 8, ry: 3 };
+    const withShadow = buildSeamRingMask(squareSilhouette(), { ...OPTS, shadow });
+    const without = buildSeamRingMask(squareSilhouette(), OPTS);
+    expect(maskAt(without, 30, 55)).toBe(0);    // beyond the ring
+    expect(maskAt(withShadow, 30, 55)).toBe(255); // shadow region enabled
+    // a shadow covering the product center still cannot open the interior
+    const evil = buildSeamRingMask(squareSilhouette(), { ...OPTS, shadow: { cx: 30, cy: 30, rx: 20, ry: 20 } });
+    expect(maskAt(evil, 30, 30)).toBe(0);
+  });
+
+  it('returns an empty (all-black) mask for an empty silhouette', () => {
+    const w = 20; const h = 20;
+    const empty = { data: new Uint8ClampedArray(w * h * 4), width: w, height: h };
+    const mask = buildSeamRingMask(empty, OPTS);
+    for (let i = 0; i < w * h; i += 1) {
+      expect(mask.data[i * 4]).toBe(0);
+      expect(mask.data[i * 4 + 3]).toBe(255); // opaque
+    }
+    expect(buildSeamRingMask(null)).toBeNull();
+  });
+
+  it('never mutates the input silhouette', () => {
+    const sil = squareSilhouette();
+    const before = [...sil.data];
+    buildSeamRingMask(sil, { ...OPTS, shadow: { cx: 30, cy: 45, rx: 10, ry: 4 } });
+    expect([...sil.data]).toEqual(before);
+  });
+});
+
+describe('productLockBlendGraph — product-pixel protection by construction', () => {
+  const g = productLockBlendGraph('composite.png', 'ring.png', 'blend the seam', 42);
+  const nodes = Object.values(g);
+  const byClass = (cls) => nodes.filter((n) => n.class_type === cls);
+
+  it('loads the composite and the ring mask, red-channel mask', () => {
+    const loads = byClass('LoadImage').map((n) => n.inputs.image);
+    expect(loads).toContain('composite.png');
+    expect(loads).toContain('ring.png');
+    expect(byClass('ImageToMask')[0].inputs.channel).toBe('red');
+  });
+
+  it('uses grow_mask_by 0 — the ring geometry from the browser is exact', () => {
+    expect(byClass('VAEEncodeForInpaint')[0].inputs.grow_mask_by).toBe(0);
+  });
+
+  it('blends (denoise < 1) instead of replacing the region', () => {
+    const k = byClass('KSampler')[0];
+    expect(k.inputs.denoise).toBeLessThan(1);
+    expect(k.inputs.denoise).toBeGreaterThan(0);
+  });
+
+  it('REQUIRED terminal paste-back: ImageCompositeMasked restores original pixels outside the ring', () => {
+    const paste = byClass('ImageCompositeMasked')[0];
+    expect(paste).toBeTruthy();
+    expect(paste.inputs.destination).toEqual(['10', 0]); // original composite
+    expect(paste.inputs.source).toEqual(['8', 0]);       // inpainted decode
+    expect(paste.inputs.mask).toEqual(['14', 0]);        // the ring
+    expect(paste.inputs.x).toBe(0);
+    expect(paste.inputs.y).toBe(0);
+    // SaveImage takes the PASTED result, not the raw VAE decode
+    const pasteId = Object.keys(g).find((id) => g[id].class_type === 'ImageCompositeMasked');
+    expect(byClass('SaveImage')[0].inputs.images).toEqual([pasteId, 0]);
+  });
+
+  it('is deterministic for the same inputs', () => {
+    expect(productLockBlendGraph('a.png', 'b.png', 'p', 7)).toEqual(productLockBlendGraph('a.png', 'b.png', 'p', 7));
   });
 });

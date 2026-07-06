@@ -68,3 +68,91 @@ export function applyCleanCutout(img, opts = {}) {
   }
   return { data: out, width: img.width, height: img.height };
 }
+
+// ===================================================================
+// B2 — seam-ring mask: AI is allowed to repaint ONLY this ring (edge
+// band + optional contact shadow). The product interior is excluded by
+// GEOMETRY, never by prompt wording.
+// ===================================================================
+
+// Ring sizing from the product's on-canvas pixel width.
+export function seamRingSizes(prodWidthPx) {
+  const w = Number.isFinite(Number(prodWidthPx)) ? Math.max(0, Number(prodWidthPx)) : 0;
+  return { inner: Math.max(3, Math.round(w * 0.015)), outer: Math.max(10, Math.round(w * 0.06)) };
+}
+
+// Contact-shadow ellipse under the product's bottom edge, from the pixel
+// placement ({cx,cy,w,h} as returned by placementToPixels). Pure math.
+export function shadowEllipseFor(px) {
+  return { cx: px.cx, cy: px.cy + px.h / 2, rx: px.w * 0.55, ry: Math.max(2, px.w * 0.09) };
+}
+
+// Two-pass city-block (chamfer) distance to the nearest feature pixel. O(n).
+function chamferDistance(feature, w, h) {
+  const INF = 1 << 29;
+  const d = new Int32Array(w * h);
+  for (let i = 0; i < d.length; i += 1) d[i] = feature[i] ? 0 : INF;
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const i = y * w + x;
+      if (x > 0 && d[i - 1] + 1 < d[i]) d[i] = d[i - 1] + 1;
+      if (y > 0 && d[i - w] + 1 < d[i]) d[i] = d[i - w] + 1;
+    }
+  }
+  for (let y = h - 1; y >= 0; y -= 1) {
+    for (let x = w - 1; x >= 0; x -= 1) {
+      const i = y * w + x;
+      if (x < w - 1 && d[i + 1] + 1 < d[i]) d[i] = d[i + 1] + 1;
+      if (y < h - 1 && d[i + w] + 1 < d[i]) d[i] = d[i + w] + 1;
+    }
+  }
+  return d;
+}
+
+// Build the seam-ring inpaint mask from the product silhouette rendered at
+// the base image's resolution (RGBA {data,width,height}; alpha = product).
+// ring = dilate(S, outer) − erode(S, inner): only a band around the edge.
+// Pixels deeper than `inner` inside the product stay black — including under
+// the optional shadow ellipse — so the interior can never be repainted.
+// Feather softens the OUTER edge only; the inner edge is never feathered
+// into the product. Returns a NEW white-on-black RGBA image (red-channel
+// compatible with ImageToMask); input untouched. Empty silhouette → empty mask.
+export function buildSeamRingMask(silhouette, opts = {}) {
+  const w = silhouette?.width; const h = silhouette?.height; const src = silhouette?.data;
+  if (!src || !w || !h) return null;
+  const inner = Math.max(1, Math.round(opts.inner ?? 3));
+  const outer = Math.max(1, Math.round(opts.outer ?? 10));
+  const feather = Math.max(0, Math.round(opts.feather ?? 2));
+  const shadow = opts.shadow || null;
+  const n = w * h;
+  const out = new Uint8ClampedArray(n * 4);
+  for (let i = 0; i < n; i += 1) out[i * 4 + 3] = 255; // opaque black
+  const S = new Uint8Array(n);
+  const notS = new Uint8Array(n);
+  let any = false;
+  for (let i = 0; i < n; i += 1) {
+    const on = src[i * 4 + 3] >= 8 ? 1 : 0;
+    S[i] = on; notS[i] = 1 - on; if (on) any = true;
+  }
+  if (!any) return { data: out, width: w, height: h };
+  const distToS = chamferDistance(S, w, h);     // 0 on/inside the product
+  const distToBg = chamferDistance(notS, w, h); // depth inside the product
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const i = y * w + x;
+      if (distToBg[i] > inner) continue; // deep interior — protected, stays black
+      let v = 0;
+      if (distToS[i] <= outer) v = 255;
+      else if (feather && distToS[i] <= outer + feather) {
+        v = Math.round((255 * (outer + feather - distToS[i])) / feather);
+      }
+      if (shadow && v < 255) {
+        const dx = (x - shadow.cx) / (shadow.rx || 1);
+        const dy = (y - shadow.cy) / (shadow.ry || 1);
+        if (dx * dx + dy * dy <= 1) v = 255;
+      }
+      if (v > 0) { const o = i * 4; out[o] = v; out[o + 1] = v; out[o + 2] = v; }
+    }
+  }
+  return { data: out, width: w, height: h };
+}

@@ -800,6 +800,43 @@ export async function inpaintImage(file, maskBlob, prompt) {
   return { src, engine: 'local', demo: false, inpaint: true };
 }
 
+// --- Product Lock B2: AI seam/shadow blend over an exact composite ---
+// SDXL inpaints ONLY the seam-ring mask (edge band + contact shadow), then a
+// terminal ImageCompositeMasked pastes the ORIGINAL composite back everywhere
+// outside the ring — product pixels are protected by graph construction, not
+// by prompt. grow_mask_by stays 0: the ring geometry is exact from the browser.
+// Exported for tests (graph shape is a product-safety guarantee).
+export function productLockBlendGraph(imageName, maskName, prompt, seed) {
+  return {
+    '4': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: COMFY_MODEL } },
+    '10': { class_type: 'LoadImage', inputs: { image: imageName } },
+    '13': { class_type: 'LoadImage', inputs: { image: maskName } },
+    '14': { class_type: 'ImageToMask', inputs: { image: ['13', 0], channel: 'red' } },
+    '11': { class_type: 'VAEEncodeForInpaint', inputs: { pixels: ['10', 0], vae: ['4', 2], mask: ['14', 0], grow_mask_by: 0 } },
+    '6': { class_type: 'CLIPTextEncode', inputs: { text: prompt, clip: ['4', 1] } },
+    '7': { class_type: 'CLIPTextEncode', inputs: { text: 'lowres, blurry, deformed, watermark, text, extra objects, hard cutout edge', clip: ['4', 1] } },
+    '3': { class_type: 'KSampler', inputs: { seed, steps: 24, cfg: 6, sampler_name: 'dpmpp_2m', scheduler: 'karras', denoise: 0.55, model: ['4', 0], positive: ['6', 0], negative: ['7', 0], latent_image: ['11', 0] } },
+    '8': { class_type: 'VAEDecode', inputs: { samples: ['3', 0], vae: ['4', 2] } },
+    '15': { class_type: 'ImageCompositeMasked', inputs: { destination: ['10', 0], source: ['8', 0], mask: ['14', 0], x: 0, y: 0, resize_source: false } },
+    '9': { class_type: 'SaveImage', inputs: { filename_prefix: 'artvalue_lockblend', images: ['15', 0] } },
+  };
+}
+
+// Blend a Product Lock composite: upload composite + ring mask, inpaint the
+// ring, paste back. Normal SDXL wait budget (200 ≈ 5 min) — never the Qwen one.
+export async function productLockBlend(compositeBlob, maskBlob, prompt) {
+  if (!COMFY_URL) throw new Error('שיפור חיבור זמין רק עם ComfyUI מקומי');
+  if (!compositeBlob) throw new Error('אין קומפוזיט לשיפור');
+  if (!maskBlob) throw new Error('יצירת מסכת החיבור נכשלה');
+  const text = (prompt || '').trim();
+  if (!text) throw new Error('חסר תיאור חיבור');
+  const imgName = await uploadToComfy(new File([compositeBlob], 'lock_composite.png', { type: 'image/png' }));
+  const maskName = await uploadToComfy(new File([maskBlob], 'lock_ring.png', { type: 'image/png' }));
+  const graph = productLockBlendGraph(imgName, maskName, text, rndSeed());
+  const src = await comfyWait(await comfySubmit(graph), 200);
+  return { src, engine: 'local', demo: false, lockBlend: true };
+}
+
 // Montage: stitch several images into one slideshow clip (animated WebP).
 export async function montageFromImages(blobs, opts = {}) {
   if (!COMFY_URL) throw new Error('הרכבת סרטון זמינה רק עם ComfyUI מקומי');

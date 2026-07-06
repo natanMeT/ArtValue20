@@ -9,7 +9,7 @@ import {
   generateImage, generateImg2Img, editImage, inpaintImage, animateImage, ltxVideo, flfVideo, montageFromImages, downloadImage,
   isImageAiConfigured, hasFluxModel, hasLocalComfy, hasVideoModel, hasLtxVideo, hasKontextModel,
   checkLocalEngine, localEngineUrl, listImageModels, characterPack, characterPackPulid, hasPulidNode,
-  generateModelAlbum, onComfyJob, markNextComfyJob, hasQwenEditNode, qwenCompose,
+  generateModelAlbum, onComfyJob, markNextComfyJob, hasQwenEditNode, qwenCompose, productLockBlend,
 } from '../lib/geminiImage.js';
 import { watchJob, cancelJob } from '../lib/comfyProgress.js';
 import { addImage as addToGallery, listImages as listGallery, getBlob as getGalleryBlob, removeImage as removeFromGallery, srcToBlob, GALLERY_MAX, filterGalleryItems } from '../lib/galleryStore.js';
@@ -209,6 +209,7 @@ export default function ImageStudio() {
   const [quality, setQuality] = useState('fast');
   const [presenterQuality, setPresenterQuality] = useState('fast'); // Product Presenter: 'fast' | 'quality'
   const [lockBusy, setLockBusy] = useState(false); // Product Lock composite export in progress
+  const [lockBlendBusy, setLockBlendBusy] = useState(false); // B2 AI seam/shadow blend in progress
   const placerRef = useRef(null);                  // ProductPlacer imperative handle
   const [models, setModels] = useState([]);     // local image checkpoints (auto-detected)
   const [modelFile, setModelFile] = useState('');
@@ -304,6 +305,7 @@ export default function ImageStudio() {
       if (watchStopRef.current) { watchStopRef.current(); watchStopRef.current = null; }
       setJob(null);
       setLoading(false);
+      setLockBlendBusy(false);
       toast('היצירה בוטלה');
     } else if (r === 'error') {
       cancelledRef.current = false;
@@ -527,6 +529,42 @@ export default function ImageStudio() {
       setError(e.message || 'שגיאה ביצירת הקומפוזיט');
     } finally {
       setLockBusy(false);
+    }
+  };
+
+  // Product Lock (B2): AI seam/shadow blend. The browser exports the exact
+  // composite + a pixel-aligned seam-ring mask; SDXL inpaints ONLY the ring and
+  // the graph pastes the original composite back everywhere else. Fixed prompt —
+  // product protection comes from mask geometry + paste-back, never wording.
+  const LOCK_BLEND_PROMPT = 'Natural soft contact shadow, seamless edge blending, matched ambient lighting, realistic product contact with the surface or skin, photorealistic integration. Preserve the product exactly.';
+  const runLockBlend = async () => {
+    if (!file) { setError('העלה תמונת בסיס / פרזנטור'); return; }
+    if (!endFile) { setError('העלה גם תמונת מוצר'); return; }
+    if (!placerRef.current?.isReady()) { setError('סביבת המיקום עדיין נטענת — נסה שוב בעוד רגע'); return; }
+    const token = ++runTokenRef.current;
+    cancelledRef.current = false;
+    setJob(null);
+    setLockBlendBusy(true); setError('');
+    try {
+      const exported = await placerRef.current.exportForBlend();
+      if (!exported) throw new Error('יצירת הקומפוזיט ומסכת החיבור נכשלה');
+      markNextComfyJob('studio-run'); // reuse the live job card + cancel
+      const r = await productLockBlend(exported.composite, exported.ringMask, LOCK_BLEND_PROMPT);
+      if (token !== runTokenRef.current) return; // cancelled (pending-delete)
+      if (r?.src) {
+        try { await addToGallery(await srcToBlob(r.src), { kind: 'image', source: 'product-lock-blend', engine: 'comfyui' }); await refreshGallery(); } catch { /* noop */ }
+      }
+      toast('שיפור החיבור נשמר בגלריה ✓');
+    } catch (e) {
+      if (token !== runTokenRef.current) return; // stale run — already handled by cancel
+      if (cancelledRef.current) toast('היצירה בוטלה');
+      else setError(e.message || 'שגיאה בשיפור החיבור');
+    } finally {
+      if (token === runTokenRef.current) {
+        setLockBlendBusy(false);
+        setJob(null);
+        if (watchStopRef.current) { watchStopRef.current(); watchStopRef.current = null; }
+      }
     }
   };
 
@@ -942,7 +980,7 @@ export default function ImageStudio() {
                 <Icon name="edit" size={13} style={{ color: 'var(--lime-deep)' }} /> <b>מוצר מדויק — Product Lock.</b> מצב זה שומר על פיקסלי המוצר המקורי וממקם אותו על גבי תמונת הפרזנטור. מתאים למוצרים עם לוגו, טקסט, שעון, אריזה או סימני מותג שצריכים להישאר מדויקים.
               </p>
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>המערכת שומרת על המוצר עצמו, ואתה יכול לדייק את המיקום, הגודל והזווית לפני יצירת הקומפוזיט.</p>
-              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>מומלץ להשתמש בתמונת מוצר PNG שקופה או בתמונת מוצר על רקע נקי. בשלב הזה המערכת שומרת על המוצר ומבצעת קומפוזיט מדויק; הצללה וחיבור AI מתקדם יתווספו בשלב הבא.</p>
+              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>מומלץ להשתמש בתמונת מוצר PNG שקופה או בתמונת מוצר על רקע נקי. אחרי יצירת הקומפוזיט המדויק אפשר ללחוץ «שפר חיבור וצללים» — AI יוסיף צל מגע וחיבור טבעי סביב הקצוות בלבד.</p>
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>לשימוש בתמונות שיש לך הרשאה להשתמש בהן בלבד.</p>
             </>
           )}
@@ -1008,6 +1046,18 @@ export default function ImageStudio() {
             {ctaBusy ? <><span className="loader-ring" style={{ width: 18, height: 18, borderWidth: 2 }} /> {loadingLabel}</> : <><Icon name="spark" size={18} /> {ctaLabel}</>}
           </button>
 
+          {/* Product Lock B2 — secondary action: AI blends ONLY the seam/shadow ring */}
+          {isLock && hasLocalComfy && (
+            <>
+              <button className="btn btn-ghost btn-block" onClick={runLockBlend} disabled={lockBlendBusy || lockBusy || !file || !endFile} style={{ marginTop: 8 }}>
+                {lockBlendBusy ? <><span className="loader-ring" style={{ width: 16, height: 16, borderWidth: 2 }} /> משפר חיבור…</> : <><Icon name="wand" size={16} /> שפר חיבור וצללים</>}
+              </button>
+              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 6 }}>
+                שיפור החיבור משתמש ב־AI רק באזור הקצוות והצללים. המוצר עצמו נשמר מוגן, כדי שלוגו, טקסט ופרטי מוצר לא ייווצרו מחדש.
+              </p>
+            </>
+          )}
+
           {/* Quick ideas (text mode only) */}
           {mode === 'text' && (
             <div className="diag-section" style={{ marginTop: 22 }}>
@@ -1038,6 +1088,26 @@ export default function ImageStudio() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div className="panel-title row gap-2"><Icon name="edit" size={16} style={{ color: 'var(--lime-deep)' }} /> סביבת מיקום — מוצר מדויק</div>
               <ProductPlacer ref={placerRef} baseUrl={filePreview} productUrl={endPreview} />
+              {lockBlendBusy && job && (
+                <div className="job-card">
+                  <div className="job-row">
+                    <span className={`badge ${job.phase === 'running' ? 'badge-active' : 'badge-neutral'}`}>
+                      <span className="dot" /> {job.phase === 'queued' ? (job.position > 1 ? `בתור (${job.position})` : 'בתור') : 'רץ'}
+                    </span>
+                    {job.node && <span className="dim job-node"><bdi>{job.node}</bdi></span>}
+                    <JobElapsed at={job.at} />
+                  </div>
+                  {job.max > 0 && (
+                    <div className="job-bar" role="progressbar" aria-valuenow={job.value} aria-valuemax={job.max}>
+                      <span style={{ width: `${Math.min(100, Math.round((job.value / job.max) * 100))}%` }} />
+                    </div>
+                  )}
+                  {job.max > 0 && <span className="dim job-pct"><bdi>{Math.min(100, Math.round((job.value / job.max) * 100))}%</bdi></span>}
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={cancelCurrentJob} disabled={cancelledRef.current}>
+                    <Icon name="x" size={14} /> ביטול
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="diag-empty">
