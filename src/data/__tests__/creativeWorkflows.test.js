@@ -10,7 +10,7 @@ import {
 // ===================================================================
 
 // The existing ImageStudio MODES ids a live card may activate.
-const VALID_MODES = ['text', 'img2img', 'inpaint', 'video', 'flf', 'presenter', 'character', 'album'];
+const VALID_MODES = ['text', 'img2img', 'inpaint', 'video', 'flf', 'presenter', 'lock', 'character', 'album'];
 // Existing hash routes a live card may link to.
 const VALID_ROUTES = ['#/workflow', '#/fooocus'];
 const REQUIRED_FIELDS = ['id', 'title', 'subtitle', 'description', 'engine', 'status', 'category', 'cta', 'tags'];
@@ -84,6 +84,16 @@ describe('creativeWorkflows · specific cards', () => {
     expect(pp.engine).toBe('comfyui');
     // not accidentally still listed as coming soon
     expect(soonWorkflows().some((w) => w.id === 'product-presenter')).toBe(false);
+  });
+
+  it('Product Lock is LIVE, browser-engine, with the lock mode (no route)', () => {
+    const pl = byId('product-lock');
+    expect(pl).toBeTruthy();
+    expect(pl.status).toBe('live');
+    expect(pl.mode).toBe('lock');
+    expect(pl.route).toBeNull();
+    expect(pl.engine).toBe('browser');
+    expect(pl.consent).toBe(true);
   });
 
   it('Jewelry / Outfit / Identity Pack remain soon', () => {
