@@ -205,6 +205,7 @@ export default function ImageStudio() {
   const [mode, setMode] = useState('text');
   const [prompt, setPrompt] = useState('');
   const [quality, setQuality] = useState('fast');
+  const [presenterQuality, setPresenterQuality] = useState('fast'); // Product Presenter: 'fast' | 'quality'
   const [models, setModels] = useState([]);     // local image checkpoints (auto-detected)
   const [modelFile, setModelFile] = useState('');
   const [packCount, setPackCount] = useState(6);  // consistent-character pack size
@@ -422,7 +423,7 @@ export default function ImageStudio() {
         r = { ...r, quality: isFluxModel ? 'max' : 'fast', modelLabel: selModel?.label };
       }
       else if (mode === 'img2img') { r = hasKontextModel ? await editImage(file, prompt) : await generateImg2Img(file, prompt, { strength }); }
-      else if (mode === 'presenter') { r = await qwenCompose(file, endFile, prompt); }
+      else if (mode === 'presenter') { r = await qwenCompose(file, endFile, prompt, presenterQuality === 'quality' ? { lightning: false } : {}); r = { ...r, presenterQuality }; }
       else if (mode === 'inpaint') { const mask = await maskRef.current.exportMask(); r = await inpaintImage(file, mask, prompt); }
       else if (mode === 'flf') { const len = (VID_LENGTHS.find((v) => v.sec === vidSec) || VID_LENGTHS[0]).frames; r = await flfVideo(file, endFile, prompt, { length: len, ...ltxRes() }); }
       else { const len = (VID_LENGTHS.find((v) => v.sec === vidSec) || VID_LENGTHS[0]).frames; r = hasLtxVideo ? await ltxVideo(file, prompt, { length: len, ...ltxRes() }) : await animateImage(file, {}); }
@@ -882,9 +883,22 @@ export default function ImageStudio() {
 
           {mode === 'presenter' && (
             <>
+              {/* Fast / Quality — Quality passes { lightning:false } to qwenCompose */}
+              <div className="field" style={{ marginTop: 6 }}>
+                <label>איכות היצירה</label>
+                <div className="row gap-2" style={{ display: 'flex' }}>
+                  <button type="button" className={`idea-chip ${presenterQuality === 'fast' ? 'idea-chip-active' : ''}`} style={{ flex: 1, textAlign: 'center', lineHeight: 1.3 }} onClick={() => setPresenterQuality('fast')}>
+                    מהיר<span className="dim" style={{ display: 'block', fontSize: '0.68rem' }}>ברירת מחדל · מהיר יותר</span>
+                  </button>
+                  <button type="button" className={`idea-chip ${presenterQuality === 'quality' ? 'idea-chip-active' : ''}`} style={{ flex: 1, textAlign: 'center', lineHeight: 1.3 }} onClick={() => setPresenterQuality('quality')}>
+                    איכות<span className="dim" style={{ display: 'block', fontSize: '0.68rem' }}>איטי משמעותית · פירוט עדין יותר</span>
+                  </button>
+                </div>
+              </div>
               <p className="muted" style={{ fontSize: '0.82rem', lineHeight: 1.6, marginTop: 6 }}>
                 <Icon name="spark" size={13} style={{ color: 'var(--lime-deep)' }} /> שלב תמונת מוצר עם פרזנטור ליצירת ויזואל שיווקי (Qwen ריבוי-תמונות). הקומפוזיציה מבוססת AI ועשויה להיות מקורבת; לשמירה מדויקת של מוצר נדרש בהמשך Workflow ייעודי.
               </p>
+              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>המצב הנוכחי הוא יצירתי/מקורב: הוא עשוי לשפר את הנראות, אבל שימור מדויק של לוגו, טקסט, סימני מותג או פרטי מוצר קטנים אינו מובטח. מצב Product Lock לשימור מדויק — בהמשך.</p>
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>לשימוש בתמונות שיש לך הרשאה להשתמש בהן בלבד.</p>
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>הערה: בהרצה הראשונה Qwen טוען מודל גדול וייתכן שהתהליך יימשך כמה דקות. זה תקין בזמן טעינת המנוע.</p>
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>טיפ: בחר תמונת פרזנטור שבה אזור היעד — פרק יד, יד או צוואר — גלוי וברור, ותמונת מוצר על רקע נקי. התוצאה הראשונה עשויה להיות מקורבת; אפשר לחדד את ההוראה וליצור שוב.</p>
@@ -1075,7 +1089,7 @@ export default function ImageStudio() {
               </div>
               <div className="row between wrap" style={{ gap: 10 }}>
                 <span className={`badge ${result.demo ? 'badge-neutral' : 'badge-active'}`}>
-                  <span className="dot" />{result.isVideo ? (result.flf ? 'מקומי · לפני/אחרי (LTX)' : result.montage ? 'מקומי · מונטאז׳' : result.ltx ? 'מקומי · וידאו (LTX)' : 'מקומי · אנימציה (SVD)') : result.presenter ? 'מקומי · פרזנטור (Qwen)' : result.inpaint ? 'מקומי · עריכת אזור' : result.kontext ? 'מקומי · עריכה (Kontext)' : result.engine === 'gemini' ? 'Nano Banana · Gemini' : result.engine === 'local' ? `מקומי · ${result.modelLabel || (result.quality === 'max' ? 'FLUX.1' : 'SDXL')}` : 'Pollinations · Flux'}
+                  <span className="dot" />{result.isVideo ? (result.flf ? 'מקומי · לפני/אחרי (LTX)' : result.montage ? 'מקומי · מונטאז׳' : result.ltx ? 'מקומי · וידאו (LTX)' : 'מקומי · אנימציה (SVD)') : result.presenter ? `מקומי · פרזנטור (Qwen)${result.presenterQuality === 'quality' ? ' · איכות' : ''}` : result.inpaint ? 'מקומי · עריכת אזור' : result.kontext ? 'מקומי · עריכה (Kontext)' : result.engine === 'gemini' ? 'Nano Banana · Gemini' : result.engine === 'local' ? `מקומי · ${result.modelLabel || (result.quality === 'max' ? 'FLUX.1' : 'SDXL')}` : 'Pollinations · Flux'}
                 </span>
                 <div className="row gap-2 wrap">
                   {!result.isVideo && (
