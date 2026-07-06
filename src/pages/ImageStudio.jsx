@@ -860,6 +860,7 @@ export default function ImageStudio() {
                 <Icon name="spark" size={13} style={{ color: 'var(--lime-deep)' }} /> שלב תמונת מוצר עם פרזנטור ליצירת ויזואל שיווקי (Qwen ריבוי-תמונות). הקומפוזיציה מבוססת AI ועשויה להיות מקורבת; לשמירה מדויקת של מוצר נדרש בהמשך Workflow ייעודי.
               </p>
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>לשימוש בתמונות שיש לך הרשאה להשתמש בהן בלבד.</p>
+              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>הערה: בהרצה הראשונה Qwen טוען מודל גדול וייתכן שהתהליך יימשך כמה דקות. זה תקין בזמן טעינת המנוע.</p>
             </>
           )}
 
