@@ -505,6 +505,22 @@ export default function ImageStudio() {
     } catch { toast('שגיאה בטעינת התמונה', 'error'); }
   };
 
+  // Presenter Consistency Bridge: load a gallery image (e.g. a Character Series /
+  // Model Album result) straight into the Product Presenter presenter slot.
+  // Image-kind items only. Never touches the product slot or the prompt.
+  const useGalleryAsPresenter = async (item) => {
+    try {
+      const blob = await getGalleryBlob(item.id);
+      if (!blob) return;
+      const f = new File([blob], 'presenter.png', { type: blob.type || 'image/png' });
+      if (filePreview) URL.revokeObjectURL(filePreview);
+      setFile(f); setFilePreview(URL.createObjectURL(f));
+      setMode('presenter'); setResult(null); setError('');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      toast('התמונה נטענה כפרזנטור — העלה תמונת מוצר וכתוב הוראת שילוב');
+    } catch { toast('שגיאה בטעינת התמונה', 'error'); }
+  };
+
   const removeGalleryItem = async (id) => {
     await removeFromGallery(id);
     setSelectedIds((s) => s.filter((x) => x !== id));
@@ -872,6 +888,7 @@ export default function ImageStudio() {
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>לשימוש בתמונות שיש לך הרשאה להשתמש בהן בלבד.</p>
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>הערה: בהרצה הראשונה Qwen טוען מודל גדול וייתכן שהתהליך יימשך כמה דקות. זה תקין בזמן טעינת המנוע.</p>
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>טיפ: בחר תמונת פרזנטור שבה אזור היעד — פרק יד, יד או צוואר — גלוי וברור, ותמונת מוצר על רקע נקי. התוצאה הראשונה עשויה להיות מקורבת; אפשר לחדד את ההוראה וליצור שוב.</p>
+              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>אפשר ליצור קודם סדרת דמות או אלבום דוגמנית, לבחור מהגלריה את הזווית הטובה ביותר, ואז ללחוץ «השתמש כפרזנטור» כדי לחבר אותה למוצר.</p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
                 {PRESENTER_IDEAS.map((p) => (
                   <button key={p.label} type="button" className="idea-chip" style={{ width: 'auto', flex: '0 1 auto', fontSize: '0.78rem', padding: '6px 10px' }} onClick={() => setPrompt(p.prompt)}>{p.label}</button>
@@ -931,6 +948,7 @@ export default function ImageStudio() {
                   ? <>PuLID-Flux ייצר {packCount} סצנות חדשות עם <b>אותם הפנים בדיוק</b> (נעילת זהות חזקה) ויישמור בגלריה — משם אפשר להפוך כל אחת לסרטון. כל תמונה ~30-60 שניות.</>
                   : <>FLUX Kontext ייצר {packCount} וריאציות של <b>אותה דמות</b> (זוויות, תנוחות, רקעים) ויישמור אותן בגלריה — משם אפשר להפוך כל אחת לסרטון. כל וריאציה ~30-60 שניות.</>}
               </p>
+              {qwenReady && <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>טיפ: אחרי יצירת סדרה, בחר תמונה מוצלחת מהגלריה והשתמש בה כפרזנטור לקמפיין מוצר.</p>}
             </>
           )}
 
@@ -1121,6 +1139,7 @@ export default function ImageStudio() {
                 {g.kind === 'video' && <span className="gallery-kind"><Icon name="spark" size={11} /> וידאו</span>}
                 {selectedIds.includes(g.id) && <span className="gallery-check"><Icon name="check" size={14} strokeWidth={3} /></span>}
                 <div className="gallery-actions" onClick={(e) => e.stopPropagation()}>
+                  {qwenReady && g.kind !== 'video' && <button className="gallery-btn" title="השתמש כפרזנטור" onClick={() => useGalleryAsPresenter(g)}><Icon name="image" size={13} /></button>}
                   {hasKontextModel && g.kind !== 'video' && <button className="gallery-btn" title="וריאציה של אותה דמות" onClick={() => makeVariation(g)}><Icon name="refresh" size={13} /></button>}
                   <button className="gallery-btn del" title="מחיקה" onClick={() => removeGalleryItem(g.id)}><Icon name="trash" size={13} /></button>
                 </div>
