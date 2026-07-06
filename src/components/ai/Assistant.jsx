@@ -9,6 +9,7 @@ import warriorWalk from '../../assets/warrior_walk.png';
 import { chatJake, forceActionsJake, draftWithJake, jakeBrainLabel, jakeBrainPref, setJakeBrain, isGeminiConfigured } from '../../lib/gemini.js';
 import { extractActions, executeActions, describeActions, detectBulkDelete, buildBulkDeleteGate } from '../../lib/jakeAgent.js';
 import { activePack } from '../../lib/jakePack.js';
+import { withBusinessBrain } from '../../lib/jakeBusinessContext.js';
 import { createArtValueCreative } from '../../creative/v2/createArtValueCreative.js';
 import { PRODUCTION_STAGES, PRODUCTION_STAGE_ORDER } from '../../creative/v2/productionProgress.js';
 import { generatePosterFromOffer } from '../../lib/comfyPoster.js';
@@ -831,7 +832,7 @@ export default function Assistant() {
       setLoading(true);
       try {
         const convo = next.filter((mm) => mm.text && !mm.system).slice(-12);
-        const { text: draft } = await draftWithJake(convo, activePack.buildContext(data));
+        const { text: draft } = await draftWithJake(convo, withBusinessBrain(activePack.buildContext(data), text));
         const clean = extractActions(draft).clean || draft; // strip any stray actions block
         setMessages((m) => [...m, { role: 'assistant', text: clean }]);
         speak(clean);
@@ -882,7 +883,7 @@ export default function Assistant() {
     setLoading(true);
     try {
       const convo = next.filter((mm) => mm.text && !mm.system).slice(-14);
-      const { text: reply } = await chatJake(convo, activePack.buildContext(data));
+      const { text: reply } = await chatJake(convo, withBusinessBrain(activePack.buildContext(data), text));
       let { clean, actions } = extractActions(reply); // eslint-disable-line prefer-const
 
       // Talked about doing something but emitted no block → force a proposal (2nd pass).
