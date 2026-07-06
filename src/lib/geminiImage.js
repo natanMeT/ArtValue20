@@ -708,7 +708,9 @@ export async function qwenCompose(presenterFile, productFile, instruction, opts 
   const presenterName = await uploadToComfy(presenterFile);
   const productName = await uploadToComfy(productFile);
   const graph = qwenComposeGraph(presenterName, productName, text, rndSeed(), opts);
-  const src = await comfyWait(await comfySubmit(graph), 320);
+  // ~16 min budget (640 × 1.5s): first-run Qwen multi-image cold-loads a large
+  // stack with VRAM offload on 16GB, which can exceed the standard 8-min wait.
+  const src = await comfyWait(await comfySubmit(graph), 640);
   return { src, engine: 'local', demo: false, qwen: true, presenter: true };
 }
 
