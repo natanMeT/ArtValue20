@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useStore } from '../store/store.jsx';
 import { SectionHeader } from '../components/ui/atoms.jsx';
@@ -18,6 +19,7 @@ import PosterEditor from '../components/studio/PosterEditor.jsx';
 import MockupStudio from '../components/studio/MockupStudio.jsx';
 import CreativeWorkflowMap from '../components/studio/CreativeWorkflowMap.jsx';
 import ProductPlacer from '../components/studio/ProductPlacer.jsx';
+import { readStudioHandoff } from '../lib/studioHandoff.js';
 
 // Display labels for the business preset recipe card (presentational only).
 const PRESET_PROVIDER_LABEL = {
@@ -204,6 +206,9 @@ function JobElapsed({ at }) {
 
 export default function ImageStudio() {
   const { toast } = useStore();
+  const location = useLocation();
+  const handoffKeyRef = useRef(null);              // one-shot guard per location entry
+  const [handoffNotice, setHandoffNotice] = useState(''); // small "prompt came from Jake" hint
   const [mode, setMode] = useState('text');
   const [prompt, setPrompt] = useState('');
   const [quality, setQuality] = useState('fast');
@@ -317,6 +322,21 @@ export default function ImageStudio() {
 
   const refreshGallery = async () => { try { setGallery(await listGallery()); } catch { /* noop */ } };
   useEffect(() => { refreshGallery(); }, []);
+
+  // Jake handoff prefill (Phase 2): consume a router-state payload ONCE per
+  // location entry — prefill the prompt (and mode, if the workflow maps to a
+  // live Studio mode). This ONLY sets state; it never generates. Generation
+  // stays behind the existing CTA click. Invalid/absent handoff → no-op.
+  useEffect(() => {
+    if (handoffKeyRef.current === location.key) return; // already consumed this entry
+    const prefill = readStudioHandoff(location.state);
+    if (!prefill) return;
+    handoffKeyRef.current = location.key;
+    setPrompt(prefill.prompt);
+    if (prefill.mode) { setMode(prefill.mode); setResult(null); setError(''); }
+    setHandoffNotice('הפרומפט הגיע מג׳ייק — לחץ Generate כדי ליצור.');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key]);
 
   // Load the local image models from ComfyUI (so the user can pick per need).
   useEffect(() => {
@@ -1041,6 +1061,12 @@ export default function ImageStudio() {
           )}
 
           {error && <div className="login-error" style={{ marginTop: 12 }}><Icon name="x" size={15} strokeWidth={2.4} /> {error}</div>}
+
+          {handoffNotice && (
+            <p className="muted" style={{ marginTop: 12, fontSize: '0.82rem', lineHeight: 1.6 }}>
+              <Icon name="spark" size={13} style={{ color: 'var(--lime-deep)' }} /> {handoffNotice}
+            </p>
+          )}
 
           <button className="btn btn-primary btn-block" onClick={onCta} disabled={ctaBusy} style={ctaBusy ? { marginTop: 16, opacity: 0.85 } : { marginTop: 16, height: 50, fontSize: '0.98rem' }}>
             {ctaBusy ? <><span className="loader-ring" style={{ width: 18, height: 18, borderWidth: 2 }} /> {loadingLabel}</> : <><Icon name="spark" size={18} /> {ctaLabel}</>}
