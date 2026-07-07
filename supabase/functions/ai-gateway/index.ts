@@ -2,15 +2,17 @@
 // Supabase Edge Function: ai-gateway (STUB)
 //
 // Thin HTTP shell only. ALL validation + provider routing lives in the
-// pure, node-testable contract layer (src/lib/aiGatewayContract.js).
-// This stub performs NO provider execution and reads NO provider
-// secrets — it returns a routing decision with execution deferred.
+// pure, node-testable contract layer (supabase/functions/_shared/
+// aiGatewayContract.js). This stub performs NO provider execution and
+// reads NO provider secrets — it returns a routing decision with
+// execution deferred.
 //
-// NOTE: not deployed in this slice. The shared-module import below is
-// resolved at bundle time; deploy/import-map wiring is a later slice.
+// The contract lives in _shared so this function is self-contained
+// inside Supabase's uploadable function tree (Dashboard + CLI deploy).
+// NOTE: not deployed in this slice; deploy wiring is a later slice.
 // ===================================================================
 
-import { buildAiGatewayResponse } from '../../../src/lib/aiGatewayContract.js';
+import { buildAiGatewayResponse } from '../_shared/aiGatewayContract.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',

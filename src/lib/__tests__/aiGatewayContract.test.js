@@ -181,12 +181,25 @@ describe('hostile payloads never throw', () => {
   });
 });
 
-describe('purity · contract source', () => {
+describe('src/lib compatibility shim', () => {
+  it('src/lib/aiGatewayContract.js is only a re-export of the canonical _shared module', () => {
+    const shim = read('../aiGatewayContract.js');
+    const codeOnly = shim
+      .replace(/\/\*[^]*?\*\//g, '')
+      .split('\n').filter((l) => l.trim() && !/^\s*\/\//.test(l)).join('\n').trim();
+    expect(codeOnly).toBe("export * from '../../supabase/functions/_shared/aiGatewayContract.js';");
+    for (const token of ['buildAiGatewayResponse =', 'function ', 'Object.freeze', 'const ']) {
+      expect(codeOnly.includes(token), token).toBe(false);
+    }
+  });
+});
+
+describe('purity · contract source (canonical _shared module)', () => {
   it('imports only the pure router; no impure APIs, secrets, or provider domains', () => {
-    const code = read('../aiGatewayContract.js');
+    const code = read('../../../supabase/functions/_shared/aiGatewayContract.js');
     const importLines = (code.match(/import[^]*?from\s*'[^']+';/g) || []).join('\n');
     expect(importLines).toMatch(/from '\.\/aiGateway\.js'/);
-    for (const forbidden of ['gemini', 'geminiImage', 'jakePack', 'jakeAgent', 'Assistant', 'ImageStudio', 'supabase']) {
+    for (const forbidden of ['gemini', 'geminiImage', 'jakePack', 'jakeAgent', 'Assistant', 'ImageStudio', 'src/lib']) {
       expect(importLines.includes(forbidden), forbidden).toBe(false);
     }
     const codeOnly = code
@@ -194,7 +207,7 @@ describe('purity · contract source', () => {
       .split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
     for (const banned of [
       'fetch(', 'window.', 'document.', 'localStorage', 'sessionStorage',
-      'Date.now(', 'Math.random(', 'crypto.', 'process.env', 'import.meta', 'VITE_',
+      'Date.now(', 'Math.random(', 'crypto.', 'process.env', 'import.meta', 'VITE_', 'Deno.env', 'Deno.',
       'api.openai.com', 'generativelanguage', 'api.anthropic.com', 'replicate.com', 'https://', 'http://',
     ]) {
       expect(codeOnly.includes(banned), banned).toBe(false);
@@ -205,8 +218,10 @@ describe('purity · contract source', () => {
 describe('guardrail · edge function shell', () => {
   it('is a thin shell: POST/OPTIONS/CORS, delegates to the contract, no providers/keys', () => {
     const code = read('../../../supabase/functions/ai-gateway/index.ts');
-    // delegates to the pure contract, nothing else business-shaped
-    expect(code).toMatch(/from '\.\.\/\.\.\/\.\.\/src\/lib\/aiGatewayContract\.js'/);
+    // delegates to the pure contract via the native _shared sibling path
+    expect(code).toMatch(/from '\.\.\/_shared\/aiGatewayContract\.js'/);
+    // the old fragile climb into the app tree is gone (deployability fix)
+    expect(code.includes('src/lib')).toBe(false);
     expect(code.includes('buildAiGatewayResponse')).toBe(true);
     // HTTP shell essentials
     expect(code.includes("'POST'") || code.includes('POST')).toBe(true);
