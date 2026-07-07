@@ -315,9 +315,23 @@ describe('determinism', () => {
   });
 });
 
-describe('purity · source-level', () => {
+describe('src/lib compatibility shim', () => {
+  it('src/lib/aiGateway.js is only a re-export of the canonical _shared module', () => {
+    const shim = readFileSync(fileURLToPath(new URL('../aiGateway.js', import.meta.url)), 'utf8');
+    const codeOnly = shim
+      .replace(/\/\*[^]*?\*\//g, '')
+      .split('\n').filter((l) => l.trim() && !/^\s*\/\//.test(l)).join('\n').trim();
+    expect(codeOnly).toBe("export * from '../../supabase/functions/_shared/aiGateway.js';");
+    // no routing logic leaked back into the shim
+    for (const token of ['Object.freeze', 'function ', 'AI_ACTION_TYPES =', 'const ']) {
+      expect(codeOnly.includes(token), token).toBe(false);
+    }
+  });
+});
+
+describe('purity · source-level (canonical _shared module)', () => {
   it('no runtime imports; no impure APIs, secrets, env access, or SDK/provider domains', () => {
-    const code = readFileSync(fileURLToPath(new URL('../aiGateway.js', import.meta.url)), 'utf8');
+    const code = readFileSync(fileURLToPath(new URL('../../../supabase/functions/_shared/aiGateway.js', import.meta.url)), 'utf8');
     const importLines = (code.match(/import[^]*?from\s*'[^']+';/g) || []).join('\n');
     expect(importLines).toBe(''); // zero runtime imports
     // executable lines only — comments may document the bans
@@ -326,7 +340,7 @@ describe('purity · source-level', () => {
       .split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
     for (const banned of [
       'fetch(', 'window.', 'document.', 'localStorage', 'sessionStorage',
-      'Date.now(', 'Math.random(', 'process.env', 'import.meta.env', 'VITE_',
+      'Date.now(', 'Math.random(', 'process.env', 'import.meta.env', 'VITE_', 'Deno.env', 'Deno.',
       'XMLHttpRequest', 'WebSocket', 'dispatchEvent', 'CustomEvent',
       '@anthropic-ai', 'openai-node', '@google/generative-ai',
       'api.openai.com', 'generativelanguage.googleapis.com', 'api.anthropic.com',
