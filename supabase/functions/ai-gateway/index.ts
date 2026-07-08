@@ -1,18 +1,25 @@
 // ===================================================================
-// Supabase Edge Function: ai-gateway (STUB)
+// Supabase Edge Function: ai-gateway
 //
-// Thin HTTP shell only. ALL validation + provider routing lives in the
-// pure, node-testable contract layer (supabase/functions/_shared/
-// aiGatewayContract.js). This stub performs NO provider execution and
-// reads NO provider secrets — it returns a routing decision with
-// execution deferred.
+// Thin HTTP shell. ALL validation + provider routing lives in the pure,
+// node-testable contract layer (supabase/functions/_shared/
+// aiGatewayContract.js). The ONLY provider wired so far is Gemini TEXT,
+// and its key + fetch live solely in ./geminiProvider.ts — never here.
 //
-// The contract lives in _shared so this function is self-contained
-// inside Supabase's uploadable function tree (Dashboard + CLI deploy).
-// NOTE: not deployed in this slice; deploy wiring is a later slice.
+// Flow: parse → decide → if a Gemini-executable text action routes to
+// gemini, run it (fail-closed on missing secret); otherwise return the
+// existing not_implemented decision. No usage logging / budget checks yet.
+//
+// The contract lives in _shared so this function is self-contained inside
+// Supabase's uploadable function tree (Dashboard + CLI deploy).
 // ===================================================================
 
-import { buildAiGatewayResponse } from '../_shared/aiGatewayContract.js';
+import {
+  buildAiGatewayResponse,
+  buildAiGatewayDecision,
+  isGeminiExecutableAction,
+} from '../_shared/aiGatewayContract.js';
+import { runGeminiText } from './geminiProvider.ts';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -42,8 +49,9 @@ serve?.(async (req: Request): Promise<Response> => {
     }, 405);
   }
 
-  // Auth placeholder: Supabase JWT verification is deferred to the wiring
-  // slice. The stub trusts nothing and executes no provider regardless.
+  // Auth: Supabase's JWT gate runs before this handler (deploy keeps
+  // verify-jwt ON). The function trusts no request field for provider
+  // choice — routing is decided by the pure contract.
 
   let body: unknown;
   try {
@@ -56,6 +64,20 @@ serve?.(async (req: Request): Promise<Response> => {
     }, 400);
   }
 
-  const result = buildAiGatewayResponse(body);
-  return json(result, result.ok ? 200 : 400);
+  const decision = buildAiGatewayDecision(body);
+
+  // Invalid / unknown action → existing rejected 400 behavior.
+  if (!decision.ok) {
+    return json(buildAiGatewayResponse(body), 400);
+  }
+
+  // Only executable Gemini-first text actions that actually resolve to
+  // gemini run a real provider call. Everything else stays deferred.
+  if (isGeminiExecutableAction(decision.actionType) && decision.routing.selectedProvider === 'gemini') {
+    const { status, body: out } = await runGeminiText(decision);
+    return json(out, status);
+  }
+
+  // Otherwise: unchanged not_implemented decision.
+  return json(buildAiGatewayResponse(body), 200);
 });

@@ -19,6 +19,7 @@
 
 import {
   normalizeActionType,
+  selectProvider,
   buildAiRequest,
   estimateCost,
 } from './aiGateway.js';
@@ -27,12 +28,58 @@ import {
 export const AI_GATEWAY_EXECUTION_STATUS = Object.freeze({
   NOT_IMPLEMENTED: 'not_implemented',
   REJECTED: 'rejected',
+  COMPLETED: 'completed',
+  PROVIDER_NOT_CONFIGURED: 'provider_not_configured',
+  PROVIDER_ERROR: 'provider_error',
 });
 
 export const AI_GATEWAY_ERROR_CODES = Object.freeze({
   INVALID_REQUEST: 'invalid_request',
   INVALID_ACTION: 'invalid_action',
+  INVALID_PAYLOAD: 'invalid_payload',
+  PROVIDER_NOT_CONFIGURED: 'provider_not_configured',
+  PROVIDER_ERROR: 'provider_error',
 });
+
+// ---- Gemini text execution policy (pure; the shell enforces it) ----
+// Text-tier actions Gemini is allowed to serve. This is a POLICY whitelist;
+// the executable subset below is what actually runs in this slice.
+export const GEMINI_TEXT_ACTION_TYPES = Object.freeze([
+  'text.copy',
+  'text.strategy',
+  'text.crm_message',
+  'text.campaign',
+  'studio.prompt_enhance',
+  'crm.suggest_next_action',
+]);
+
+// The subset that actually executes now = text actions the router routes to
+// gemini FIRST by default. Derived from the router so it can never drift from
+// the routing table (text.strategy / text.campaign are anthropic-first, so
+// they stay whitelisted-but-deferred until an anthropic slice exists).
+export const GEMINI_EXECUTABLE_ACTION_TYPES = Object.freeze(
+  GEMINI_TEXT_ACTION_TYPES.filter((a) => selectProvider(a)[0] === 'gemini'),
+);
+
+export function isGeminiTextAction(actionType) {
+  const a = normalizeActionType(actionType);
+  return a !== null && GEMINI_TEXT_ACTION_TYPES.includes(a);
+}
+
+export function isGeminiExecutableAction(actionType) {
+  const a = normalizeActionType(actionType);
+  return a !== null && GEMINI_EXECUTABLE_ACTION_TYPES.includes(a);
+}
+
+// Sensible fixed defaults for slice 1 (mirrors the frontend text path intent).
+const GEMINI_TEXT_DEFAULTS = Object.freeze({ temperature: 0.7, maxOutputTokens: 1024 });
+
+function clampNumber(value, min, max, fallback) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
 
 // Top-level payload keys that must NEVER become execution authority or
 // leak a secret. Untrusted callers could try to smuggle a provider,
@@ -134,5 +181,99 @@ export function buildAiGatewayResponse(request) {
       logging: 'deferred',
       budgetCheck: 'deferred',
     },
+  };
+}
+
+// ---- Gemini text: pure REST-body builder (no network, no key) ----
+// Takes the sanitized payload and returns the Generative Language request
+// body, or a stable invalid_payload error. The provider module owns the
+// endpoint, the model, the API key, and the fetch — never this function.
+export function buildGeminiTextRequest(payload) {
+  const safe = normalizeGatewayPayload(payload);
+  const prompt = typeof safe.prompt === 'string' ? safe.prompt.trim() : '';
+  if (!prompt) {
+    return {
+      ok: false,
+      error: {
+        code: AI_GATEWAY_ERROR_CODES.INVALID_PAYLOAD,
+        message: 'payload.prompt (a non-empty string) is required.',
+      },
+    };
+  }
+  const system = (typeof safe.system === 'string' && safe.system.trim()) ? safe.system.trim() : null;
+  const temperature = clampNumber(safe.temperature, 0, 2, GEMINI_TEXT_DEFAULTS.temperature);
+  const maxOutputTokens = Math.round(clampNumber(safe.maxOutputTokens, 1, 8192, GEMINI_TEXT_DEFAULTS.maxOutputTokens));
+
+  const body = {
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: { temperature, maxOutputTokens, thinkingConfig: { thinkingBudget: 0 } },
+  };
+  if (system) body.systemInstruction = { parts: [{ text: system }] };
+  return { ok: true, body };
+}
+
+// ---- Gemini text: pure response parser → text | null ----
+export function parseGeminiTextResponse(json) {
+  if (!isPlainObject(json)) return null;
+  const candidates = Array.isArray(json.candidates) ? json.candidates : [];
+  const first = candidates[0];
+  const parts = (first && isPlainObject(first.content) && Array.isArray(first.content.parts))
+    ? first.content.parts
+    : [];
+  const text = parts
+    .map((p) => (isPlainObject(p) && typeof p.text === 'string' ? p.text : ''))
+    .join('')
+    .trim();
+  return text || null;
+}
+
+// ---- provider response builders (pure, deterministic, secret-free) ----
+export function buildProviderNotConfiguredResponse(decision) {
+  return {
+    ok: false,
+    actionType: (decision && decision.actionType) || null,
+    error: {
+      code: AI_GATEWAY_ERROR_CODES.PROVIDER_NOT_CONFIGURED,
+      message: 'Gemini provider is not configured.',
+    },
+    execution: { status: AI_GATEWAY_EXECUTION_STATUS.PROVIDER_NOT_CONFIGURED },
+  };
+}
+
+// Message is intentionally fixed/generic — upstream provider text is NEVER
+// forwarded to the client, so no key or raw provider payload can leak.
+export function buildProviderErrorResponse(decision) {
+  return {
+    ok: false,
+    actionType: (decision && decision.actionType) || null,
+    error: {
+      code: AI_GATEWAY_ERROR_CODES.PROVIDER_ERROR,
+      message: 'Gemini provider request failed.',
+    },
+    execution: { status: AI_GATEWAY_EXECUTION_STATUS.PROVIDER_ERROR },
+  };
+}
+
+export function buildInvalidPayloadResponse(decision, error) {
+  return {
+    ok: false,
+    actionType: (decision && decision.actionType) || null,
+    error: (error && typeof error === 'object')
+      ? error
+      : { code: AI_GATEWAY_ERROR_CODES.INVALID_PAYLOAD, message: 'Invalid payload.' },
+    execution: { status: AI_GATEWAY_EXECUTION_STATUS.REJECTED },
+  };
+}
+
+export function buildProviderSuccessResponse(decision, text) {
+  return {
+    ok: true,
+    actionType: decision.actionType,
+    request: decision.request,
+    routing: decision.routing,
+    provider: 'gemini',
+    execution: { status: AI_GATEWAY_EXECUTION_STATUS.COMPLETED },
+    result: { text: typeof text === 'string' ? text : '' },
+    usage: { logging: 'deferred', budgetCheck: 'deferred' },
   };
 }

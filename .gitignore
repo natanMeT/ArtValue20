@@ -28,3 +28,6 @@ temp/
 
 # critic-eval generated artifacts (candidate snapshots + reports — never the committed baseline)
 artifacts/
+
+# Supabase CLI local scratch/state (project ref, pooler url, etc.) — never commit
+supabase/.temp/

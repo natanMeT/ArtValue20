@@ -8,6 +8,15 @@ import {
   normalizeGatewayPayload,
   buildAiGatewayDecision,
   buildAiGatewayResponse,
+  GEMINI_TEXT_ACTION_TYPES,
+  GEMINI_EXECUTABLE_ACTION_TYPES,
+  isGeminiTextAction,
+  isGeminiExecutableAction,
+  buildGeminiTextRequest,
+  parseGeminiTextResponse,
+  buildProviderNotConfiguredResponse,
+  buildProviderErrorResponse,
+  buildProviderSuccessResponse,
 } from '../aiGatewayContract.js';
 
 const HOSTILE_INPUTS = [
@@ -215,28 +224,207 @@ describe('purity · contract source (canonical _shared module)', () => {
   });
 });
 
+describe('gemini text · policy vocab', () => {
+  it('text whitelist is the explicit six, frozen, all real actions', () => {
+    expect(Object.isFrozen(GEMINI_TEXT_ACTION_TYPES)).toBe(true);
+    expect([...GEMINI_TEXT_ACTION_TYPES].sort()).toEqual(
+      ['crm.suggest_next_action', 'studio.prompt_enhance', 'text.campaign', 'text.copy', 'text.crm_message', 'text.strategy'],
+    );
+    for (const a of GEMINI_TEXT_ACTION_TYPES) expect(AI_ACTION_TYPES.includes(a), a).toBe(true);
+  });
+
+  it('executable subset = gemini-first text actions only, frozen', () => {
+    expect(Object.isFrozen(GEMINI_EXECUTABLE_ACTION_TYPES)).toBe(true);
+    expect([...GEMINI_EXECUTABLE_ACTION_TYPES].sort()).toEqual(
+      ['crm.suggest_next_action', 'studio.prompt_enhance', 'text.copy', 'text.crm_message'],
+    );
+    for (const a of GEMINI_EXECUTABLE_ACTION_TYPES) expect(GEMINI_TEXT_ACTION_TYPES.includes(a), a).toBe(true);
+    // anthropic-first text actions stay whitelisted-but-deferred
+    expect(GEMINI_EXECUTABLE_ACTION_TYPES.includes('text.strategy')).toBe(false);
+    expect(GEMINI_EXECUTABLE_ACTION_TYPES.includes('text.campaign')).toBe(false);
+  });
+
+  it('predicates classify text / executable / deferred and never throw', () => {
+    expect(isGeminiTextAction('text.strategy')).toBe(true);
+    expect(isGeminiExecutableAction('text.strategy')).toBe(false); // anthropic-first → deferred
+    expect(isGeminiExecutableAction('text.copy')).toBe(true);
+    expect(isGeminiTextAction('image.poster')).toBe(false);
+    expect(isGeminiExecutableAction('image.poster')).toBe(false);
+    for (const input of HOSTILE_INPUTS) {
+      expect(() => isGeminiTextAction(input)).not.toThrow();
+      expect(() => isGeminiExecutableAction(input)).not.toThrow();
+      expect(isGeminiTextAction(input)).toBe(false);
+      expect(isGeminiExecutableAction(input)).toBe(false);
+    }
+  });
+});
+
+describe('gemini text · execution eligibility (pure pieces of the shell rule)', () => {
+  it('text.copy is executable and its decision routes to gemini', () => {
+    const d = buildAiGatewayDecision({ actionType: 'text.copy' });
+    expect(d.routing.selectedProvider).toBe('gemini');
+    expect(isGeminiExecutableAction(d.actionType)).toBe(true);
+  });
+
+  it('text.strategy is whitelisted but not executable (routes to anthropic)', () => {
+    const d = buildAiGatewayDecision({ actionType: 'text.strategy' });
+    expect(d.routing.selectedProvider).toBe('anthropic');
+    expect(isGeminiTextAction(d.actionType)).toBe(true);
+    expect(isGeminiExecutableAction(d.actionType)).toBe(false);
+  });
+
+  it('image/vision/video actions are never gemini-executable', () => {
+    for (const a of ['image.poster', 'image.product_lock', 'vision.analyze_reference', 'video.short_ad', 'video.product_demo']) {
+      expect(isGeminiExecutableAction(a), a).toBe(false);
+    }
+  });
+});
+
+describe('gemini text · request builder (pure)', () => {
+  it('builds a valid REST body from a prompt (thinkingBudget 0, no system by default)', () => {
+    const r = buildGeminiTextRequest({ prompt: 'שלום' });
+    expect(r.ok).toBe(true);
+    expect(r.body.contents).toEqual([{ role: 'user', parts: [{ text: 'שלום' }] }]);
+    expect(r.body.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 0 });
+    expect(typeof r.body.generationConfig.temperature).toBe('number');
+    expect(r.body.systemInstruction).toBeUndefined();
+  });
+
+  it('adds systemInstruction when system is provided and clamps temperature', () => {
+    const r = buildGeminiTextRequest({ prompt: 'hi', system: 'Be brief', temperature: 99 });
+    expect(r.body.systemInstruction).toEqual({ parts: [{ text: 'Be brief' }] });
+    expect(r.body.generationConfig.temperature).toBe(2); // clamped to max
+  });
+
+  it('missing/empty prompt → invalid_payload; hostile input never throws', () => {
+    expect(buildGeminiTextRequest({}).ok).toBe(false);
+    expect(buildGeminiTextRequest({}).error.code).toBe('invalid_payload');
+    expect(buildGeminiTextRequest({ prompt: '   ' }).ok).toBe(false);
+    for (const input of HOSTILE_INPUTS) {
+      expect(() => buildGeminiTextRequest(input)).not.toThrow();
+    }
+  });
+
+  it('strips smuggled provider/model/secret keys — only prompt text reaches the body', () => {
+    const r = buildGeminiTextRequest({ prompt: 'keepme', apiKey: 'k', provider: 'evil-corp', model: 'm' });
+    const flat = JSON.stringify(r.body);
+    expect(flat.includes('apiKey')).toBe(false);
+    expect(flat.includes('evil-corp')).toBe(false);
+    expect(flat.includes('keepme')).toBe(true);
+  });
+});
+
+describe('gemini text · response parser (pure)', () => {
+  it('joins candidate part texts', () => {
+    const json = { candidates: [{ content: { parts: [{ text: 'Hello ' }, { text: 'world' }] } }] };
+    expect(parseGeminiTextResponse(json)).toBe('Hello world');
+  });
+
+  it('empty / malformed / hostile → null, never throws', () => {
+    expect(parseGeminiTextResponse({ candidates: [] })).toBe(null);
+    expect(parseGeminiTextResponse({ candidates: [{ content: { parts: [] } }] })).toBe(null);
+    for (const input of HOSTILE_INPUTS) {
+      expect(() => parseGeminiTextResponse(input)).not.toThrow();
+      expect(parseGeminiTextResponse(input)).toBe(null);
+    }
+  });
+});
+
+describe('gemini text · provider response builders (pure, secret-free)', () => {
+  const decision = buildAiGatewayDecision({ actionType: 'text.copy', payload: { prompt: 'hi' } });
+
+  it('provider_not_configured shape is stable', () => {
+    expect(buildProviderNotConfiguredResponse(decision)).toEqual({
+      ok: false,
+      actionType: 'text.copy',
+      error: { code: 'provider_not_configured', message: 'Gemini provider is not configured.' },
+      execution: { status: 'provider_not_configured' },
+    });
+  });
+
+  it('provider_error shape is stable and generic (no upstream/key leak)', () => {
+    expect(buildProviderErrorResponse(decision)).toEqual({
+      ok: false,
+      actionType: 'text.copy',
+      error: { code: 'provider_error', message: 'Gemini provider request failed.' },
+      execution: { status: 'provider_error' },
+    });
+  });
+
+  it('success shape: provider gemini, completed, result text, deferred usage', () => {
+    const r = buildProviderSuccessResponse(decision, 'the output');
+    expect(r.ok).toBe(true);
+    expect(r.provider).toBe('gemini');
+    expect(r.execution).toEqual({ status: 'completed' });
+    expect(r.result).toEqual({ text: 'the output' });
+    expect(r.usage).toEqual({ logging: 'deferred', budgetCheck: 'deferred' });
+    expect(r.routing.selectedProvider).toBe('gemini');
+  });
+
+  it('builders never throw on null/undefined decision', () => {
+    expect(() => buildProviderNotConfiguredResponse(null)).not.toThrow();
+    expect(buildProviderNotConfiguredResponse(null).actionType).toBe(null);
+    expect(() => buildProviderErrorResponse(undefined)).not.toThrow();
+  });
+});
+
 describe('guardrail · edge function shell', () => {
-  it('is a thin shell: POST/OPTIONS/CORS, delegates to the contract, no providers/keys', () => {
+  it('delegates to contract + gemini provider; holds no key/secret/fetch/env itself', () => {
     const code = read('../../../supabase/functions/ai-gateway/index.ts');
-    // delegates to the pure contract via the native _shared sibling path
     expect(code).toMatch(/from '\.\.\/_shared\/aiGatewayContract\.js'/);
-    // the old fragile climb into the app tree is gone (deployability fix)
+    expect(code).toMatch(/from '\.\/geminiProvider\.ts'/);
     expect(code.includes('src/lib')).toBe(false);
     expect(code.includes('buildAiGatewayResponse')).toBe(true);
+    expect(code.includes('runGeminiText')).toBe(true);
     // HTTP shell essentials
-    expect(code.includes("'POST'") || code.includes('POST')).toBe(true);
+    expect(code.includes('POST')).toBe(true);
     expect(code.includes('OPTIONS')).toBe(true);
     expect(code.includes('Access-Control-Allow-Origin')).toBe(true);
     expect(code.includes('405')).toBe(true);
-    // no provider execution / secrets / frontend env (executable lines only —
-    // comments legitimately mention "no provider secrets" etc.)
+    // the key, fetch, and env live ONLY in geminiProvider.ts (executable lines)
     const lower = code
       .replace(/\/\*[^]*?\*\//g, '')
       .split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n')
       .toLowerCase();
-    for (const banned of ['openai', 'gemini', 'anthropic', 'replicate', 'api.', '.googleapis.com', 'vite_', 'apikey', 'api_key', 'secret']) {
-      expect(lower.includes(banned), banned).toBe(false);
+    for (const banned of ['vite_', 'gemini_api_key', 'x-goog-api-key', '.googleapis.com', 'generativelanguage', 'api_key', 'apikey', 'deno.env', 'fetch(', 'import.meta']) {
+      expect(lower.includes(banned.toLowerCase()), banned).toBe(false);
     }
+  });
+});
+
+describe('guardrail · gemini provider (server-only, the only impure file)', () => {
+  it('reads the key via Deno.env, isolates fetch/domain, leaks no VITE_/hardcoded key', () => {
+    const code = read('../../../supabase/functions/ai-gateway/geminiProvider.ts');
+    // key read exclusively from server-side Deno.env
+    expect(code).toMatch(/Deno\.env\.get\('GEMINI_API_KEY'\)/);
+    // shaping delegated to the pure contract helpers
+    expect(code).toMatch(/from '\.\.\/_shared\/aiGatewayContract\.js'/);
+    // fetch + provider domain are ALLOWED to live here (and only here)
+    expect(code.includes('fetch(')).toBe(true);
+    expect(code.includes('generativelanguage.googleapis.com')).toBe(true);
+    const codeOnly = code
+      .replace(/\/\*[^]*?\*\//g, '')
+      .split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    // never a frontend env or a hardcoded Google key (AIza… prefix)
+    for (const banned of ['VITE_', 'import.meta', 'process.env', 'AIza']) {
+      expect(codeOnly.includes(banned), banned).toBe(false);
+    }
+    // the raw key is never passed into a response builder
+    expect(codeOnly).not.toMatch(/build\w+Response\([^)]*apiKey/);
+  });
+});
+
+describe('guardrail · gitignore + deploy docs', () => {
+  it('.gitignore ignores supabase/.temp/', () => {
+    expect(read('../../../.gitignore').includes('supabase/.temp/')).toBe(true);
+  });
+
+  it('deploy doc documents secret/redeploy/smoke without a real key', () => {
+    const doc = read('../../../docs/AI_GATEWAY_DEPLOY.md');
+    expect(doc.includes('supabase secrets set GEMINI_API_KEY')).toBe(true);
+    expect(doc.includes('supabase functions deploy ai-gateway')).toBe(true);
+    expect(doc.includes('provider_not_configured')).toBe(true);
+    expect(doc.includes('AIza')).toBe(false); // no real Google key committed
   });
 });
 
