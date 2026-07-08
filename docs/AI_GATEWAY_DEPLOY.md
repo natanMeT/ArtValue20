@@ -156,3 +156,61 @@ Copy all of the following into the ChatGPT/Claude review thread:
 1. **`feat/ai-gateway-gemini-text`** — first real server-side provider: Gemini text execution behind an action whitelist, `GEMINI_API_KEY` via Edge secrets, fail-closed `provider_not_configured` when unset.
 2. **Frontend wiring** — `aiGatewayClient.js` + `supabase.functions.invoke`, feature-detected, behind explicit user CTAs only; lands after deploy + provider parity are proven.
 3. **Key rotation** — migrate remaining Gemini traffic server-side, then rotate and remove `VITE_GEMINI_API_KEY`.
+
+## 10. Gemini text live verification (run after the Gemini-text slice merges)
+
+The `feat/ai-gateway-gemini-text` slice adds real server-side Gemini **text** execution for the gemini-first text actions (`text.copy`, `text.crm_message`, `studio.prompt_enhance`, `crm.suggest_next_action`). Verify it live:
+
+**1. Set the secret** (server-side only — never a `VITE_*`, never pasted into chat):
+
+```powershell
+supabase secrets set GEMINI_API_KEY=<your-key> --project-ref weciwurjfwmqihcyexzj
+```
+
+Optional model override (non-secret; default `gemini-2.0-flash`):
+
+```powershell
+supabase secrets set GEMINI_MODEL=gemini-2.0-flash --project-ref weciwurjfwmqihcyexzj
+```
+
+**2. Redeploy** (JWT verification stays ON — do not pass `--no-verify-jwt`):
+
+```powershell
+supabase functions deploy ai-gateway
+```
+
+**3. Smoke test — executable Gemini text action** (expect HTTP 200, real completion):
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "<SUPABASE_PROJECT_URL>/functions/v1/ai-gateway" `
+  -Headers @{ Authorization = "Bearer <ANON_KEY>"; apikey = "<ANON_KEY>" } `
+  -ContentType "application/json" `
+  -Body '{"actionType":"text.copy","payload":{"prompt":"Write one short line about a coffee shop."}}' | ConvertTo-Json -Depth 8
+```
+
+Expected success shape:
+
+```json
+{
+  "ok": true,
+  "actionType": "text.copy",
+  "provider": "gemini",
+  "execution": { "status": "completed" },
+  "result": { "text": "…real Gemini output…" },
+  "usage": { "logging": "deferred", "budgetCheck": "deferred" }
+}
+```
+
+**4. Verify the other paths:**
+
+- **Missing secret** (test *before* step 1, or after `supabase secrets unset GEMINI_API_KEY` + redeploy): `text.copy` → HTTP 503, `error.code: "provider_not_configured"`, `execution.status: "provider_not_configured"`, **no** `result` (fail-closed, no provider call).
+- **Missing prompt** (`{"actionType":"text.copy","payload":{}}`) → HTTP 400, `error.code: "invalid_payload"`.
+- **Deferred action** (`{"actionType":"image.poster"}`) → HTTP 200, `execution.status: "not_implemented"` (unchanged; no provider call).
+- **Anthropic-first text action** (`{"actionType":"text.strategy"}`) → still `not_implemented` (routes to anthropic, which isn't wired).
+- **Invalid actionType** → HTTP 400, `error.code: "invalid_action"`.
+- **Optional — no `Authorization` header** → HTTP 401 from Supabase's JWT gate (confirms JWT verification is ON — the check skipped in the stub deploy).
+
+**5. Paste back:** the deploy line, the successful `text.copy` response JSON, the `provider_not_configured` response (if tested), the `image.poster` `not_implemented` response, the no-auth HTTP status, and `npm test` summary. **Never paste the API key or any secret into chat.**
+
+Provider errors surface as HTTP 502 `error.code: "provider_error"` with a fixed generic message — upstream provider text and the key are never forwarded to the client.
