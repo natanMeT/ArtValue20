@@ -214,3 +214,11 @@ Expected success shape:
 **5. Paste back:** the deploy line, the successful `text.copy` response JSON, the `provider_not_configured` response (if tested), the `image.poster` `not_implemented` response, the no-auth HTTP status, and `npm test` summary. **Never paste the API key or any secret into chat.**
 
 Provider errors surface as HTTP 502 `error.code: "provider_error"` with a fixed generic message — upstream provider text and the key are never forwarded to the client.
+
+### Troubleshooting `provider_error` (HTTP 502)
+
+`provider_error` is the sanitized catch-all for any upstream Gemini failure (non-2xx, empty completion, or a thrown request). The client never sees the real reason by design.
+
+- **Known fix already applied:** the request body no longer sends `generationConfig.thinkingConfig` — that field is Gemini 2.5-series only and the default `gemini-2.0-flash` rejected it with HTTP 400, which showed up as a 502. Re-deploy after pulling this change, then re-run the `text.copy` smoke test.
+- **To see the real upstream reason:** the function now logs a safe diagnostic line (provider, model, upstream HTTP status, and a short capped snippet — **never** the key or your prompt). Read it in **Supabase Dashboard → Edge Functions → `ai-gateway` → Logs** (or Logs Explorer). Look for `[ai-gateway] gemini upstream error` / `gemini empty completion` / `gemini request threw`.
+- **If the status is 400/404 with a model name:** check the `GEMINI_MODEL` secret (or leave it unset to use the default `gemini-2.0-flash`). **If it's 429 / quota:** the key's project has hit a limit — a repo change cannot fix that.

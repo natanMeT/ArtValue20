@@ -54,16 +54,30 @@ export async function runGeminiText(decision: any): Promise<{ status: number; bo
       body: JSON.stringify(built.body),
     });
     if (!res.ok) {
-      // Do not forward upstream status text / body (may leak details).
+      // Diagnostics only — server-side log, never returned to the client and
+      // never includes the key/Authorization/request body. The upstream error
+      // snippet is capped; Google error bodies do not contain the API key.
+      let snippet = '';
+      try {
+        snippet = (await res.text()).slice(0, 200);
+      } catch {
+        snippet = '';
+      }
+      console.error('[ai-gateway] gemini upstream error', JSON.stringify({ provider: 'gemini', model, status: res.status, snippet }));
       return { status: 502, body: buildProviderErrorResponse(decision) };
     }
     const json = await res.json().catch(() => null);
     const text = parseGeminiTextResponse(json);
     if (!text) {
+      // deno-lint-ignore no-explicit-any
+      const finishReason = (json as any)?.candidates?.[0]?.finishReason ?? 'unknown';
+      console.error('[ai-gateway] gemini empty completion', JSON.stringify({ provider: 'gemini', model, status: res.status, finishReason }));
       return { status: 502, body: buildProviderErrorResponse(decision) };
     }
     return { status: 200, body: buildProviderSuccessResponse(decision, text) };
-  } catch (_e) {
+  } catch (e) {
+    const message = (e instanceof Error ? e.message : String(e)).slice(0, 200);
+    console.error('[ai-gateway] gemini request threw', JSON.stringify({ provider: 'gemini', model, message }));
     return { status: 502, body: buildProviderErrorResponse(decision) };
   }
 }

@@ -281,13 +281,23 @@ describe('gemini text · execution eligibility (pure pieces of the shell rule)',
 });
 
 describe('gemini text · request builder (pure)', () => {
-  it('builds a valid REST body from a prompt (thinkingBudget 0, no system by default)', () => {
+  it('builds a minimal, broadly-compatible REST body (no thinkingConfig)', () => {
     const r = buildGeminiTextRequest({ prompt: 'שלום' });
     expect(r.ok).toBe(true);
     expect(r.body.contents).toEqual([{ role: 'user', parts: [{ text: 'שלום' }] }]);
-    expect(r.body.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 0 });
     expect(typeof r.body.generationConfig.temperature).toBe('number');
+    expect(typeof r.body.generationConfig.maxOutputTokens).toBe('number');
     expect(r.body.systemInstruction).toBeUndefined();
+  });
+
+  it('omits thinkingConfig/thinkingBudget entirely (the 2.0-model 502 fix)', () => {
+    // regression guard: this field is Gemini 2.5-only and 400s on gemini-2.0-flash
+    for (const payload of [{ prompt: 'x' }, { prompt: 'y', system: 'z' }]) {
+      const r = buildGeminiTextRequest(payload);
+      expect('thinkingConfig' in r.body.generationConfig).toBe(false);
+      expect(JSON.stringify(r.body).includes('thinkingConfig')).toBe(false);
+      expect(JSON.stringify(r.body).includes('thinkingBudget')).toBe(false);
+    }
   });
 
   it('adds systemInstruction when system is provided and clamps temperature', () => {
@@ -411,6 +421,21 @@ describe('guardrail · gemini provider (server-only, the only impure file)', () 
     }
     // the raw key is never passed into a response builder
     expect(codeOnly).not.toMatch(/build\w+Response\([^)]*apiKey/);
+  });
+
+  it('logs safe upstream diagnostics but never the key / auth / request body', () => {
+    const code = read('../../../supabase/functions/ai-gateway/geminiProvider.ts');
+    // diagnostics exist (so a live 502 is explainable from Supabase logs)
+    expect(code.includes('console.error')).toBe(true);
+    expect(code.includes('status: res.status')).toBe(true);
+    // every console.* line must be secret-free: no key, auth header, or built body
+    const consoleLines = code.split('\n').filter((l) => /console\./.test(l));
+    expect(consoleLines.length).toBeGreaterThan(0);
+    for (const line of consoleLines) {
+      for (const banned of ['apiKey', 'GEMINI_API_KEY', 'Authorization', 'X-goog', 'built.body', 'parts']) {
+        expect(line.includes(banned), `console leaks ${banned}`).toBe(false);
+      }
+    }
   });
 });
 
