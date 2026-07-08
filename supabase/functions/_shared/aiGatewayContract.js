@@ -204,9 +204,13 @@ export function buildGeminiTextRequest(payload) {
   const temperature = clampNumber(safe.temperature, 0, 2, GEMINI_TEXT_DEFAULTS.temperature);
   const maxOutputTokens = Math.round(clampNumber(safe.maxOutputTokens, 1, 8192, GEMINI_TEXT_DEFAULTS.maxOutputTokens));
 
+  // Minimal, broadly-compatible body. NOTE: no `thinkingConfig` — that field
+  // is Gemini 2.5-series only and the default `gemini-2.0-flash` rejects it
+  // (HTTP 400), which surfaced live as a 502 provider_error. Keep only the
+  // universally-accepted generationConfig fields.
   const body = {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: { temperature, maxOutputTokens, thinkingConfig: { thinkingBudget: 0 } },
+    generationConfig: { temperature, maxOutputTokens },
   };
   if (system) body.systemInstruction = { parts: [{ text: system }] };
   return { ok: true, body };
