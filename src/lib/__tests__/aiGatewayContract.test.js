@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { AI_ACTION_TYPES, AI_PROVIDERS } from '../aiGateway.js';
 import {
@@ -17,6 +17,7 @@ import {
   buildProviderNotConfiguredResponse,
   buildProviderErrorResponse,
   buildProviderSuccessResponse,
+  buildUsageRecord,
 } from '../aiGatewayContract.js';
 
 const HOSTILE_INPUTS = [
@@ -375,6 +376,161 @@ describe('gemini text · provider response builders (pure, secret-free)', () => 
     expect(() => buildProviderNotConfiguredResponse(null)).not.toThrow();
     expect(buildProviderNotConfiguredResponse(null).actionType).toBe(null);
     expect(() => buildProviderErrorResponse(undefined)).not.toThrow();
+  });
+});
+
+describe('usage record · buildUsageRecord (pure, content-free)', () => {
+  const decision = buildAiGatewayDecision({ actionType: 'text.copy', payload: { prompt: 'SECRET PROMPT TEXT' } });
+  const EXPECTED_KEYS = [
+    'action_type', 'cost_tier', 'error_code', 'estimated_cost_usd', 'http_status',
+    'is_estimate', 'model', 'prompt_chars', 'provider', 'request_id', 'result_chars', 'status',
+  ];
+
+  it('is exported and returns exactly the content-free ai_usage columns', () => {
+    expect(typeof buildUsageRecord).toBe('function');
+    const rec = buildUsageRecord({ requestId: 'req-1', decision, status: 'completed', httpStatus: 200, provider: 'gemini', promptChars: 18, resultChars: 5 });
+    expect(Object.keys(rec).sort()).toEqual(EXPECTED_KEYS);
+  });
+
+  it('never contains raw prompt/response text — only counts', () => {
+    const rec = buildUsageRecord({ requestId: 'r', decision, status: 'completed', httpStatus: 200, provider: 'gemini', promptChars: 18, resultChars: 42 });
+    expect(JSON.stringify(rec).includes('SECRET PROMPT TEXT')).toBe(false);
+    expect(rec.prompt_chars).toBe(18);
+    expect(rec.result_chars).toBe(42);
+    for (const k of ['prompt', 'payload', 'content', 'response', 'result_text', 'system', 'messages', 'text']) {
+      expect(k in rec, k).toBe(false);
+    }
+  });
+
+  it('includes action_type / status / request_id', () => {
+    const rec = buildUsageRecord({ requestId: 'req-9', decision, status: 'completed', httpStatus: 200 });
+    expect(rec.action_type).toBe('text.copy');
+    expect(rec.status).toBe('completed');
+    expect(rec.request_id).toBe('req-9');
+  });
+
+  it('includes provider / model / cost_tier when available', () => {
+    const rec = buildUsageRecord({ requestId: 'r', decision, status: 'completed', provider: 'gemini', model: 'gemini-2.5-flash' });
+    expect(rec.provider).toBe('gemini');
+    expect(rec.model).toBe('gemini-2.5-flash');
+    expect(rec.cost_tier).toBe('low');
+  });
+
+  it('includes estimated_cost_usd with is_estimate=true', () => {
+    const rec = buildUsageRecord({ requestId: 'r', decision, status: 'completed', provider: 'gemini' });
+    expect(typeof rec.estimated_cost_usd).toBe('number');
+    expect(rec.is_estimate).toBe(true);
+  });
+
+  it('invalid_action → non-null "unknown" sentinel, content-free, no cost', () => {
+    const bad = buildAiGatewayDecision({ actionType: 'text.hack' });
+    const rec = buildUsageRecord({ requestId: 'r', decision: bad, status: 'invalid_action', httpStatus: 400, errorCode: 'invalid_action' });
+    expect(rec.action_type).toBe('unknown');
+    expect(rec.status).toBe('invalid_action');
+    expect(rec.estimated_cost_usd).toBe(null);
+    expect(Object.keys(rec).sort()).toEqual(EXPECTED_KEYS);
+  });
+
+  it('provider_not_configured / provider_error / not_implemented records stay content-free', () => {
+    for (const status of ['provider_not_configured', 'provider_error', 'not_implemented']) {
+      const rec = buildUsageRecord({ requestId: 'r', decision, status, httpStatus: 502, provider: 'gemini' });
+      expect(rec.status).toBe(status);
+      expect(JSON.stringify(rec).includes('SECRET PROMPT TEXT')).toBe(false);
+      expect(Object.keys(rec).sort()).toEqual(EXPECTED_KEYS);
+    }
+  });
+
+  it('never throws on hostile input; non-numeric/negative counts coerce to null', () => {
+    for (const h of HOSTILE_INPUTS) expect(() => buildUsageRecord(h)).not.toThrow();
+    const rec = buildUsageRecord({ decision, promptChars: 'evil', resultChars: -3 });
+    expect(rec.prompt_chars).toBe(null);
+    expect(rec.result_chars).toBe(null);
+    expect(rec.request_id).toBe('unknown');
+  });
+});
+
+describe('guardrail · ai_usage schema (privacy-safe, server-writes-only)', () => {
+  const schema = read('../../../supabase/schema.sql');
+
+  it('creates ai_usage with RLS and NO content columns', () => {
+    expect(schema.includes('create table if not exists public.ai_usage')).toBe(true);
+    expect(schema).toMatch(/alter table public\.ai_usage\s+enable row level security/);
+    const start = schema.indexOf('create table if not exists public.ai_usage');
+    const block = schema.slice(start, schema.indexOf(');', start) + 2).toLowerCase();
+    for (const f of ['prompt ', 'payload', 'content', 'response', 'result_text', 'system', 'messages', 'raw_request', 'raw_response', 'api_key', 'secret', 'token', 'authorization']) {
+      expect(block.includes(f), f).toBe(false);
+    }
+    expect(block.includes('prompt_chars')).toBe(true);
+    expect(block.includes('result_chars')).toBe(true);
+  });
+
+  it('has NO anon/authenticated INSERT/ALL policy on ai_usage (only self SELECT)', () => {
+    expect(/create policy[^;]*on public\.ai_usage[^;]*for insert/i.test(schema)).toBe(false);
+    expect(/create policy[^;]*on public\.ai_usage[^;]*for all/i.test(schema)).toBe(false);
+    expect(schema.includes('ai_usage_self_read')).toBe(true);
+  });
+});
+
+describe('guardrail · usage log module (server-only, service role)', () => {
+  it('writes via service role, never logs keys/prompts/responses, never throws', () => {
+    const code = read('../../../supabase/functions/ai-gateway/usageLog.ts');
+    expect(code).toMatch(/Deno\.env\.get\('SUPABASE_SERVICE_ROLE_KEY'\)/);
+    expect(code).toMatch(/Deno\.env\.get\('SUPABASE_URL'\)/);
+    expect(code.includes('/rest/v1/ai_usage')).toBe(true);
+    expect(code.includes('try')).toBe(true);
+    expect(code.includes('catch')).toBe(true);
+    const codeOnly = code.replace(/\/\*[^]*?\*\//g, '').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    for (const banned of ['VITE_', 'import.meta', 'createClient', 'anon', 'localStorage', 'sessionStorage']) {
+      expect(codeOnly.includes(banned), banned).toBe(false);
+    }
+    for (const line of code.split('\n').filter((l) => /console\./.test(l))) {
+      for (const banned of ['serviceKey', 'SUPABASE_SERVICE_ROLE_KEY', 'record', 'prompt', 'result', 'apikey', 'Authorization']) {
+        expect(line.includes(banned), `usage console leaks ${banned}`).toBe(false);
+      }
+    }
+  });
+
+  it('no frontend src file references usageLog or the service-role key', () => {
+    const root = fileURLToPath(new URL('../..', import.meta.url)); // → src/
+    const offenders = [];
+    const walk = (dir) => {
+      let entries;
+      try { entries = readdirSync(dir); } catch { return; }
+      for (const name of entries) {
+        const full = `${dir}/${name}`;
+        let s;
+        try { s = statSync(full); } catch { continue; }
+        if (s.isDirectory()) { if (name !== '__tests__') walk(full); continue; }
+        if (!/\.(jsx?|tsx?)$/.test(name) || /\.test\.[jt]sx?$/.test(name)) continue; // production files only
+        const c = readFileSync(full, 'utf8');
+        if (c.includes('usageLog') || c.includes('SUPABASE_SERVICE_ROLE_KEY')) offenders.push(full);
+      }
+    };
+    walk(root);
+    expect(offenders, `leaked into frontend: ${offenders.join(', ')}`).toEqual([]);
+  });
+});
+
+describe('guardrail · usage logging wired best-effort (index.ts)', () => {
+  it('generates request_id, calls the logger guarded, holds no secret/env/fetch', () => {
+    const code = read('../../../supabase/functions/ai-gateway/index.ts');
+    expect(code).toMatch(/from '\.\/usageLog\.ts'/);
+    expect(code.includes('buildUsageRecord')).toBe(true);
+    expect(code.includes('logUsage')).toBe(true);
+    expect(code.includes('crypto.randomUUID')).toBe(true);
+    // logging is guarded so it can never fail the response
+    expect(/try\s*\{[\s\S]*?logUsage[\s\S]*?catch/.test(code)).toBe(true);
+    const codeOnly = code.replace(/\/\*[^]*?\*\//g, '').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n').toLowerCase();
+    for (const banned of ['deno.env', 'service_role', 'vite_', 'generativelanguage', 'x-goog', 'fetch(']) {
+      expect(codeOnly.includes(banned), banned).toBe(false);
+    }
+  });
+});
+
+describe('guardrail · budget enforcement stays deferred', () => {
+  it('usage.budgetCheck remains deferred on every response builder', () => {
+    expect(buildAiGatewayResponse({ actionType: 'text.copy' }).usage.budgetCheck).toBe('deferred');
+    expect(buildProviderSuccessResponse(buildAiGatewayDecision({ actionType: 'text.copy', payload: { prompt: 'x' } }), 'y').usage.budgetCheck).toBe('deferred');
   });
 });
 

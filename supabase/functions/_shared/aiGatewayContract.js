@@ -281,3 +281,44 @@ export function buildProviderSuccessResponse(decision, text) {
     usage: { logging: 'deferred', budgetCheck: 'deferred' },
   };
 }
+
+// ---- pure, content-free usage record builder (node-testable) ----
+// Produces the insertable `ai_usage` shape from a decision + outcome. It
+// accepts only COUNTS (promptChars/resultChars) — never raw prompt/response
+// text — so no content can ever reach the log. No Deno, no Supabase, no
+// network, no ids/time (the Edge Function supplies request_id; the DB stamps
+// created_at). Never throws.
+function usageInt(value) {
+  return (typeof value === 'number' && Number.isFinite(value) && value >= 0) ? Math.round(value) : null;
+}
+function usageStr(value) {
+  return (typeof value === 'string' && value) ? value : null;
+}
+
+export function buildUsageRecord(input) {
+  const o = isPlainObject(input) ? input : {};
+  const decision = isPlainObject(o.decision) ? o.decision : {};
+  const routing = isPlainObject(decision.routing) ? decision.routing : {};
+
+  const action = normalizeActionType(decision.actionType);
+  const provider = usageStr(o.provider) || usageStr(routing.selectedProvider);
+  const costTier = usageStr(routing.costTier) || (action ? COST_TIER_BY_ACTION[action] : null) || null;
+  const estimatedCost = action ? estimateCost(action, provider).estimatedCost : null;
+
+  return {
+    request_id: usageStr(o.requestId) || 'unknown',
+    // 'unknown' sentinel for invalid_action keeps the column non-null and the
+    // vocabulary clean (never stores an arbitrary user-supplied action string).
+    action_type: action || 'unknown',
+    provider: provider || null,
+    model: usageStr(o.model),
+    cost_tier: costTier,
+    estimated_cost_usd: estimatedCost,
+    is_estimate: true,
+    status: usageStr(o.status) || 'rejected',
+    http_status: usageInt(o.httpStatus),
+    error_code: usageStr(o.errorCode),
+    prompt_chars: usageInt(o.promptChars),
+    result_chars: usageInt(o.resultChars),
+  };
+}
