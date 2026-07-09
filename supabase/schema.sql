@@ -152,3 +152,50 @@ create policy "transactions_own" on public.transactions
 
 create policy "outreach_leads_own" on public.outreach_leads
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- ===================================================================
+-- AI GATEWAY USAGE LOG — privacy-safe, server-written observability.
+--
+-- One row per terminal AI Gateway outcome. Written ONLY by the Edge
+-- Function using the service-role key (which bypasses RLS). There is
+-- deliberately NO insert/update/delete policy, so no anon/authenticated
+-- client can forge or inflate usage. Users may read only their own rows.
+--
+-- CONTENT-FREE BY DESIGN: this table has no column that can hold a raw
+-- prompt, payload, system instruction, chat message, response/result
+-- text, API key, or secret. Only counts (prompt_chars/result_chars),
+-- classifications, and a planning cost ESTIMATE are stored.
+-- ===================================================================
+create table if not exists public.ai_usage (
+  id                 uuid primary key default gen_random_uuid(),
+  created_at         timestamptz not null default now(),
+  user_id            uuid null references auth.users (id) on delete set null,
+  request_id         text not null,
+  action_type        text not null,
+  provider           text null,
+  model              text null,
+  cost_tier          text null,
+  estimated_cost_usd numeric null,
+  is_estimate        boolean not null default true,
+  status             text not null,
+  http_status        integer null,
+  error_code         text null,
+  prompt_chars       integer null,
+  result_chars       integer null
+);
+
+create index if not exists idx_ai_usage_created   on public.ai_usage (created_at);
+create index if not exists idx_ai_usage_user      on public.ai_usage (user_id);
+create index if not exists idx_ai_usage_action    on public.ai_usage (action_type);
+create index if not exists idx_ai_usage_provider  on public.ai_usage (provider);
+create index if not exists idx_ai_usage_status    on public.ai_usage (status);
+create index if not exists idx_ai_usage_request   on public.ai_usage (request_id);
+
+alter table public.ai_usage enable row level security;
+
+-- Read-only self access (usage rows are written server-side via the
+-- service role, which bypasses RLS). No write policy is defined on
+-- purpose: anon/authenticated clients can neither insert nor tamper.
+drop policy if exists "ai_usage_self_read" on public.ai_usage;
+create policy "ai_usage_self_read" on public.ai_usage
+  for select using (auth.uid() = user_id);

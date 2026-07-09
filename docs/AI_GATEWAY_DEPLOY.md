@@ -231,3 +231,26 @@ Provider errors surface as HTTP 502 `error.code: "provider_error"` with a fixed 
 - **Known fix already applied:** the request body no longer sends `generationConfig.thinkingConfig` — that field is Gemini 2.5-series only and `gemini-2.0-flash` (the earlier default) rejected it with HTTP 400, which showed up as a 502. Re-deploy after pulling this change, then re-run the `text.copy` smoke test.
 - **To see the real upstream reason:** the function now logs a safe diagnostic line (provider, model, upstream HTTP status, and a short capped snippet — **never** the key or your prompt). Read it in **Supabase Dashboard → Edge Functions → `ai-gateway` → Logs** (or Logs Explorer). Look for `[ai-gateway] gemini upstream error` / `gemini empty completion` / `gemini request threw`.
 - **If the status is 404 model-not-found:** the configured model isn't available for the key — set `GEMINI_MODEL` to a model from Google ListModels (see §10) and redeploy. The code default is `gemini-2.5-flash`, but the `GEMINI_MODEL` secret is authoritative. **If it's 429 / quota:** the key's project has hit a limit — a repo change cannot fix that.
+
+## 11. Usage logging (`ai_usage`)
+
+The Edge Function writes **one privacy-safe row per terminal outcome** to `public.ai_usage` — server-side, best-effort. It is observability only; **budget enforcement remains deferred** (`usage.budgetCheck` still returns `deferred`).
+
+**Apply the schema after merge** (re-run the idempotent schema — same as any other table):
+- Supabase Dashboard → SQL Editor → paste/run `supabase/schema.sql` (safe to re-run), **or**
+- `supabase db push` if that is your workflow.
+
+Then **redeploy** the function:
+
+```powershell
+supabase functions deploy ai-gateway
+```
+
+No new secret is needed: deployed Edge Functions auto-receive `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. The **service-role key is server-only** — it must never appear in the frontend, and the frontend must never write usage rows (RLS has no insert policy; only the service role, which bypasses RLS, can write).
+
+**Privacy — content-free by design.** Rows store only classifications and counts: `request_id`, `action_type`, `provider`, `model`, `cost_tier`, `estimated_cost_usd` (+ `is_estimate=true`), `status`, `http_status`, `error_code`, `prompt_chars`, `result_chars`, nullable `user_id`, `created_at`. **Prompts, system instructions, payloads, and response/result text are NEVER stored** — only their character counts. `estimated_cost_usd` is a planning **estimate**, not real billing.
+
+**Verify (SQL Editor):**
+- Call a successful `text.copy`, then an `invalid_action` (`{"actionType":"text.hack"}`).
+- `select action_type, status, http_status, provider, prompt_chars, result_chars, is_estimate from public.ai_usage order by created_at desc limit 5;` → expect a `completed`/gemini row and an `invalid_action`/`unknown` row.
+- Confirm **no column** holds prompt/response content — only counts. If logging fails, the AI response is unaffected; look for `[ai-gateway] usage log ...` in the function logs.
