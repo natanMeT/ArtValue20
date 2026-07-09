@@ -437,6 +437,22 @@ describe('guardrail · gemini provider (server-only, the only impure file)', () 
       }
     }
   });
+
+  it('model config: current default, GEMINI_MODEL override authoritative, no silent fallback', () => {
+    const code = read('../../../supabase/functions/ai-gateway/geminiProvider.ts');
+    const codeOnly = code
+      .replace(/\/\*[^]*?\*\//g, '')
+      .split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    // stale default is gone from executable code (comments may still reference it historically)
+    expect(codeOnly.includes('gemini-2.0-flash')).toBe(false);
+    // new safer default
+    expect(codeOnly).toMatch(/DEFAULT_GEMINI_MODEL\s*=\s*'gemini-2\.5-flash'/);
+    // GEMINI_MODEL env override is authoritative and server-side only
+    expect(code).toMatch(/Deno\.env\.get\('GEMINI_MODEL'\)/);
+    expect(codeOnly.includes('VITE_GEMINI_MODEL')).toBe(false);
+    // no runtime model-substitution / retry chain (single fetch, fail-closed)
+    expect((codeOnly.match(/fetch\(/g) || []).length).toBe(1);
+  });
 });
 
 describe('guardrail · gitignore + deploy docs', () => {
@@ -444,11 +460,13 @@ describe('guardrail · gitignore + deploy docs', () => {
     expect(read('../../../.gitignore').includes('supabase/.temp/')).toBe(true);
   });
 
-  it('deploy doc documents secret/redeploy/smoke without a real key', () => {
+  it('deploy doc documents secret/redeploy/smoke + GEMINI_MODEL without a real key', () => {
     const doc = read('../../../docs/AI_GATEWAY_DEPLOY.md');
     expect(doc.includes('supabase secrets set GEMINI_API_KEY')).toBe(true);
     expect(doc.includes('supabase functions deploy ai-gateway')).toBe(true);
     expect(doc.includes('provider_not_configured')).toBe(true);
+    expect(doc.includes('GEMINI_MODEL')).toBe(true);
+    expect(doc.includes('gemini-2.5-flash')).toBe(true);
     expect(doc.includes('AIza')).toBe(false); // no real Google key committed
   });
 });

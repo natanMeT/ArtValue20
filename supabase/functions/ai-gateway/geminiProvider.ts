@@ -23,7 +23,11 @@ import {
 } from '../_shared/aiGatewayContract.js';
 
 const GEMINI_MODELS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
-const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash';
+// Out-of-box default only. The authoritative model is the server-side
+// GEMINI_MODEL secret (read below) — always set it to a model the key can
+// call (verify via Google ListModels). `gemini-2.0-flash` was retired for the
+// live key and 404'd; `gemini-2.5-flash` is the current stable flash model.
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 
 export function isGeminiConfigured(): boolean {
   return Boolean(Deno.env.get('GEMINI_API_KEY'));
