@@ -167,11 +167,20 @@ The `feat/ai-gateway-gemini-text` slice adds real server-side Gemini **text** ex
 supabase secrets set GEMINI_API_KEY=<your-key> --project-ref weciwurjfwmqihcyexzj
 ```
 
-Optional model override (non-secret; default `gemini-2.0-flash`):
+**Set the model** (recommended — the code default is only a fallback). `GEMINI_MODEL` is the authoritative, server-side-only model selector; always set it to a model your key can actually call:
 
 ```powershell
-supabase secrets set GEMINI_MODEL=gemini-2.0-flash --project-ref weciwurjfwmqihcyexzj
+supabase secrets set GEMINI_MODEL="gemini-2.5-flash" --project-ref weciwurjfwmqihcyexzj
 ```
+
+- The code default is `gemini-2.5-flash` (current stable flash). The old `gemini-2.0-flash` was retired for the live key and returned **404 model-not-found** — hence setting `GEMINI_MODEL` explicitly is recommended.
+- If Gemini returns **404 model not found**, the configured model isn't available for your account/API version. List what your key can call (never paste the key into chat):
+  ```powershell
+  # discovery only — pick a model whose supportedGenerationMethods includes generateContent
+  curl "https://generativelanguage.googleapis.com/v1beta/models" -H "X-goog-api-key: <your-key>"
+  ```
+  Then set `GEMINI_MODEL` to that model and redeploy. `GEMINI_API_KEY` is always required.
+- After changing `GEMINI_MODEL`, redeploy: `supabase functions deploy ai-gateway`.
 
 **2. Redeploy** (JWT verification stays ON — do not pass `--no-verify-jwt`):
 
@@ -219,6 +228,6 @@ Provider errors surface as HTTP 502 `error.code: "provider_error"` with a fixed 
 
 `provider_error` is the sanitized catch-all for any upstream Gemini failure (non-2xx, empty completion, or a thrown request). The client never sees the real reason by design.
 
-- **Known fix already applied:** the request body no longer sends `generationConfig.thinkingConfig` — that field is Gemini 2.5-series only and the default `gemini-2.0-flash` rejected it with HTTP 400, which showed up as a 502. Re-deploy after pulling this change, then re-run the `text.copy` smoke test.
+- **Known fix already applied:** the request body no longer sends `generationConfig.thinkingConfig` — that field is Gemini 2.5-series only and `gemini-2.0-flash` (the earlier default) rejected it with HTTP 400, which showed up as a 502. Re-deploy after pulling this change, then re-run the `text.copy` smoke test.
 - **To see the real upstream reason:** the function now logs a safe diagnostic line (provider, model, upstream HTTP status, and a short capped snippet — **never** the key or your prompt). Read it in **Supabase Dashboard → Edge Functions → `ai-gateway` → Logs** (or Logs Explorer). Look for `[ai-gateway] gemini upstream error` / `gemini empty completion` / `gemini request threw`.
-- **If the status is 400/404 with a model name:** check the `GEMINI_MODEL` secret (or leave it unset to use the default `gemini-2.0-flash`). **If it's 429 / quota:** the key's project has hit a limit — a repo change cannot fix that.
+- **If the status is 404 model-not-found:** the configured model isn't available for the key — set `GEMINI_MODEL` to a model from Google ListModels (see §10) and redeploy. The code default is `gemini-2.5-flash`, but the `GEMINI_MODEL` secret is authoritative. **If it's 429 / quota:** the key's project has hit a limit — a repo change cannot fix that.
