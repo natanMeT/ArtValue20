@@ -180,9 +180,9 @@ describe('source guardrails', () => {
 });
 
 describe('unwired proof', () => {
-  it('no file under src/components or src/pages imports aiGatewayClient', () => {
+  it('aiGatewayClient is imported ONLY by the internal DEV smoke component', () => {
     const roots = ['../../components', '../../pages'];
-    const offenders = [];
+    const importers = [];
     const walk = (relDir) => {
       let dir;
       try { dir = fileURLToPath(new URL(relDir, import.meta.url)); } catch { return; }
@@ -193,16 +193,19 @@ describe('unwired proof', () => {
         let s;
         try { s = statSync(full); } catch { continue; }
         if (s.isDirectory()) { walk(`${relDir}/${name}`); continue; }
-        if (!/\.(jsx?|tsx?)$/.test(name)) continue;
-        if (readFileSync(full, 'utf8').includes('aiGatewayClient')) offenders.push(full);
+        if (!/\.(jsx?|tsx?)$/.test(name) || /\.test\.[jt]sx?$/.test(name)) continue;
+        if (readFileSync(full, 'utf8').includes('aiGatewayClient')) importers.push(`${relDir}/${name}`);
       }
     };
     for (const r of roots) walk(r);
-    expect(offenders, `unexpected importers: ${offenders.join(', ')}`).toEqual([]);
+    // exactly one importer — the DEV-gated smoke component; nothing else
+    expect(importers).toEqual(['../../components/dev/AiGatewaySmoke.jsx']);
   });
 
-  it('Assistant.jsx and ImageStudio.jsx do not reference the client', () => {
+  it('client is not referenced by Assistant, ImageStudio, or Jake', () => {
     expect(read('../../components/ai/Assistant.jsx').includes('aiGatewayClient')).toBe(false);
     expect(read('../../pages/ImageStudio.jsx').includes('aiGatewayClient')).toBe(false);
+    expect(read('../jakePack.js').includes('aiGatewayClient')).toBe(false);
+    expect(read('../jakeAgent.js').includes('aiGatewayClient')).toBe(false);
   });
 });

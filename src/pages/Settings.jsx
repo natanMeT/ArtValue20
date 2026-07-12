@@ -5,6 +5,7 @@ import Icon from '../components/ui/Icon.jsx';
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
 import { SectionHeader } from '../components/ui/atoms.jsx';
 import { buildDemoSeed } from '../data/seed.js';
+import AiGatewaySmoke from '../components/dev/AiGatewaySmoke.jsx';
 
 export default function Settings() {
   const {
@@ -201,6 +202,9 @@ export default function Settings() {
             </div>
           )}
         </ScrollReveal>
+
+        {/* Internal DEV-only AI Gateway smoke test — stripped from production builds */}
+        {import.meta.env.DEV ? <AiGatewaySmoke /> : null}
       </div>
 
       <ConfirmDialog
