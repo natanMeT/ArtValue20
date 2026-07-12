@@ -317,3 +317,88 @@ Expected: still the server-owned structured contract — `result.json` with the 
 `select action_type, status, http_status, provider, prompt_chars, result_chars from public.ai_usage order by created_at desc limit 5;` → expect a `completed` / `gemini` / `crm.suggest_next_action` row with a populated, count-only `result_chars` and **no content columns**.
 
 **Paste back:** the redeploy line, the `text.copy` (A) and `crm.suggest_next_action` (B) response JSON, the hardening (C) response JSON, and the `ai_usage` query result. **Never paste the API key or any secret into chat.**
+
+
+## 13. Authenticated budget guard (feat/ai-gateway-budget-guard)
+
+This slice makes `ai-gateway` **authenticated-users-only** and runs an **atomic, fail-closed budget + rate guard BEFORE any Gemini call**. **A redeploy is required after merge, and the new SQL must be applied first.** No new secret, no `config.toml` change, and no frontend change are required.
+
+### What changed
+
+- **Authenticated users only.** Every POST now requires a real signed-in user, enforced with the official `@supabase/server` user context (`createSupabaseContext(req, { auth: 'user' })`, pinned to `@supabase/server@1.3.0`). Platform `verify_jwt` stays **ON** (do **not** pass `--no-verify-jwt`) — but a publishable/anon key alone is **not** user identity: it passes the edge gate yet yields no user id, so it now receives **HTTP 401 `unauthenticated`** and **no Gemini call**. The verified user UUID comes only from the signed, server-verified claims (`authMode === 'user'` + `sub`) — never from the request body/options.
+- **Logged-in browser calls are unchanged.** `supabase.functions.invoke` automatically attaches the current user's session access token (the frontend `aiGatewayClient` is untouched). A logged-out browser / anon-only caller now gets 401.
+- **Budget guard before Gemini.** For every executable provider action (all of `text.copy`, `text.crm_message`, `studio.prompt_enhance`, `crm.suggest_next_action` — the old tier-based flag is ignored), the shell reserves budget via the service-role-only RPC `public.reserve_ai_budget` **before** calling Gemini. If the guard does not approve, the request is rejected before any provider call.
+- **Server-owned policy (env-overridable, never billing).** Conservative safety-guard estimates, not provider prices:
+  | env var | default |
+  | --- | --- |
+  | `AI_BUDGET_RATE_PER_MINUTE` | `10` requests/min per user |
+  | `AI_BUDGET_USER_DAILY_USD` | `1.00` estimated USD/day per user |
+  | `AI_BUDGET_USER_MONTHLY_USD` | `15.00` estimated USD/month per user |
+  | `AI_BUDGET_GLOBAL_MONTHLY_USD` | `50.00` estimated USD/month global |
+
+  Missing / invalid / zero / negative values fall back to the defaults; absurd values are clamped. Limits are server-only and never exposed to the browser. The per-request reservation comes only from the server routing decision (`routing.costEstimate.estimatedCost`) — a request-supplied estimate is never trusted. **`reserved_estimated_usd` is a conservative planning estimate, not actual billing.**
+- **Atomic counters, no content.** `public.ai_budget_counters` holds fixed-window counters only (per-user minute/day/month + a global month), keyed by `(owner_type, owner_key, window_kind, window_start)`. It stores **no** prompt/response/system/schema/suggestion/reason/priority/key/token/email — concurrency state only. RLS is enabled with **no** client policy.
+- **Service-role-only RPC.** `reserve_ai_budget` is `SECURITY DEFINER` with `search_path = ''` (every reference schema-qualified), uses **database time only**, validates inputs, uses **no** dynamic SQL, and does **not** use `auth.uid()` — the trusted user UUID is passed as a parameter and trusted only because **EXECUTE is granted to `service_role` only** (revoked from `public`, `anon`, `authenticated`). A signed-in client therefore cannot call the RPC directly to consume counters without a real request. It locks the four counter rows `FOR UPDATE` in a fixed order (global month → user month → user day → user minute), evaluates every limit **before** modifying any counter, and increments all four atomically only if all pass. It returns only `allowed / reason / retry_after_seconds` — never usage, remaining, limits, or totals.
+- **Conservative reservation semantics.** An approved reservation stays **consumed** once provider execution is attempted, including when Gemini returns an upstream error. This slice has **no** finalization RPC, refunds, stale cleanup, cron, idempotency table, or caller-supplied request id (`requestId` is still generated server-side).
+- **Corrected usage response + user linkage.** `usage.logging` is now `"active"` (server logging is on — it does not claim every best-effort insert succeeded) and `usage.budgetCheck` reflects real state: `approved` on an approved provider success, `rejected` on a rate/budget rejection, `unavailable` on a guard/DB failure. `not_implemented` stays `budgetCheck: "deferred"` (no provider execution). `ai_usage.user_id` is now populated with the verified UUID for authenticated outcomes (NULL for unauthenticated rejections). No `ai_usage` schema change; existing NULL rows are unchanged; the record stays content-free.
+- **Jake / Studio / ImageStudio / Assistant remain unwired**, the frontend client + DEV smoke are untouched, and usage logging remains best-effort (a logging failure never blocks a response). **Budget reservation is NOT best-effort — it fails closed.**
+
+### Error contract (all JSON bodies; codes pass through the frontend client unchanged)
+
+| condition | HTTP | error.code | execution.status | usage.budgetCheck |
+| --- | --- | --- | --- | --- |
+| no authenticated user | 401 | `unauthenticated` | rejected | rejected |
+| per-user rate limit reached | 429 | `rate_limited` | rejected | rejected (`Retry-After` header if a safe positive integer is available) |
+| daily/monthly/global cap reached | 429 | `budget_exceeded` | rejected | rejected |
+| missing estimate / RPC or DB error / malformed guard result | 503 | `budget_guard_unavailable` | rejected | unavailable |
+
+Which cap failed, current usage, the limit, and remaining are **never** exposed. HTTP 402 is not used. Postgres/PostgREST error text is never forwarded.
+
+### Application order (REQUIRED)
+
+1. Merge the code.
+2. Apply the new budget SQL section (`public.ai_budget_counters` + `public.reserve_ai_budget`) in the Supabase **SQL Editor** (re-run the idempotent `supabase/schema.sql`, or `supabase db push`).
+3. Verify the table / function / privileges (queries below).
+4. Deploy the function with `verify_jwt` **ON**: `supabase functions deploy ai-gateway`.
+5. Run the live auth + budget smokes (A–G below).
+6. Only after all smokes pass, proceed toward product wiring.
+
+> If the function is deployed **before** the SQL/RPC exists, the guard fails closed with `budget_guard_unavailable` (HTTP 503) and **never** calls Gemini — safe, but the provider is unusable until the SQL is applied.
+
+### SQL verification (safe, no secrets)
+
+```sql
+-- table exists
+select to_regclass('public.ai_budget_counters') is not null as table_exists;
+-- RLS enabled
+select relrowsecurity from pg_class where oid = 'public.ai_budget_counters'::regclass;
+-- function exists + SECURITY DEFINER (prosecdef = true) + empty search_path
+select p.proname, p.prosecdef, p.proconfig
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public' and p.proname = 'reserve_ai_budget';
+--   expect prosecdef = t and proconfig containing 'search_path='
+-- anon / authenticated lack EXECUTE; service_role has it
+select has_function_privilege('anon',          'public.reserve_ai_budget(uuid,text,text,numeric,integer,numeric,numeric,numeric)', 'execute') as anon_exec,
+       has_function_privilege('authenticated', 'public.reserve_ai_budget(uuid,text,text,numeric,integer,numeric,numeric,numeric)', 'execute') as auth_exec,
+       has_function_privilege('service_role',  'public.reserve_ai_budget(uuid,text,text,numeric,integer,numeric,numeric,numeric)', 'execute') as service_exec;
+--   expect anon_exec = f, auth_exec = f, service_exec = t
+-- no user-facing write policy on the counters table
+select count(*) as counter_policies from pg_policies where schemaname = 'public' and tablename = 'ai_budget_counters';
+--   expect 0
+```
+
+### Live smoke plan (document; run after deploy)
+
+- **A. Anon rejection** — invoke with only the anon/publishable key → expect HTTP 401 `unauthenticated`, no Gemini call, a content-free `ai_usage` row with `user_id` NULL if logging succeeds.
+- **B. Authenticated success** — use the logged-in browser DEV smoke → `completed`, `provider: gemini`, `result.text`, `usage.logging: active`, `usage.budgetCheck: approved`, `ai_usage.user_id` populated.
+- **C. Structured regression** — authenticated `crm.suggest_next_action` → `result.json` with the unchanged strict contract, `budgetCheck: approved`.
+- **D. Rate limit** — authenticated user exceeding `AI_BUDGET_RATE_PER_MINUTE` → initial calls approved, a later call HTTP 429 `rate_limited` (`Retry-After` if available), and the rejected call never reaches Gemini.
+- **E. Atomic concurrency** — using two SQL Editor sessions (or another admin-only method) invoke `reserve_ai_budget` for the same test user with deliberately low test limits concurrently → combined approved reservations never exceed the limit, no lost update, no negative counter; clean up only the test counter rows afterward. **Do not expose the service-role key.**
+- **F. Guard unavailable** — covered by automated mock tests (RPC/network failure → HTTP 503 `budget_guard_unavailable`, no Gemini call). Do **not** sabotage the live database to force this.
+- **G. Usage** — authenticated rows have `user_id`; anonymous rejection has NULL `user_id`; no prompt/system/response content is present; `result_chars` remains count-only.
+
+### Rollback
+
+- Git rollback tag: `pre-ai-gateway-budget-guard`.
+- **Code rollback alone restores the old UNGUARDED behavior and is NOT a safe production rollback while `GEMINI_API_KEY` is active.** If the new function must be rolled back before a corrected guarded build is ready, **disable provider execution / remove the `GEMINI_API_KEY` server secret** rather than returning to anonymous unguarded spend. (Do not implement automatic secret removal, and never print/expose the key during rollback.)
+- The new SQL objects (`ai_budget_counters`, `reserve_ai_budget`) may safely remain unused after a code rollback.
