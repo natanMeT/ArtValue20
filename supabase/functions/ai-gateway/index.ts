@@ -21,8 +21,10 @@ import {
   buildAiGatewayDecision,
   isGeminiExecutableAction,
   buildUsageRecord,
+  buildProviderErrorResponse,
 } from '../_shared/aiGatewayContract.js';
 import { runGeminiText } from './geminiProvider.ts';
+import { getActionProfile } from './actionProfiles.ts';
 import { logUsage } from './usageLog.ts';
 
 const CORS_HEADERS = {
@@ -102,9 +104,19 @@ serve?.(async (req: Request): Promise<Response> => {
   // Only executable Gemini-first text actions that actually resolve to
   // gemini run a real provider call. Everything else stays deferred.
   if (isGeminiExecutableAction(decision.actionType) && decision.routing.selectedProvider === 'gemini') {
-    const { status, body: out } = await runGeminiText(decision);
-    // result_chars is a COUNT only — the completion text is never logged.
-    const resultChars = (out && out.result && typeof out.result.text === 'string') ? out.result.text.length : null;
+    // Execution behavior is owned by the frozen, server-only action profile
+    // (system instruction, generation config, output mode, schema) — selected
+    // strictly by validated actionType, never by caller input.
+    const profile = getActionProfile(decision.actionType);
+    if (!profile) {
+      // Fail closed: an executable action with no server-owned profile is a
+      // server misconfiguration — never fall back to caller configuration.
+      await recordUsage({ status: 'provider_error', httpStatus: 502, provider: 'gemini', errorCode: 'provider_error' });
+      return json(buildProviderErrorResponse(decision), 502);
+    }
+    // resultChars comes from the provider (raw text length for text OR raw JSON
+    // length before parsing for json) — a COUNT only; content is never logged.
+    const { status, body: out, resultChars } = await runGeminiText(decision, profile);
     await recordUsage({
       status: out?.execution?.status ?? 'provider_error',
       httpStatus: status,
