@@ -22,6 +22,7 @@ import {
   selectProvider,
   buildAiRequest,
   estimateCost,
+  COST_TIER_BY_ACTION,
 } from './aiGateway.js';
 
 // ---- frozen vocabularies ----
@@ -42,6 +43,11 @@ export const AI_GATEWAY_ERROR_CODES = Object.freeze({
   // Fail-closed code for malformed / schema-invalid STRUCTURED provider output
   // (distinct from provider_error, which is transport/HTTP failure).
   INVALID_PROVIDER_RESPONSE: 'invalid_provider_response',
+  // Budget-guard codes (the guard runs BEFORE any provider call).
+  UNAUTHENTICATED: 'unauthenticated',
+  RATE_LIMITED: 'rate_limited',
+  BUDGET_EXCEEDED: 'budget_exceeded',
+  BUDGET_GUARD_UNAVAILABLE: 'budget_guard_unavailable',
 });
 
 // ---- Gemini text execution policy (pure; the shell enforces it) ----
@@ -195,7 +201,9 @@ export function buildAiGatewayResponse(request) {
       message: 'AI Gateway proxy stub is ready; provider execution is deferred.',
     },
     usage: {
-      logging: 'deferred',
+      // Server-side usage logging IS active; budgetCheck stays deferred because
+      // this branch never executes a provider (no reservation is made).
+      logging: 'active',
       budgetCheck: 'deferred',
     },
   };
@@ -318,7 +326,8 @@ export function buildProviderSuccessResponse(decision, text) {
     provider: 'gemini',
     execution: { status: AI_GATEWAY_EXECUTION_STATUS.COMPLETED },
     result: { text: typeof text === 'string' ? text : '' },
-    usage: { logging: 'deferred', budgetCheck: 'deferred' },
+    // Reached only AFTER the budget guard approved + reserved this request.
+    usage: { logging: 'active', budgetCheck: 'approved' },
   };
 }
 
@@ -394,7 +403,8 @@ export function buildProviderJsonSuccessResponse(decision, json) {
     provider: 'gemini',
     execution: { status: AI_GATEWAY_EXECUTION_STATUS.COMPLETED },
     result: { json: isPlainObject(json) ? json : {} },
-    usage: { logging: 'deferred', budgetCheck: 'deferred' },
+    // Reached only AFTER the budget guard approved + reserved this request.
+    usage: { logging: 'active', budgetCheck: 'approved' },
   };
 }
 
@@ -415,6 +425,71 @@ export function buildInvalidProviderResponse(decision) {
   };
 }
 
+// ---- budget-guard responses (pure, generic, leak nothing) ----
+// All messages are fixed/generic — no user id, token, DB/PostgREST text, or
+// which limit failed is ever exposed. `usage.logging: 'active'` reports that
+// the server logging feature is on (not that a given insert succeeded).
+
+// No authenticated end-user. Intentionally carries NO actionType (auth is
+// checked before the request action is trusted) to match the fixed contract.
+export function buildUnauthenticatedResponse() {
+  return {
+    ok: false,
+    error: {
+      code: AI_GATEWAY_ERROR_CODES.UNAUTHENTICATED,
+      message: 'Authentication is required.',
+    },
+    execution: { status: AI_GATEWAY_EXECUTION_STATUS.REJECTED },
+    usage: { logging: 'active', budgetCheck: 'rejected' },
+  };
+}
+
+// Per-user rate limit reached (before any provider call). A safe Retry-After
+// header is set by the shell from the guard's bounded integer — never here.
+export function buildRateLimitedResponse(decision) {
+  return {
+    ok: false,
+    actionType: (decision && decision.actionType) || null,
+    error: {
+      code: AI_GATEWAY_ERROR_CODES.RATE_LIMITED,
+      message: 'Too many requests. Please retry shortly.',
+    },
+    execution: { status: AI_GATEWAY_EXECUTION_STATUS.REJECTED },
+    usage: { logging: 'active', budgetCheck: 'rejected' },
+  };
+}
+
+// A daily / monthly / global estimated cap was reached (before any provider
+// call). Which cap failed, current usage, the limit, and remaining are all
+// deliberately NOT exposed.
+export function buildBudgetExceededResponse(decision) {
+  return {
+    ok: false,
+    actionType: (decision && decision.actionType) || null,
+    error: {
+      code: AI_GATEWAY_ERROR_CODES.BUDGET_EXCEEDED,
+      message: 'Budget limit reached. Please try again later.',
+    },
+    execution: { status: AI_GATEWAY_EXECUTION_STATUS.REJECTED },
+    usage: { logging: 'active', budgetCheck: 'rejected' },
+  };
+}
+
+// The budget guard could not run (missing estimate, RPC/DB unreachable, or a
+// malformed guard result). Fail closed — NO provider call is made.
+export function buildBudgetGuardUnavailableResponse(decision) {
+  return {
+    ok: false,
+    actionType: (decision && decision.actionType) || null,
+    error: {
+      code: AI_GATEWAY_ERROR_CODES.BUDGET_GUARD_UNAVAILABLE,
+      message: 'Budget enforcement is temporarily unavailable.',
+    },
+    execution: { status: AI_GATEWAY_EXECUTION_STATUS.REJECTED },
+    usage: { logging: 'active', budgetCheck: 'unavailable' },
+  };
+}
+
 // ---- pure, content-free usage record builder (node-testable) ----
 // Produces the insertable `ai_usage` shape from a decision + outcome. It
 // accepts only COUNTS (promptChars/resultChars) — never raw prompt/response
@@ -426,6 +501,13 @@ function usageInt(value) {
 }
 function usageStr(value) {
   return (typeof value === 'string' && value) ? value : null;
+}
+// Accepts ONLY a well-formed UUID string (the verified auth user id supplied by
+// the Edge Function shell) — anything else (including a body-supplied value)
+// coerces to null. Never stores email/profile data, only the UUID.
+const USAGE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function usageUuid(value) {
+  return (typeof value === 'string' && USAGE_UUID_RE.test(value)) ? value : null;
 }
 
 export function buildUsageRecord(input) {
@@ -440,6 +522,10 @@ export function buildUsageRecord(input) {
 
   return {
     request_id: usageStr(o.requestId) || 'unknown',
+    // Verified auth user UUID (from the Edge Function shell, never the request
+    // body) or null for unauthenticated outcomes. UUID is permitted operational
+    // metadata; no email/profile data is ever stored.
+    user_id: usageUuid(o.userId),
     // 'unknown' sentinel for invalid_action keeps the column non-null and the
     // vocabulary clean (never stores an arbitrary user-supplied action string).
     action_type: action || 'unknown',

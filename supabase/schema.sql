@@ -199,3 +199,182 @@ alter table public.ai_usage enable row level security;
 drop policy if exists "ai_usage_self_read" on public.ai_usage;
 create policy "ai_usage_self_read" on public.ai_usage
   for select using (auth.uid() = user_id);
+
+-- ===================================================================
+-- AI BUDGET GUARD — atomic pre-provider rate + estimated-spend counters.
+--
+-- Concurrency state ONLY — never content. This table holds fixed-window
+-- counters (per-user minute/day/month + a global month) used by the atomic
+-- public.reserve_ai_budget RPC to APPROVE + RESERVE a request BEFORE any paid
+-- Gemini call. reserved_estimated_usd is a conservative PLANNING ESTIMATE, not
+-- actual billing. No prompt / payload / response / system instruction / schema
+-- / suggestion / reason / priority / key / token / email is ever stored here.
+--
+-- Writes happen ONLY through the SECURITY DEFINER RPC, invoked ONLY by the
+-- service role (RLS is enabled with NO client policy; the RPC has EXECUTE
+-- granted to service_role only). A signed-in client can neither read/write the
+-- table directly nor call the RPC to consume counters without a real request.
+-- ===================================================================
+create table if not exists public.ai_budget_counters (
+  owner_type             text not null,
+  owner_key              text not null,
+  window_kind            text not null,
+  window_start           timestamptz not null,
+  request_count          integer not null default 0,
+  reserved_estimated_usd numeric not null default 0,
+  created_at             timestamptz not null default now(),
+  updated_at             timestamptz not null default now(),
+  constraint ai_budget_counters_pk primary key (owner_type, owner_key, window_kind, window_start),
+  constraint ai_budget_counters_owner_type_chk  check (owner_type in ('user', 'global')),
+  constraint ai_budget_counters_window_kind_chk check (window_kind in ('minute', 'day', 'month')),
+  constraint ai_budget_counters_request_count_chk check (request_count >= 0),
+  constraint ai_budget_counters_reserved_chk    check (reserved_estimated_usd >= 0),
+  constraint ai_budget_counters_owner_key_chk   check (
+    (owner_type = 'global' and owner_key = 'global')
+    or (owner_type = 'user' and length(owner_key) > 0)
+  )
+);
+
+-- No extra index: the composite primary key already serves every lookup the
+-- RPC performs (full key), and its leading columns cover owner prefix scans.
+
+-- RLS on, with NO policy of any kind: anon/authenticated clients get no direct
+-- read or write. Only the service role (which bypasses RLS) touches the table,
+-- and only through the RPC below.
+alter table public.ai_budget_counters enable row level security;
+
+-- Atomic reserve-before-provider budget guard.
+--
+-- SECURITY DEFINER + empty search_path (every reference fully schema-qualified;
+-- built-ins resolve from pg_catalog). Uses DATABASE time only. Validates every
+-- input. No dynamic SQL. Does NOT use auth.uid() — the RPC is invoked by the
+-- service-role client, so the trusted user UUID is passed as p_user_id and is
+-- trusted ONLY because EXECUTE is service_role-only. Returns nothing about
+-- current usage / remaining / limits / totals.
+--
+-- Atomicity: one transaction. Ensures the four counter rows exist, then LOCKS
+-- them FOR UPDATE in a fixed deterministic order (global month → user month →
+-- user day → user minute) to reduce deadlock risk, reads while locked,
+-- evaluates every limit BEFORE modifying any counter, and only if all pass
+-- increments all four counters atomically. A SELECT-then-unprotected-INSERT is
+-- never used.
+create or replace function public.reserve_ai_budget(
+  p_user_id uuid,
+  p_request_id text,
+  p_action_type text,
+  p_estimated_cost_usd numeric,
+  p_rate_per_minute integer,
+  p_user_daily_limit_usd numeric,
+  p_user_monthly_limit_usd numeric,
+  p_global_monthly_limit_usd numeric
+)
+returns table (allowed boolean, reason text, retry_after_seconds integer)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_now      timestamptz := now();                       -- database clock only
+  v_minute   timestamptz := date_trunc('minute', v_now);
+  v_day      timestamptz := date_trunc('day', v_now);
+  v_month    timestamptz := date_trunc('month', v_now);
+  v_user     text        := p_user_id::text;
+  v_cost     numeric     := coalesce(p_estimated_cost_usd, 0);
+  v_rate     integer     := coalesce(p_rate_per_minute, 0);
+  v_ud       numeric     := coalesce(p_user_daily_limit_usd, 0);
+  v_um       numeric     := coalesce(p_user_monthly_limit_usd, 0);
+  v_gm       numeric     := coalesce(p_global_monthly_limit_usd, 0);
+  v_gm_used  numeric;
+  v_um_used  numeric;
+  v_ud_used  numeric;
+  v_min_cnt  integer;
+  v_retry    integer;
+begin
+  -- Validate identity inputs. Raising here surfaces to the caller as an RPC
+  -- error, which the Edge Function maps to fail-closed 'unavailable'.
+  if p_user_id is null or p_request_id is null or p_action_type is null then
+    raise exception 'reserve_ai_budget: missing required input';
+  end if;
+  if v_cost < 0 then v_cost := 0; end if;
+  if v_rate < 0 then v_rate := 0; end if;
+
+  -- Ensure the four counter rows exist (idempotent), inserted in the same
+  -- deterministic order used for locking below.
+  insert into public.ai_budget_counters (owner_type, owner_key, window_kind, window_start)
+  values
+    ('global', 'global', 'month',  v_month),
+    ('user',   v_user,   'month',  v_month),
+    ('user',   v_user,   'day',    v_day),
+    ('user',   v_user,   'minute', v_minute)
+  on conflict (owner_type, owner_key, window_kind, window_start) do nothing;
+
+  -- Lock the four rows (fixed order above) and read the current values.
+  select c.reserved_estimated_usd into v_gm_used
+    from public.ai_budget_counters c
+    where c.owner_type = 'global' and c.owner_key = 'global'
+      and c.window_kind = 'month' and c.window_start = v_month
+    for update;
+
+  select c.reserved_estimated_usd into v_um_used
+    from public.ai_budget_counters c
+    where c.owner_type = 'user' and c.owner_key = v_user
+      and c.window_kind = 'month' and c.window_start = v_month
+    for update;
+
+  select c.reserved_estimated_usd into v_ud_used
+    from public.ai_budget_counters c
+    where c.owner_type = 'user' and c.owner_key = v_user
+      and c.window_kind = 'day' and c.window_start = v_day
+    for update;
+
+  select c.request_count into v_min_cnt
+    from public.ai_budget_counters c
+    where c.owner_type = 'user' and c.owner_key = v_user
+      and c.window_kind = 'minute' and c.window_start = v_minute
+    for update;
+
+  -- Evaluate every limit BEFORE modifying any counter.
+  -- 1. User fixed-minute request rate.
+  if v_min_cnt + 1 > v_rate then
+    v_retry := greatest(1, ceil(extract(epoch from ((v_minute + interval '1 minute') - v_now)))::integer);
+    return query select false, 'rate_limited', v_retry;
+    return;
+  end if;
+  -- 2. User daily estimated spend.
+  if v_ud_used + v_cost > v_ud then
+    return query select false, 'budget_exceeded', null::integer;
+    return;
+  end if;
+  -- 3. User monthly estimated spend.
+  if v_um_used + v_cost > v_um then
+    return query select false, 'budget_exceeded', null::integer;
+    return;
+  end if;
+  -- 4. Global monthly estimated spend.
+  if v_gm_used + v_cost > v_gm then
+    return query select false, 'budget_exceeded', null::integer;
+    return;
+  end if;
+
+  -- All limits pass → increment all four locked counters atomically.
+  update public.ai_budget_counters as c
+    set request_count = c.request_count + 1,
+        reserved_estimated_usd = c.reserved_estimated_usd + v_cost,
+        updated_at = v_now
+    where (c.owner_type, c.owner_key, c.window_kind, c.window_start) in (
+      ('global', 'global', 'month',  v_month),
+      ('user',   v_user,   'month',  v_month),
+      ('user',   v_user,   'day',    v_day),
+      ('user',   v_user,   'minute', v_minute)
+    );
+
+  return query select true, 'approved', null::integer;
+end;
+$$;
+
+-- EXECUTE is service_role-ONLY: revoke from everyone else so a signed-in
+-- client can never call the RPC directly to consume counters.
+revoke execute on function public.reserve_ai_budget(uuid, text, text, numeric, integer, numeric, numeric, numeric) from public;
+revoke execute on function public.reserve_ai_budget(uuid, text, text, numeric, integer, numeric, numeric, numeric) from anon;
+revoke execute on function public.reserve_ai_budget(uuid, text, text, numeric, integer, numeric, numeric, numeric) from authenticated;
+grant  execute on function public.reserve_ai_budget(uuid, text, text, numeric, integer, numeric, numeric, numeric) to service_role;
