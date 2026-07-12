@@ -28,7 +28,10 @@ import { logUsage } from './usageLog.ts';
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, content-type',
+  // The browser Supabase client (functions.invoke) sends x-client-info +
+  // apikey in addition to authorization/content-type — all must be allowed
+  // or the preflight fails and the call surfaces as network_error.
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 function json(body: unknown, status = 200): Response {
