@@ -16,11 +16,16 @@
 import {
   buildGeminiTextRequest,
   parseGeminiTextResponse,
+  parseStructuredResult,
+  providerResultChars,
   buildProviderNotConfiguredResponse,
   buildProviderErrorResponse,
   buildInvalidPayloadResponse,
+  buildInvalidProviderResponse,
   buildProviderSuccessResponse,
+  buildProviderJsonSuccessResponse,
 } from '../_shared/aiGatewayContract.js';
+import type { ActionProfile } from './actionProfiles.ts';
 
 const GEMINI_MODELS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 // Out-of-box default only. The authoritative model is the server-side
@@ -33,19 +38,28 @@ export function isGeminiConfigured(): boolean {
   return Boolean(Deno.env.get('GEMINI_API_KEY'));
 }
 
-// Runs a Gemini text completion for an already-validated gateway decision.
-// Returns { status, body } — the caller (index.ts) writes the HTTP response.
+// Runs a Gemini completion for an already-validated gateway decision using the
+// SERVER-OWNED action profile (system instruction, generation config, output
+// mode, schema). The profile — never the caller — drives all execution
+// behavior. Returns { status, body, resultChars }; the caller (index.ts)
+// writes the HTTP response and logs the content-free resultChars count.
 // deno-lint-ignore no-explicit-any
-export async function runGeminiText(decision: any): Promise<{ status: number; body: unknown }> {
+export async function runGeminiText(
+  decision: any,
+  profile: ActionProfile,
+): Promise<{ status: number; body: unknown; resultChars: number | null }> {
   const apiKey = Deno.env.get('GEMINI_API_KEY');
   if (!apiKey) {
     // Fail closed — no network call, no fallback to any frontend key.
-    return { status: 503, body: buildProviderNotConfiguredResponse(decision) };
+    return { status: 503, body: buildProviderNotConfiguredResponse(decision), resultChars: null };
   }
 
-  const built = buildGeminiTextRequest(decision && decision.request ? decision.request.payload : undefined);
+  const built = buildGeminiTextRequest(
+    decision && decision.request ? decision.request.payload : undefined,
+    profile,
+  );
   if (!built.ok) {
-    return { status: 400, body: buildInvalidPayloadResponse(decision, built.error) };
+    return { status: 400, body: buildInvalidPayloadResponse(decision, built.error), resultChars: null };
   }
 
   const model = Deno.env.get('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL;
@@ -68,20 +82,36 @@ export async function runGeminiText(decision: any): Promise<{ status: number; bo
         snippet = '';
       }
       console.error('[ai-gateway] gemini upstream error', JSON.stringify({ provider: 'gemini', model, status: res.status, snippet }));
-      return { status: 502, body: buildProviderErrorResponse(decision) };
+      return { status: 502, body: buildProviderErrorResponse(decision), resultChars: null };
     }
     const json = await res.json().catch(() => null);
-    const text = parseGeminiTextResponse(json);
-    if (!text) {
+    const rawText = parseGeminiTextResponse(json);
+    if (!rawText) {
       // deno-lint-ignore no-explicit-any
       const finishReason = (json as any)?.candidates?.[0]?.finishReason ?? 'unknown';
       console.error('[ai-gateway] gemini empty completion', JSON.stringify({ provider: 'gemini', model, status: res.status, finishReason }));
-      return { status: 502, body: buildProviderErrorResponse(decision) };
+      return { status: 502, body: buildProviderErrorResponse(decision), resultChars: null };
     }
-    return { status: 200, body: buildProviderSuccessResponse(decision, text) };
+
+    // result_chars counts the RAW provider text (completion, or raw JSON string
+    // BEFORE parsing) — never a re-serialized object length. Content-free.
+    const resultChars = providerResultChars(rawText);
+
+    if (profile && profile.outputMode === 'json') {
+      const parsed = parseStructuredResult(rawText, profile.resultContract);
+      if (!parsed.ok) {
+        // Fail closed on malformed / schema-invalid structured output. No raw
+        // text, parse detail, or schema is logged or returned.
+        console.error('[ai-gateway] gemini invalid structured response', JSON.stringify({ provider: 'gemini', model, status: res.status, contract: profile.resultContract }));
+        return { status: 502, body: buildInvalidProviderResponse(decision), resultChars };
+      }
+      return { status: 200, body: buildProviderJsonSuccessResponse(decision, parsed.value), resultChars };
+    }
+
+    return { status: 200, body: buildProviderSuccessResponse(decision, rawText), resultChars };
   } catch (e) {
     const message = (e instanceof Error ? e.message : String(e)).slice(0, 200);
     console.error('[ai-gateway] gemini request threw', JSON.stringify({ provider: 'gemini', model, message }));
-    return { status: 502, body: buildProviderErrorResponse(decision) };
+    return { status: 502, body: buildProviderErrorResponse(decision), resultChars: null };
   }
 }
