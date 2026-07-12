@@ -1405,9 +1405,16 @@ describe('budget · index.ts flow (auth-first, guard-before-provider)', () => {
     expect(/buildUnauthenticatedResponse\(\)\s*,\s*401/.test(code)).toBe(true);
   });
 
-  it('the verified user id comes from claims, never the request body/options', () => {
+  it('derives identity via getAuthenticatedUserId (userClaims.id / jwtClaims.sub), never the body', () => {
     expect(/authMode === 'user'/.test(code)).toBe(true);
-    expect(/claims\.sub/.test(code)).toBe(true);
+    expect(code.includes('getAuthenticatedUserId(ctx)')).toBe(true);
+    // @supabase/server: userClaims.id (primary) + jwtClaims.sub (fallback)
+    expect(/userClaims\.id/.test(code)).toBe(true);
+    expect(/jwtClaims\.sub/.test(code)).toBe(true);
+    // the exact bug this fix closes: userClaims has NO `sub` — never read it
+    expect(/userClaims\??\.sub/.test(code)).toBe(false);
+    // explicit authenticated-role gate
+    expect(code.includes("=== 'authenticated'") || code.includes("!== 'authenticated'")).toBe(true);
     for (const bad of ['body.user', 'payload.user', 'options.user', 'body.userId', 'decision.request.payload.user']) {
       expect(code.includes(bad), bad).toBe(false);
     }
@@ -1582,5 +1589,112 @@ describe('budget · regression guards (do-not-touch files stay clean)', () => {
       expect(c.includes('AIza'), rel).toBe(false);
       expect(/eyJ[A-Za-z0-9_-]{20,}/.test(c), `${rel} jwt-literal`).toBe(false);
     }
+  });
+});
+
+describe('budget · authenticated user identity (getAuthenticatedUserId, real source)', () => {
+  // index.ts imports `npm:@supabase/server` and cannot be imported by Vitest,
+  // so we extract the PURE helper's source and run the ACTUAL shipped code
+  // (stripping only its two TS type annotations).
+  const src = read('../../../supabase/functions/ai-gateway/index.ts');
+  const fnMatch = src.match(/function getAuthenticatedUserId[\s\S]*?\n\}/);
+  const jsFn = (fnMatch ? fnMatch[0] : '')
+    .replace(/:\s*any\b/g, '')
+    .replace(/\)\s*:\s*string\s*\|\s*null/g, ')');
+  // eslint-disable-next-line no-new-func
+  const getAuthenticatedUserId = fnMatch
+    ? new Function(`${jsFn}\nreturn getAuthenticatedUserId;`)()
+    : () => { throw new Error('getAuthenticatedUserId not found in index.ts'); };
+  const UUID = '123e4567-e89b-12d3-a456-426614174000';
+  const UUID2 = '00000000-0000-4000-8000-000000000000';
+
+  it('the helper was extracted as a callable function', () => {
+    expect(fnMatch).not.toBe(null);
+    expect(typeof getAuthenticatedUserId).toBe('function');
+  });
+
+  it('accepts a real logged-in user via userClaims.id (the case the bug rejected)', () => {
+    // real @supabase/server user context: userClaims has id+role (NO sub); jwtClaims has sub
+    const ctx = { authMode: 'user', userClaims: { id: UUID, role: 'authenticated', email: 'x@y.z' }, jwtClaims: { sub: UUID, role: 'authenticated' } };
+    expect(getAuthenticatedUserId(ctx)).toBe(UUID);
+  });
+
+  it('userClaims.id is PRIMARY (wins over jwtClaims.sub)', () => {
+    const ctx = { authMode: 'user', userClaims: { id: UUID, role: 'authenticated' }, jwtClaims: { sub: UUID2, role: 'authenticated' } };
+    expect(getAuthenticatedUserId(ctx)).toBe(UUID);
+  });
+
+  it('jwtClaims.sub is the FALLBACK when userClaims is absent', () => {
+    const ctx = { authMode: 'user', jwtClaims: { sub: UUID, role: 'authenticated' } };
+    expect(getAuthenticatedUserId(ctx)).toBe(UUID);
+  });
+
+  it('never reads userClaims.sub: userClaims with only { sub } is NOT accepted', () => {
+    const ctx = { authMode: 'user', userClaims: { sub: UUID, role: 'authenticated' } };
+    expect(getAuthenticatedUserId(ctx)).toBe(null);
+  });
+
+  it('role must be exactly "authenticated" (missing / anon / service_role fail closed)', () => {
+    expect(getAuthenticatedUserId({ authMode: 'user', userClaims: { id: UUID, role: 'anon' } })).toBe(null);
+    expect(getAuthenticatedUserId({ authMode: 'user', jwtClaims: { sub: UUID, role: 'anon' } })).toBe(null);
+    expect(getAuthenticatedUserId({ authMode: 'user', userClaims: { id: UUID } })).toBe(null);
+    expect(getAuthenticatedUserId({ authMode: 'user', userClaims: { id: UUID, role: 'service_role' } })).toBe(null);
+  });
+
+  it('authMode must be exactly "user"', () => {
+    for (const m of ['publishable', 'secret', 'none', undefined, 'anon']) {
+      expect(getAuthenticatedUserId({ authMode: m, userClaims: { id: UUID, role: 'authenticated' } }), String(m)).toBe(null);
+    }
+  });
+
+  it('missing id/sub fails closed', () => {
+    expect(getAuthenticatedUserId({ authMode: 'user', userClaims: { role: 'authenticated' } })).toBe(null);
+    expect(getAuthenticatedUserId({ authMode: 'user', jwtClaims: { role: 'authenticated' } })).toBe(null);
+  });
+
+  it('malformed / non-UUID id fails closed (userClaims.id and jwtClaims.sub)', () => {
+    for (const bad of ['not-a-uuid', '123', '', UUID.slice(0, -1), `${UUID}x`, 42, {}]) {
+      expect(getAuthenticatedUserId({ authMode: 'user', userClaims: { id: bad, role: 'authenticated' } }), JSON.stringify(bad)).toBe(null);
+      expect(getAuthenticatedUserId({ authMode: 'user', jwtClaims: { sub: bad, role: 'authenticated' } }), JSON.stringify(bad)).toBe(null);
+    }
+  });
+
+  it('valid jwtClaims-only fallback { sub, role:authenticated } is accepted', () => {
+    expect(getAuthenticatedUserId({ authMode: 'user', jwtClaims: { sub: UUID2, role: 'authenticated' } })).toBe(UUID2);
+  });
+
+  it('never throws on hostile / non-object input', () => {
+    for (const h of HOSTILE_INPUTS) {
+      expect(() => getAuthenticatedUserId(h)).not.toThrow();
+      expect(getAuthenticatedUserId(h)).toBe(null);
+    }
+  });
+});
+
+describe('budget · verified identity flows to guard + usage, body ignored, no leaks', () => {
+  const code = read('../../../supabase/functions/ai-gateway/index.ts');
+
+  it('the verified userId is passed to reserveAiBudget and recordUsage (401 uses null)', () => {
+    expect(/reserveAiBudget\(\{[\s\S]*?userId,/.test(code)).toBe(true);
+    expect(code.includes('userId,')).toBe(true);
+    expect(code.includes('userId: null')).toBe(true); // unauthenticated log
+  });
+
+  it('OPTIONS remains handled before the auth call; unauthenticated remains 401', () => {
+    const optIdx = code.indexOf("req.method === 'OPTIONS'");
+    const authCallIdx = code.indexOf('createSupabaseContext(req');
+    expect(optIdx).toBeGreaterThan(-1);
+    expect(optIdx).toBeLessThan(authCallIdx);
+    expect(/buildUnauthenticatedResponse\(\)\s*,\s*401/.test(code)).toBe(true);
+  });
+
+  it('no auth token / claims / email is logged or returned', () => {
+    for (const line of code.split('\n').filter((l) => /console\./.test(l))) {
+      for (const bad of ['claim', 'token', 'authorization', 'email', 'userId', 'sub']) {
+        expect(line.toLowerCase().includes(bad.toLowerCase()), `console leaks ${bad}`).toBe(false);
+      }
+    }
+    expect(code.includes('.email')).toBe(false);
+    expect(code.includes('userClaims.email')).toBe(false);
   });
 });

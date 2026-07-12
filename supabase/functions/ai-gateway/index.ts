@@ -66,6 +66,36 @@ function json(body: unknown, status = 200, extraHeaders?: Record<string, string>
   });
 }
 
+// Derive the VERIFIED authenticated user id from a @supabase/server user
+// context. Server-only; never trusts the request body/payload/options and
+// never decodes a JWT manually — it reads only the already-verified context.
+//
+// @supabase/server shapes (v1.x): ctx.userClaims is the NORMALIZED user object
+// ({ id, role, email, appMetadata, userMetadata }) — it uses `id`, NOT `sub`.
+// ctx.jwtClaims is the RAW JWT payload ({ sub, role, ... }). So:
+//   role = userClaims.role  || jwtClaims.role   (must be "authenticated")
+//   id   = userClaims.id     || jwtClaims.sub     (must be a valid UUID)
+// authMode must be exactly "user". Any failure → null → 401 (no budget RPC,
+// no Gemini call).
+// deno-lint-ignore no-explicit-any
+function getAuthenticatedUserId(ctx: any): string | null {
+  if (!ctx || typeof ctx !== 'object' || ctx.authMode !== 'user') return null;
+  const userClaims = (ctx.userClaims && typeof ctx.userClaims === 'object') ? ctx.userClaims : null;
+  const jwtClaims = (ctx.jwtClaims && typeof ctx.jwtClaims === 'object') ? ctx.jwtClaims : null;
+  // role: prefer the normalized userClaims.role, fall back to the raw jwtClaims.role
+  const role = (userClaims && typeof userClaims.role === 'string' && userClaims.role)
+    || (jwtClaims && typeof jwtClaims.role === 'string' && jwtClaims.role)
+    || null;
+  if (role !== 'authenticated') return null;
+  // id: prefer the normalized userClaims.id, fall back to the raw jwtClaims.sub
+  // (NOTE: the normalized user object exposes `id`, never a `sub` field).
+  const id = (userClaims && typeof userClaims.id === 'string' && userClaims.id)
+    || (jwtClaims && typeof jwtClaims.sub === 'string' && jwtClaims.sub)
+    || null;
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return (typeof id === 'string' && uuidRe.test(id)) ? id : null;
+}
+
 // deno-lint-ignore no-explicit-any
 const serve = (globalThis as any).Deno?.serve;
 
@@ -109,8 +139,9 @@ serve?.(async (req: Request): Promise<Response> => {
   } catch {
     ctx = null;
   }
-  const claims = ctx && ctx.authMode === 'user' ? (ctx.userClaims || ctx.jwtClaims || null) : null;
-  const userId = (claims && typeof claims.sub === 'string' && claims.sub) ? claims.sub : null;
+  // Verified identity: authMode === 'user', role === 'authenticated', and a
+  // valid UUID from userClaims.id (or the raw jwtClaims.sub fallback).
+  const userId = getAuthenticatedUserId(ctx);
 
   if (!userId) {
     // Content-free unauthenticated log: user_id NULL, action_type 'unknown'.
