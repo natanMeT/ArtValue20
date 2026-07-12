@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { AI_ACTION_TYPES, AI_PROVIDERS } from '../aiGateway.js';
+import { AI_ACTION_TYPES, AI_PROVIDERS, selectProvider, buildAiRequest } from '../aiGateway.js';
 import {
   AI_GATEWAY_EXECUTION_STATUS,
   AI_GATEWAY_ERROR_CODES,
@@ -125,15 +125,19 @@ describe('provider/model hints are never trusted execution authority', () => {
     });
     expect(res.routing.selectedProvider).toBe('gemini');
     expect(res.routing.providerChain).not.toContain('runway');
+    expect(res.request.options).toEqual({});
   });
 
-  it('a valid whitelisted preferredProvider reorders within the validated chain only', () => {
+  it('a VALID caller preferredProvider still cannot reorder routing (routing is server-owned)', () => {
+    // Regression guard for the pre-merge authority fix: an untrusted request
+    // may NOT move a supported provider (e.g. ollama) ahead of the default.
     const res = buildAiGatewayResponse({
       actionType: 'text.copy',
       options: { preferredProvider: 'ollama' },
     });
-    expect(res.routing.selectedProvider).toBe('ollama');
-    for (const p of res.routing.providerChain) expect(AI_PROVIDERS.includes(p)).toBe(true);
+    expect(res.routing.selectedProvider).toBe('gemini'); // default, NOT ollama
+    expect(res.routing.providerChain).toEqual(['gemini', 'openai', 'openrouter', 'ollama']);
+    expect(res.request.options).toEqual({});
   });
 
   it('ignores unknown option keys and non-whitelisted hints', () => {
@@ -141,10 +145,57 @@ describe('provider/model hints are never trusted execution authority', () => {
       actionType: 'image.poster',
       options: { availableProviders: ['pollinations'], evil: true, apiKey: 'k' },
     });
-    // availableProviders is NOT client-trusted in the stub → full default chain
+    // availableProviders is NOT client-trusted → full default chain
     expect(res.routing.providerChain).toEqual(['openai', 'gemini', 'replicate', 'pollinations', 'comfyui']);
-    expect(res.request.options.availableProviders).toBeUndefined();
-    expect(res.request.options.apiKey).toBeUndefined();
+    expect(res.request.options).toEqual({});
+  });
+});
+
+describe('routing authority · untrusted request cannot alter the provider route', () => {
+  const DEFAULT_TEXT_COPY_CHAIN = ['gemini', 'openai', 'openrouter', 'ollama'];
+  // Each hostile options object individually, then all combined.
+  const ROUTING_OPTION_CASES = [
+    { preferredProvider: 'ollama' },
+    { localFirst: true },
+    { apiFirst: true },
+    { excludeProviders: ['gemini'] },
+    { availableProviders: ['ollama'] },
+    { preferredProvider: 'ollama', localFirst: true, apiFirst: true, excludeProviders: ['gemini'], availableProviders: ['ollama'] },
+  ];
+
+  it('every caller routing option leaves text.copy on the default server-owned route with empty options', () => {
+    for (const options of ROUTING_OPTION_CASES) {
+      const res = buildAiGatewayResponse({ actionType: 'text.copy', payload: { prompt: 'hello' }, options });
+      const label = JSON.stringify(options);
+      expect(res.routing.selectedProvider, label).toBe('gemini');
+      expect(res.routing.providerChain, label).toEqual(DEFAULT_TEXT_COPY_CHAIN);
+      // no caller option is echoed back
+      expect(res.request.options, label).toEqual({});
+    }
+  });
+
+  it('normalizeGatewayDecision drops routing options at the boundary (decision.request.options === {})', () => {
+    for (const options of ROUTING_OPTION_CASES) {
+      const d = buildAiGatewayDecision({ actionType: 'text.copy', payload: { prompt: 'p' }, options });
+      expect(d.request.options).toEqual({});
+      expect(d.routing.selectedProvider).toBe('gemini');
+      expect(d.routing.providerChain).toEqual(DEFAULT_TEXT_COPY_CHAIN);
+    }
+  });
+
+  it('excludeProviders cannot remove the server-owned default provider', () => {
+    const res = buildAiGatewayResponse({ actionType: 'text.copy', options: { excludeProviders: ['gemini'] } });
+    expect(res.routing.providerChain).toContain('gemini');
+    expect(res.routing.selectedProvider).toBe('gemini');
+  });
+
+  it('the pure ROUTER still honors TRUSTED options (only the untrusted boundary refuses them)', () => {
+    // selectProvider/buildAiRequest are the internal trusted-orchestration APIs;
+    // this fix must NOT weaken them. A trusted preferredProvider still reorders.
+    expect(selectProvider('text.copy', { preferredProvider: 'ollama' })[0]).toBe('ollama');
+    expect(selectProvider('text.copy', { excludeProviders: ['gemini'] })).not.toContain('gemini');
+    const req = buildAiRequest('text.copy', { prompt: 'p' }, { preferredProvider: 'ollama' });
+    expect(req.selectedProvider).toBe('ollama');
   });
 });
 

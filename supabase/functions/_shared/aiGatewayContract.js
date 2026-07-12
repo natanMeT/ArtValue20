@@ -123,18 +123,19 @@ export function normalizeGatewayPayload(payload) {
   return clean;
 }
 
-// ---- whitelist safe routing hints only (never raw provider authority) ----
-// preferredProvider is passed as a raw string; the router re-validates it
-// via normalizeProvider + support/availability filters, so an unsupported
-// or unknown hint can never inject a provider into the chain.
-function normalizeGatewayOptions(options) {
-  if (!isPlainObject(options)) return {};
-  const clean = {};
-  if (typeof options.preferredProvider === 'string') clean.preferredProvider = options.preferredProvider;
-  if (options.localFirst === true) clean.localFirst = true;
-  if (options.apiFirst === true) clean.apiFirst = true;
-  if (Array.isArray(options.excludeProviders)) clean.excludeProviders = [...options.excludeProviders];
-  return clean;
+// ---- discard ALL caller-supplied routing options (server-owned routing) ----
+// Provider routing is server-owned: callers name action types, never
+// providers. An untrusted request may NOT carry routing authority, so every
+// routing option — preferredProvider, localFirst, apiFirst, excludeProviders,
+// availableProviders, and any unknown key — is dropped here at the untrusted
+// boundary. The result is always {}, so buildAiRequest/selectProvider fall
+// back to the default server-owned chain and decision.request.options is empty.
+//
+// NOTE: the router itself (selectProvider / buildAiRequest in aiGateway.js)
+// still ACCEPTS trusted options — that is intentional, for future trusted
+// server-side orchestration. Only THIS untrusted boundary refuses them.
+function normalizeGatewayOptions(_options) {
+  return {};
 }
 
 // ---- core: untrusted request → deterministic routing decision ----
