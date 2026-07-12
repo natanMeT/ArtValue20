@@ -547,12 +547,22 @@ describe('guardrail · edge function shell', () => {
     expect(code.includes('OPTIONS')).toBe(true);
     expect(code.includes('Access-Control-Allow-Origin')).toBe(true);
     expect(code.includes('405')).toBe(true);
-    // the key, fetch, and env live ONLY in geminiProvider.ts (executable lines)
+    // CORS allow-headers must cover exactly what the browser Supabase client
+    // sends, or functions.invoke fails preflight (surfaces as network_error).
+    const allowMatch = code.match(/Access-Control-Allow-Headers'\s*:\s*'([^']+)'/);
+    expect(allowMatch, 'Access-Control-Allow-Headers present').not.toBe(null);
+    const allowHeaders = (allowMatch[1] || '').toLowerCase();
+    for (const h of ['authorization', 'x-client-info', 'apikey', 'content-type']) {
+      expect(allowHeaders.includes(h), h).toBe(true);
+    }
+    // the provider KEY, fetch, and env live ONLY in geminiProvider.ts.
+    // NOTE: 'apikey' is intentionally NOT banned here — it is the browser
+    // Supabase apikey HEADER NAME allowed via CORS, not a provider secret.
     const lower = code
       .replace(/\/\*[^]*?\*\//g, '')
       .split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n')
       .toLowerCase();
-    for (const banned of ['vite_', 'gemini_api_key', 'x-goog-api-key', '.googleapis.com', 'generativelanguage', 'api_key', 'apikey', 'deno.env', 'fetch(', 'import.meta']) {
+    for (const banned of ['vite_', 'gemini_api_key', 'x-goog-api-key', '.googleapis.com', 'generativelanguage', 'api_key', 'deno.env', 'fetch(', 'import.meta']) {
       expect(lower.includes(banned.toLowerCase()), banned).toBe(false);
     }
   });
