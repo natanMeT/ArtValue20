@@ -198,13 +198,16 @@ describe('unwired proof', () => {
       }
     };
     for (const r of roots) walk(r);
-    // exactly one importer — the DEV-gated smoke component; nothing else
-    expect(importers).toEqual(['../../components/dev/AiGatewaySmoke.jsx']);
+    // Exactly two production importers: the DEV-gated smoke component and the
+    // ImageStudio prompt-enhancement seam. Nothing else may import the client.
+    expect([...importers].sort()).toEqual([
+      '../../components/dev/AiGatewaySmoke.jsx',
+      '../../pages/ImageStudio.jsx',
+    ].sort());
   });
 
-  it('client is not referenced by Assistant, ImageStudio, or Jake', () => {
+  it('client is not referenced by Assistant or Jake (still unwired there)', () => {
     expect(read('../../components/ai/Assistant.jsx').includes('aiGatewayClient')).toBe(false);
-    expect(read('../../pages/ImageStudio.jsx').includes('aiGatewayClient')).toBe(false);
     expect(read('../jakePack.js').includes('aiGatewayClient')).toBe(false);
     expect(read('../jakeAgent.js').includes('aiGatewayClient')).toBe(false);
   });

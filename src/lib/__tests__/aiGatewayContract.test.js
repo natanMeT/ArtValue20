@@ -739,7 +739,6 @@ describe('guardrail · frozen files carry no gateway wiring', () => {
       '../../components/ai/Assistant.jsx',
       '../gemini.js',
       '../geminiImage.js',
-      '../../pages/ImageStudio.jsx',
       '../jakePack.js',
       '../jakeAgent.js',
     ];
@@ -1102,8 +1101,8 @@ describe('guardrail · DEV smoke + product wiring untouched by this slice', () =
     expect(code.includes('crm.suggest_next_action')).toBe(false);
   });
 
-  it('no Jake/Studio/ImageStudio/Assistant file references the gateway or profiles', () => {
-    for (const rel of ['../../components/ai/Assistant.jsx', '../../pages/ImageStudio.jsx', '../jakePack.js', '../jakeAgent.js', '../gemini.js']) {
+  it('no Jake/Assistant/legacy-Gemini file references the gateway or profiles', () => {
+    for (const rel of ['../../components/ai/Assistant.jsx', '../jakePack.js', '../jakeAgent.js', '../gemini.js']) {
       const code = read(rel);
       expect(code.includes('aiGateway'), rel).toBe(false);
       expect(code.includes('actionProfiles'), rel).toBe(false);

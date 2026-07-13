@@ -5,7 +5,10 @@ import { useStore } from '../store/store.jsx';
 import { SectionHeader } from '../components/ui/atoms.jsx';
 import Icon from '../components/ui/Icon.jsx';
 import MaskCanvas from '../components/ui/MaskCanvas.jsx';
-import { enhanceImagePrompt } from '../lib/gemini.js';
+// Prompt ENHANCEMENT (text) now routes through the protected server-owned AI
+// Gateway — no browser Gemini key, no direct Google call. Image generation is
+// unchanged and stays on geminiImage.js (local ComfyUI / cloud fallback) below.
+import { callAiGateway } from '../lib/aiGatewayClient.js';
 import {
   generateImage, generateImg2Img, editImage, inpaintImage, animateImage, ltxVideo, flfVideo, montageFromImages, downloadImage,
   isImageAiConfigured, hasFluxModel, hasLocalComfy, hasVideoModel, hasLtxVideo, hasKontextModel,
@@ -20,6 +23,56 @@ import MockupStudio from '../components/studio/MockupStudio.jsx';
 import CreativeWorkflowMap from '../components/studio/CreativeWorkflowMap.jsx';
 import ProductPlacer from '../components/studio/ProductPlacer.jsx';
 import { readStudioHandoff } from '../lib/studioHandoff.js';
+
+// ---- prompt enhancement (routed through the protected AI Gateway) ----
+// The enhancement INSTRUCTION (per mode: generate / edit / inpaint) is assembled
+// locally and sent as ordinary user input via callAiGateway('studio.prompt_enhance',
+// { prompt }). No API key is read and no Google endpoint is called from this path;
+// the server owns provider/model/system/generation config and the budget guard.
+// Instruction text is preserved verbatim from the previous behavior.
+const ENHANCE_INSTRUCTIONS = Object.freeze({
+  generate: `You expand a short image description into a fuller prompt for an AI image generator.
+
+STAY 100% FAITHFUL — most important rule:
+- Keep EVERY element the user wrote: same subject, same colors, same background, same composition, same style.
+- Do NOT add objects, people, rooms, settings, moods or details the user did not mention.
+- Do NOT change anything. If they wrote "white background" keep a plain white background (do NOT turn it into a room). If they wrote "gold" keep it gold (never black-and-white). Never alter a stated color, count, or object.
+- You may ONLY add neutral technical detail that does not change the content: lighting quality, sharpness, and — for photos only — a camera/lens and realistic texture.
+
+ADAPT TO THE SUBJECT TYPE:
+- Photo of people / products / places: add natural lighting, a real camera + lens, photorealistic skin/material texture, subtle film grain.
+- Logo / icon / illustration / 3D render / graphic / text design: do NOT add camera, film, photo, skin, pores or grain words — keep it a clean crisp design in the style the user asked.
+
+OUTPUT: one comma-separated prompt, ENGLISH ONLY (translate any Hebrew to English). Return ONLY the prompt text — no quotes, no notes, no Hebrew.`,
+  edit: 'The user wants to edit an existing photo. Output ONE clear English editing instruction that changes ONLY what they asked and nothing else, ending with ", keep the person, colors and composition unchanged". Do not invent new elements. English only, return only the text.',
+  inpaint: 'The user marked a region of a photo to replace. Output a CONCISE English description of ONLY what fills that region (object / background / garment) — exactly what the user asked, nothing added. One short comma-separated line. English only, return only the text.',
+});
+
+function studioEnhanceInstruction(kind) {
+  return ENHANCE_INSTRUCTIONS[kind] || ENHANCE_INSTRUCTIONS.generate;
+}
+
+// Assemble one plain-text prompt: server-safe (no provider/model/system fields).
+function buildStudioEnhancePrompt(idea, kind) {
+  return `${studioEnhanceInstruction(kind)}\n\nUSER REQUEST:\n${String(idea || '').trim()}`;
+}
+
+// Extract the enhanced prompt from a callAiGateway result, or '' on ANY failure
+// (never throws; callAiGateway returns a normalized { ok, result, error } object).
+function studioEnhanceText(res) {
+  if (!res || res.ok !== true || !res.result || typeof res.result.text !== 'string') return '';
+  return res.result.text.trim().replace(/^["']|["']$/g, '');
+}
+
+// Safe, generic Hebrew message per failure — never exposes server/provider detail.
+function studioEnhanceError(res) {
+  const code = res && res.error && res.error.code;
+  if (code === 'unauthenticated') return 'צריך להתחבר כדי לשדרג פרומפט';
+  if (code === 'rate_limited' || code === 'budget_exceeded' || code === 'budget_guard_unavailable') {
+    return 'שירות השדרוג עמוס כרגע — נסה שוב עוד רגע';
+  }
+  return 'שגיאה בשדרוג הפרומפט';
+}
 
 // Display labels for the business preset recipe card (presentational only).
 const PRESET_PROVIDER_LABEL = {
@@ -672,10 +725,18 @@ export default function ImageStudio() {
     setEnhancing(true); setError('');
     try {
       const kind = mode === 'inpaint' ? 'inpaint' : mode === 'img2img' ? 'edit' : 'generate';
-      const better = await enhanceImagePrompt(prompt, kind);
-      setPrompt(better);
-    } catch (e) {
-      setError(e.message || 'שגיאה בשדרוג הפרומפט');
+      // Sole remote transport for this operation: the protected AI Gateway.
+      // No provider/model/key here; no fallback to the legacy browser Gemini path.
+      const res = await callAiGateway('studio.prompt_enhance', { prompt: buildStudioEnhancePrompt(prompt, kind) });
+      const better = studioEnhanceText(res);
+      if (better) {
+        setPrompt(better);           // replaces the same prompt field as before
+      } else {
+        setError(studioEnhanceError(res)); // preserve the user's prompt; safe message
+      }
+    } catch {
+      // callAiGateway is designed not to throw; this only guards unexpected errors.
+      setError('שגיאה בשדרוג הפרומפט');
     } finally {
       setEnhancing(false);
     }
