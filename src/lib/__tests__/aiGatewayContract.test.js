@@ -350,6 +350,28 @@ describe('input contract · strict per-action validation (C1)', () => {
     expect(code.includes('buildInvalidPayloadResponse')).toBe(true);
     expect(code.includes('AI_GATEWAY_ERROR_CODES.INVALID_PAYLOAD')).toBe(true);
   });
+
+  it('validates the RAW caller body.payload, NEVER the sanitized decision.request.payload', () => {
+    const code = read('../../../supabase/functions/ai-gateway/index.ts');
+    // strict validation runs on the original request body payload ...
+    expect(code.includes('validateAiGatewayInput(decision.actionType, rawPayload)')).toBe(true);
+    expect(code.includes('const rawPayload')).toBe(true);
+    expect(/rawPayload\s*=[\s\S]{0,200}\bbody\b/.test(code)).toBe(true);
+    // ... and NOT on the already-authority-stripped decision payload (the gap this
+    // correction closes: unknown/authority caller fields must be rejected, not
+    // silently removed before the contract sees them).
+    expect(code.includes('validateAiGatewayInput(decision.actionType, decision.request.payload)')).toBe(false);
+  });
+
+  it('rejects invalid input BEFORE budget reservation AND before the provider call', () => {
+    const code = read('../../../supabase/functions/ai-gateway/index.ts');
+    const rejectIdx = code.indexOf('buildInvalidPayloadResponse');
+    const guardIdx = code.indexOf('reserveAiBudget({');
+    const providerIdx = code.indexOf('runGeminiText(decision');
+    expect(rejectIdx).toBeGreaterThan(-1);
+    expect(rejectIdx).toBeLessThan(guardIdx);    // no budget reservation on invalid input
+    expect(rejectIdx).toBeLessThan(providerIdx); // no provider call on invalid input
+  });
 });
 
 describe('gemini text · policy vocab', () => {

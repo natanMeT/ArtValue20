@@ -90,11 +90,13 @@ function scanStructure(value, depth, seen) {
   if (!isPlainObject(value)) return 'non_plain_value'; // Date/Map/Set/class instance
   if (Object.getOwnPropertySymbols(value).length > 0) return 'symbol_key';
   if (hasDangerousOwnKey(value)) return 'dangerous_key';
-  const keys = Object.keys(value);
-  if (keys.length > AI_GATEWAY_INPUT_LIMITS.MAX_OBJECT_KEYS) return 'too_many_keys';
-  for (const k of keys) {
+  // ALL own string keys — enumerable AND non-enumerable — so a hidden field,
+  // dangerous key, or accessor can never slip past by being non-enumerable.
+  const names = Object.getOwnPropertyNames(value);
+  if (names.length > AI_GATEWAY_INPUT_LIMITS.MAX_OBJECT_KEYS) return 'too_many_keys';
+  for (const k of names) {
     const d = Object.getOwnPropertyDescriptor(value, k);
-    if (!d || !('value' in d)) return 'accessor_property';
+    if (!d || !('value' in d)) return 'accessor_property'; // getter/setter — never invoked
     const r = scanStructure(d.value, depth + 1, seen);
     if (r) return r;
   }
@@ -161,8 +163,10 @@ export function validateAiGatewayInput(actionType, payload) {
   const structReason = scanStructure(payload, 0, new WeakSet());
   if (structReason) return fail(structReason);
 
-  // Unknown-field policy: ONLY the profile's allowed keys may appear.
-  for (const k of Object.keys(payload)) {
+  // Unknown-field policy over ALL own string keys (enumerable AND non-enumerable):
+  // ONLY the profile's allowed keys may appear — a non-enumerable extra field is
+  // rejected, never silently accepted.
+  for (const k of Object.getOwnPropertyNames(payload)) {
     if (!profile.allowedKeys.includes(k)) return fail('unknown_field');
   }
 

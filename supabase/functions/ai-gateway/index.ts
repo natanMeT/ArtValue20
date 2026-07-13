@@ -194,10 +194,16 @@ serve?.(async (req: Request): Promise<Response> => {
     }
 
     // ---- Strict per-action input validation (BEFORE budget + provider) ----
-    // Reject unknown / oversized / hostile payloads deterministically before any
-    // reservation or provider call, then thread the validated, normalized
-    // { prompt } forward. inputChars is a content-free count for usage logging.
-    const input = validateAiGatewayInput(decision.actionType, decision.request.payload);
+    // Validate the ORIGINAL raw caller payload for this normalized action — NOT
+    // decision.request.payload, which the decision sanitizer has already stripped
+    // of authority/unknown keys. The C1 contract requires EXACTLY { prompt }, so
+    // authority + unknown caller fields must be REJECTED here, never silently
+    // removed. On success, thread the normalized { prompt } forward; inputChars is
+    // a content-free count for usage logging.
+    const rawPayload = (body !== null && typeof body === 'object' && !Array.isArray(body))
+      ? (body as { payload?: unknown }).payload
+      : undefined;
+    const input = validateAiGatewayInput(decision.actionType, rawPayload);
     if (!input.ok) {
       await recordUsage({ decision, promptChars: null, userId, status: 'invalid_payload', httpStatus: 400, provider: 'gemini', errorCode: AI_GATEWAY_ERROR_CODES.INVALID_PAYLOAD });
       return json(buildInvalidPayloadResponse(decision, { code: AI_GATEWAY_ERROR_CODES.INVALID_PAYLOAD, message: 'Invalid payload.' }), 400);

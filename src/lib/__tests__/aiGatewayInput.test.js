@@ -106,7 +106,10 @@ describe('input contract · rejects invalid payloads', () => {
   });
 
   it('rejects unknown fields incl. provider/model/apiKey/system/options/temperature/maxTokens', () => {
-    for (const extra of ['provider', 'model', 'apiKey', 'system', 'options', 'temperature', 'maxTokens', 'brief', 'foo']) {
+    // These are exactly the authority/unknown fields the Edge feeds RAW (see the
+    // index.ts source guards in aiGatewayContract.test.js): each must be REJECTED,
+    // never silently stripped.
+    for (const extra of ['provider', 'model', 'apiKey', 'system', 'options', 'temperature', 'maxTokens', 'arbitraryUnknown', 'brief', 'foo']) {
       const r = validateAiGatewayInput('text.copy', { prompt: 'x', [extra]: 'y' });
       expect(isReject(r), extra).toBe(true);
       expect(r.error.reason, extra).toBe('unknown_field');
@@ -151,6 +154,61 @@ describe('input contract · rejects invalid payloads', () => {
     const r = validateAiGatewayInput('text.copy', p);
     expect(isReject(r)).toBe(true);
     expect(invoked).toBe(false);
+  });
+});
+
+describe('input contract · all-own-key structural enforcement (non-enumerable)', () => {
+  it('rejects a NON-enumerable unknown own field (not silently accepted)', () => {
+    const o = { prompt: 'hello' };
+    Object.defineProperty(o, 'provider', { value: 'evil', enumerable: false, configurable: true });
+    // the visible (enumerable) shape looks like a clean { prompt } ...
+    expect(Object.keys(o)).toEqual(['prompt']);
+    // ... but the contract still rejects the hidden field.
+    expect(isReject(validateAiGatewayInput('text.copy', o))).toBe(true);
+  });
+
+  it('rejects a NON-enumerable dangerous own key (constructor)', () => {
+    const o = { prompt: 'x' };
+    Object.defineProperty(o, 'constructor', { value: 1, enumerable: false, configurable: true });
+    expect(validateAiGatewayInput('text.copy', o).error.reason).toBe('dangerous_key');
+  });
+
+  it('rejects a NON-enumerable getter WITHOUT invoking it', () => {
+    let invoked = false;
+    const o = { prompt: 'x' };
+    Object.defineProperty(o, 'sneaky', {
+      enumerable: false, configurable: true, get() { invoked = true; return 1; },
+    });
+    expect(isReject(validateAiGatewayInput('text.copy', o))).toBe(true);
+    expect(invoked).toBe(false);
+  });
+
+  it('rejects a NON-enumerable getter on prompt itself WITHOUT invoking it', () => {
+    let invoked = false;
+    const o = {};
+    Object.defineProperty(o, 'prompt', {
+      enumerable: false, configurable: true, get() { invoked = true; throw new Error('x'); },
+    });
+    expect(isReject(validateAiGatewayInput('text.copy', o))).toBe(true);
+    expect(invoked).toBe(false);
+  });
+
+  it('applies the key-count limit across ALL own string keys (enumerable + non-enumerable)', () => {
+    const o = { prompt: 'x' };
+    for (let i = 0; i < 20; i += 1) o[`e${i}`] = i; // enumerable
+    for (let i = 0; i < 20; i += 1) Object.defineProperty(o, `n${i}`, { value: i, enumerable: false });
+    const r = validateAiGatewayInput('text.copy', o);
+    expect(isReject(r)).toBe(true);
+    expect(r.error.reason).toBe('too_many_keys');
+  });
+
+  it('does NOT treat a standard array `length` as a user field (arrays stay descriptor-safe)', () => {
+    // A nested array under an unknown key is traversed descriptor-safely (length is
+    // never counted as a field); the unknown key is what gets rejected.
+    const r = validateAiGatewayInput('text.copy', { extra: [1, 2, 3] });
+    expect(isReject(r)).toBe(true);
+    // a valid { prompt } alongside nothing else still passes (no phantom length key)
+    expect(validateAiGatewayInput('text.copy', { prompt: 'ok' }).ok).toBe(true);
   });
 });
 
