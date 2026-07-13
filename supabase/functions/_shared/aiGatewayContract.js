@@ -25,6 +25,21 @@ import {
   COST_TIER_BY_ACTION,
 } from './aiGateway.js';
 
+// Strict per-action input contract (Gateway V2 · C1). A pure sibling module: the
+// Edge shell validates + normalizes the untrusted payload through this BEFORE
+// budget reservation and provider execution. Re-exported here so the contract
+// stays the single import surface the function shell delegates to. This module
+// only re-exports the input API; it adds no impure dependency (the input module
+// imports only the pure router).
+export {
+  validateAiGatewayInput,
+  normalizeAiGatewayInput,
+  countAiGatewayInputChars,
+  hasAiGatewayInputProfile,
+  AI_GATEWAY_INPUT_LIMITS,
+  AI_GATEWAY_INPUT_PROFILE_KEYS,
+} from './aiGatewayInput.js';
+
 // ---- frozen vocabularies ----
 export const AI_GATEWAY_EXECUTION_STATUS = Object.freeze({
   NOT_IMPLEMENTED: 'not_implemented',

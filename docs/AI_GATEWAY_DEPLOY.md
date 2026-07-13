@@ -402,3 +402,32 @@ select count(*) as counter_policies from pg_policies where schemaname = 'public'
 - Git rollback tag: `pre-ai-gateway-budget-guard`.
 - **Code rollback alone restores the old UNGUARDED behavior and is NOT a safe production rollback while `GEMINI_API_KEY` is active.** If the new function must be rolled back before a corrected guarded build is ready, **disable provider execution / remove the `GEMINI_API_KEY` server secret** rather than returning to anonymous unguarded spend. (Do not implement automatic secret removal, and never print/expose the key during rollback.)
 - The new SQL objects (`ai_budget_counters`, `reserve_ai_budget`) may safely remain unused after a code rollback.
+
+
+## 14. Strict per-action input contract (feat/ai-gateway-input-contract)
+
+This slice adds a **pure, provider-independent input-validation layer** that runs **before** budget reservation and any provider call. **A redeploy is required after merge. No new secret, no SQL, and no frontend change are required.**
+
+### What changed
+
+- **New pure module** `supabase/functions/_shared/aiGatewayInput.js` (+ `src/lib/aiGatewayInput.js` re-export shim), re-exported through `_shared/aiGatewayContract.js` so the function shell has a single import surface. It owns a deeply-frozen, per-`actionType` **input-profile registry** and imports only the pure router — no secrets, env, network, or provider access; it never throws and never mutates the caller payload.
+- **Input contract for the current executable actions** (`text.copy`, `text.crm_message`, `studio.prompt_enhance`, `crm.suggest_next_action`): each payload accepts **exactly** `{ prompt: string }`. The prompt is trimmed; empty-after-trim is rejected; the maximum accepted length is **20 000 characters** (`AI_GATEWAY_INPUT_LIMITS.MAX_PROMPT_CHARS`). Over-limit input **fails deterministically — it is never truncated**.
+- **Rejected (with a fixed, content-free reason):** unknown fields, arrays, `Date`/`Map`/`Set`/class instances or any object with a custom prototype, prototype-pollution keys (`__proto__` / `prototype` / `constructor`), symbol keys, accessor (getter) properties, reference cycles, and over-deep nesting. Error messages returned to the client stay the generic `invalid_payload` — no prompt content or internal reason is echoed.
+- **Edge integration** (`index.ts`): the shell validates the (already denylist-sanitized) payload through `validateAiGatewayInput(...)` **immediately after** selecting the server action profile and **before** the budget guard and the Gemini call, then threads the **normalized** `{ prompt }` to the provider. `ai_usage.prompt_chars` is now derived from the normalized accepted input (a content-free count); the `ai_usage` schema is unchanged.
+- **Backward compatible.** Caller-supplied execution fields (`system`, `temperature`, `responseSchema`, …) are still stripped by the untrusted denylist **before** validation, so a well-formed `{ prompt }` always survives and the §12 authority-hardening smoke still returns the structured contract. The DEV smoke and ImageStudio prompt enhancement (both send `{ prompt }`) are unaffected. **No new actionType, no multi-turn `messages`, no `context` object** — those arrive in a later slice. Jake / Assistant remain unwired.
+
+### Live verification (run after merge + redeploy)
+
+Redeploy first (`supabase functions deploy ai-gateway`; JWT verification stays **ON**). Then, authenticated:
+
+- **A. Backward-compatible** — `{"actionType":"text.copy","payload":{"prompt":"בדיקה"}}` → HTTP 200 `execution.status:"completed"`, `result.text` present (identical to §10 step 3).
+- **B. Missing prompt** — `{"actionType":"text.copy","payload":{}}` → HTTP 400 `error.code:"invalid_payload"`, rejected **before** any budget reservation or Gemini call.
+- **C. Unknown field** — `{"actionType":"text.copy","payload":{"prompt":"hi","foo":1}}` → HTTP 400 `invalid_payload` (unknown fields are rejected).
+- **D. Over-limit** — a `payload.prompt` longer than 20 000 characters → HTTP 400 `invalid_payload` (no truncation).
+- **E. Authority hardening (regression)** — the §12 step C body still returns the structured contract; the injected `system` / `temperature` / `responseSchema` are stripped before validation and have no effect.
+
+**Paste back:** the redeploy line, the A/B/C/D responses, and the `npm test` summary. **Never paste the API key or any secret into chat.**
+
+### Rollback
+
+- Git rollback tag: `pre-ai-gateway-input-contract`. This slice adds validation only — a code rollback restores the prior (looser) payload handling with no data or schema change. No SQL or secret change is involved.

@@ -36,10 +36,13 @@ import {
   isGeminiExecutableAction,
   buildUsageRecord,
   buildProviderErrorResponse,
+  buildInvalidPayloadResponse,
   buildUnauthenticatedResponse,
   buildRateLimitedResponse,
   buildBudgetExceededResponse,
   buildBudgetGuardUnavailableResponse,
+  validateAiGatewayInput,
+  AI_GATEWAY_ERROR_CODES,
 } from '../_shared/aiGatewayContract.js';
 import { runGeminiText } from './geminiProvider.ts';
 import { getActionProfile } from './actionProfiles.ts';
@@ -190,13 +193,25 @@ serve?.(async (req: Request): Promise<Response> => {
       return json(buildProviderErrorResponse(decision), 502);
     }
 
+    // ---- Strict per-action input validation (BEFORE budget + provider) ----
+    // Reject unknown / oversized / hostile payloads deterministically before any
+    // reservation or provider call, then thread the validated, normalized
+    // { prompt } forward. inputChars is a content-free count for usage logging.
+    const input = validateAiGatewayInput(decision.actionType, decision.request.payload);
+    if (!input.ok) {
+      await recordUsage({ decision, promptChars: null, userId, status: 'invalid_payload', httpStatus: 400, provider: 'gemini', errorCode: AI_GATEWAY_ERROR_CODES.INVALID_PAYLOAD });
+      return json(buildInvalidPayloadResponse(decision, { code: AI_GATEWAY_ERROR_CODES.INVALID_PAYLOAD, message: 'Invalid payload.' }), 400);
+    }
+    decision.request.payload = input.payload; // provider consumes ONLY the normalized payload
+    const inputChars = input.inputChars;
+
     // ---- Budget guard: reserve BEFORE Gemini (every provider action, all
     // tiers — the old tier-based budget-check flag is intentionally ignored). ----
     const policy = getBudgetPolicy();
     const estimatedCostUsd = resolveEstimatedCostUsd(decision);
     if (estimatedCostUsd === null) {
       // No usable server-owned estimate → fail closed, NO provider call.
-      await recordUsage({ decision, promptChars, userId, status: 'budget_guard_unavailable', httpStatus: 503, provider: 'gemini', errorCode: 'budget_guard_unavailable' });
+      await recordUsage({ decision, promptChars: inputChars, userId, status: 'budget_guard_unavailable', httpStatus: 503, provider: 'gemini', errorCode: 'budget_guard_unavailable' });
       return json(buildBudgetGuardUnavailableResponse(decision), 503);
     }
 
@@ -210,19 +225,19 @@ serve?.(async (req: Request): Promise<Response> => {
     });
 
     if (guard.status === 'rate_limited') {
-      await recordUsage({ decision, promptChars, userId, status: 'rate_limited', httpStatus: 429, provider: 'gemini', errorCode: 'rate_limited' });
+      await recordUsage({ decision, promptChars: inputChars, userId, status: 'rate_limited', httpStatus: 429, provider: 'gemini', errorCode: 'rate_limited' });
       const retry = (typeof guard.retryAfterSeconds === 'number' && guard.retryAfterSeconds > 0)
         ? { 'Retry-After': String(guard.retryAfterSeconds) }
         : undefined;
       return json(buildRateLimitedResponse(decision), 429, retry);
     }
     if (guard.status === 'budget_exceeded') {
-      await recordUsage({ decision, promptChars, userId, status: 'budget_exceeded', httpStatus: 429, provider: 'gemini', errorCode: 'budget_exceeded' });
+      await recordUsage({ decision, promptChars: inputChars, userId, status: 'budget_exceeded', httpStatus: 429, provider: 'gemini', errorCode: 'budget_exceeded' });
       return json(buildBudgetExceededResponse(decision), 429);
     }
     if (guard.status !== 'approved') {
       // 'unavailable' (RPC/DB error or malformed result) → fail closed, no call.
-      await recordUsage({ decision, promptChars, userId, status: 'budget_guard_unavailable', httpStatus: 503, provider: 'gemini', errorCode: 'budget_guard_unavailable' });
+      await recordUsage({ decision, promptChars: inputChars, userId, status: 'budget_guard_unavailable', httpStatus: 503, provider: 'gemini', errorCode: 'budget_guard_unavailable' });
       return json(buildBudgetGuardUnavailableResponse(decision), 503);
     }
 
@@ -230,7 +245,7 @@ serve?.(async (req: Request): Promise<Response> => {
     const { status, body: out, resultChars } = await runGeminiText(decision, profile);
     await recordUsage({
       decision,
-      promptChars,
+      promptChars: inputChars,
       userId,
       status: out?.execution?.status ?? 'provider_error',
       httpStatus: status,

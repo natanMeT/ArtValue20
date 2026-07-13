@@ -29,6 +29,7 @@ import {
   buildBudgetExceededResponse,
   buildBudgetGuardUnavailableResponse,
   buildUsageRecord,
+  validateAiGatewayInput,
 } from '../aiGatewayContract.js';
 // Server-only action-profile registry. Imported HERE (a test, not a shipped
 // frontend module) to assert registry shape/coverage. A guard test below
@@ -302,6 +303,52 @@ describe('purity · contract source (canonical _shared module)', () => {
     ]) {
       expect(codeOnly.includes(banned), banned).toBe(false);
     }
+  });
+});
+
+describe('input contract · strict per-action validation (C1)', () => {
+  it('canonical _shared/aiGatewayInput.js imports only the pure router; no impure APIs', () => {
+    const code = read('../../../supabase/functions/_shared/aiGatewayInput.js');
+    const importLines = (code.match(/import[^]*?from\s*'[^']+';/g) || []).join('\n');
+    expect(importLines).toMatch(/from '\.\/aiGateway\.js'/);
+    for (const forbidden of ['aiGatewayContract', 'gemini', 'geminiImage', 'jakePack', 'jakeAgent', 'Assistant', 'ImageStudio', 'actionProfiles', 'budget', 'src/lib']) {
+      expect(importLines.includes(forbidden), forbidden).toBe(false);
+    }
+    const codeOnly = code
+      .replace(/\/\*[^]*?\*\//g, '')
+      .split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    for (const banned of [
+      'fetch(', 'window.', 'document.', 'localStorage', 'sessionStorage',
+      'Date.now(', 'Math.random(', 'crypto.', 'process.env', 'import.meta', 'VITE_', 'Deno.env', 'Deno.',
+      'generativelanguage', 'api.openai.com', 'api.anthropic.com', 'https://', 'http://',
+    ]) {
+      expect(codeOnly.includes(banned), banned).toBe(false);
+    }
+  });
+
+  it('the contract module re-exports the input API (single import surface for the shell)', () => {
+    // Resolves only if the contract re-exports it — proven at runtime AND source.
+    expect(typeof validateAiGatewayInput).toBe('function');
+    const code = read('../../../supabase/functions/_shared/aiGatewayContract.js');
+    expect(/export\s*\{[^}]*validateAiGatewayInput[^}]*\}\s*from\s*'\.\/aiGatewayInput\.js';/.test(code)).toBe(true);
+  });
+
+  it('the shell validates input BEFORE budget reservation AND before the provider call', () => {
+    const code = read('../../../supabase/functions/ai-gateway/index.ts');
+    const validateIdx = code.indexOf('validateAiGatewayInput(');
+    const guardIdx = code.indexOf('reserveAiBudget({');
+    const providerIdx = code.indexOf('runGeminiText(decision');
+    expect(validateIdx).toBeGreaterThan(-1);
+    expect(guardIdx).toBeGreaterThan(-1);
+    expect(providerIdx).toBeGreaterThan(-1);
+    expect(validateIdx).toBeLessThan(guardIdx);    // before budget reservation
+    expect(validateIdx).toBeLessThan(providerIdx); // before provider execution
+  });
+
+  it('invalid input rejects with the stable invalid_payload builder + code', () => {
+    const code = read('../../../supabase/functions/ai-gateway/index.ts');
+    expect(code.includes('buildInvalidPayloadResponse')).toBe(true);
+    expect(code.includes('AI_GATEWAY_ERROR_CODES.INVALID_PAYLOAD')).toBe(true);
   });
 });
 
