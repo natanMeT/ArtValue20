@@ -29,6 +29,11 @@ export interface ActionProfile {
   temperature: number;
   maxOutputTokens: number;
   responseMimeType: string | null;
+  // Narrow, SERVER-OWNED thinking control. A numeric value pins
+  // generationConfig.thinkingConfig.thinkingBudget on thinking-capable models;
+  // null omits the field entirely (the pre-existing behavior for every action).
+  // Never accepted from the frontend or the payload.
+  thinkingBudget: number | null;
   // deno-lint-ignore no-explicit-any
   responseSchema: Record<string, any> | null;
   parsePolicy: ParsePolicy;
@@ -57,6 +62,7 @@ function textProfile(): ActionProfile {
     temperature: 0.7,
     maxOutputTokens: 1024,
     responseMimeType: null,
+    thinkingBudget: null,
     responseSchema: null,
     parsePolicy: 'text',
     resultContract: null,
@@ -80,6 +86,7 @@ function textMultiTurnProfile(): ActionProfile {
     temperature: 0.7,
     maxOutputTokens: 1024,
     responseMimeType: null,
+    thinkingBudget: null,
     responseSchema: null,
     parsePolicy: 'text',
     resultContract: null,
@@ -107,8 +114,11 @@ const JAKE_DRAFT_MESSAGE_SYSTEM =
   'החזר אך ורק את הטקסט המוכן, כטקסט פשוט בלי markdown.';
 
 // Generation config mirrors the legacy frontend drafting lane exactly:
-// draftWithJake called the cloud path with temperature 0.85 and the default
-// maxTokens 1800 (jakeCloudChat defaults). Plain-text result, no schema.
+// draftWithJake called the cloud path with temperature 0.85, the default
+// maxTokens 1800, AND thinkingConfig: { thinkingBudget: 0 } (jakeCloudChat
+// always sent it). thinkingBudget: 0 keeps thinking OFF on thinking-capable
+// models (e.g. gemini-2.5-flash) so latency/cost/visible-output behavior stay
+// as before. Plain-text result, no schema.
 function jakeDraftMessageProfile(): ActionProfile {
   return {
     outputMode: 'text',
@@ -116,6 +126,7 @@ function jakeDraftMessageProfile(): ActionProfile {
     temperature: 0.85,
     maxOutputTokens: 1800,
     responseMimeType: null,
+    thinkingBudget: 0,
     responseSchema: null,
     parsePolicy: 'text',
     resultContract: null,
@@ -156,6 +167,7 @@ function crmSuggestNextActionProfile(): ActionProfile {
     temperature: 0.3,
     maxOutputTokens: 512,
     responseMimeType: 'application/json',
+    thinkingBudget: null,
     responseSchema: CRM_SUGGEST_NEXT_ACTION_SCHEMA,
     parsePolicy: 'json_strict',
     resultContract: CRM_SUGGEST_NEXT_ACTION,

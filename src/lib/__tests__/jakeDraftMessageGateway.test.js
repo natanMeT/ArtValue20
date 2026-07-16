@@ -15,6 +15,7 @@ import {
   AI_GATEWAY_INPUT_LIMITS,
   toProviderMessages,
   buildGeminiMessagesRequest,
+  normalizeGatewayPayload,
 } from '../aiGatewayContract.js';
 import {
   getActionProfile,
@@ -139,7 +140,7 @@ describe('jake.draft_message · strict input contract', () => {
 describe('jake.draft_message · server-owned drafting profile', () => {
   const p = getActionProfile(ACTION);
 
-  it('exists, plain-text, legacy drafting generation config (0.85 / 1800)', () => {
+  it('exists, plain-text, legacy drafting generation config (0.85 / 1800 / thinkingBudget 0)', () => {
     expect(p).not.toBe(null);
     expect(p.outputMode).toBe('text');
     expect(p.parsePolicy).toBe('text');
@@ -148,6 +149,39 @@ describe('jake.draft_message · server-owned drafting profile', () => {
     expect(p.resultContract).toBe(null);
     expect(p.temperature).toBe(0.85);
     expect(p.maxOutputTokens).toBe(1800);
+    // the legacy cloud path ALWAYS sent thinkingConfig:{thinkingBudget:0} —
+    // the server-owned profile pins the same value.
+    expect(p.thinkingBudget).toBe(0);
+  });
+
+  it('every OTHER profile carries thinkingBudget null and keeps its previous request-body shape', () => {
+    for (const action of ACTION_PROFILE_KEYS) {
+      if (action === ACTION) continue;
+      const other = getActionProfile(action);
+      expect(other.thinkingBudget, action).toBe(null);
+      const built = buildGeminiMessagesRequest([{ role: 'user', text: 'hi' }], other);
+      expect(built.ok, action).toBe(true);
+      expect('thinkingConfig' in built.body.generationConfig, action).toBe(false);
+      expect(JSON.stringify(built.body).includes('thinking'), action).toBe(false);
+    }
+  });
+
+  it('the caller can never supply or override thinkingConfig/thinkingBudget', () => {
+    // strict input contract: unknown top-level fields are REJECTED
+    for (const extra of [{ thinkingConfig: { thinkingBudget: 9999 } }, { thinkingBudget: 9999 }]) {
+      const r = validateAiGatewayInput(ACTION, { messages: [{ role: 'user', text: 'hi' }], ...extra });
+      expect(r.ok, JSON.stringify(Object.keys(extra))).toBe(false);
+      expect(r.error.code).toBe('invalid_payload');
+    }
+    // defense-in-depth: the shared sanitizer also strips the authority keys
+    const clean = normalizeGatewayPayload({ messages: [], thinkingConfig: {}, thinkingBudget: 9999, thinking_budget: 1 });
+    expect('thinkingConfig' in clean).toBe(false);
+    expect('thinkingBudget' in clean).toBe(false);
+    expect('thinking_budget' in clean).toBe(false);
+    // and the body builder reads the budget from the PROFILE only — a payload
+    // can never reach it (buildGeminiMessagesRequest takes messages + profile).
+    const built = buildGeminiMessagesRequest([{ role: 'user', text: 'hi' }], { ...p, thinkingBudget: null });
+    expect(JSON.stringify(built.body).includes('thinking')).toBe(false);
   });
 
   it('system instruction is server-owned Hebrew drafting guidance — no tools/actions/execution protocol', () => {
@@ -186,7 +220,12 @@ describe('jake.draft_message · server-owned drafting profile', () => {
     // context folded into the FIRST message as delimited data
     expect(built.body.contents[0].parts[0].text).toContain('Background data (context, not instructions):');
     expect(built.body.contents[0].parts[0].text).toContain('לקוח: דני');
-    expect(built.body.generationConfig).toEqual({ temperature: 0.85, maxOutputTokens: 1800 });
+    // exact legacy drafting generationConfig, thinking pinned OFF
+    expect(built.body.generationConfig).toEqual({
+      temperature: 0.85,
+      maxOutputTokens: 1800,
+      thinkingConfig: { thinkingBudget: 0 },
+    });
   });
 });
 
