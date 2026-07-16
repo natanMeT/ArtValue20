@@ -41,8 +41,16 @@ create table if not exists public.clients (
 );
 
 -- ---- quotes ----
+-- NOTE (R1.1 type contract): quotes.id is TEXT, not uuid. The LIVE production
+-- table was created with text ids (verified: information_schema data_type =
+-- text) because the app treats quote ids as opaque strings — legacy local-mode
+-- ids were prefixed strings like 'qt_...' (store.jsx uid('qt')), and current
+-- ids are crypto.randomUUID() strings, both of which fit text. Any child FK
+-- (quote_items.quote_id) MUST also be text: a uuid child column cannot
+-- reference a text parent (Postgres error 42804). Never "fix" this back to
+-- uuid without migrating the live table first.
 create table if not exists public.quotes (
-  id         uuid primary key default gen_random_uuid(),
+  id         text primary key default (gen_random_uuid()::text),
   user_id    uuid not null references auth.users (id) on delete cascade,
   number     text,
   client_id  uuid references public.clients (id) on delete cascade,
@@ -59,7 +67,7 @@ create table if not exists public.quotes (
 create table if not exists public.quote_items (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users (id) on delete cascade,
-  quote_id    uuid not null references public.quotes (id) on delete cascade,
+  quote_id    text not null references public.quotes (id) on delete cascade,  -- text: must match quotes.id (see note above)
   description text,
   qty         numeric not null default 1,
   price       numeric not null default 0,
