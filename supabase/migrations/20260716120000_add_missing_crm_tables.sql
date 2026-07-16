@@ -24,6 +24,16 @@
 --
 -- HOW TO RUN (owner, gated): Supabase Dashboard → SQL Editor → paste → Run.
 -- (Also valid as a CLI migration: supabase/migrations/ timestamped file.)
+--
+-- R1.1 TYPE-COMPAT CORRECTION: the first run of this migration failed with
+-- Postgres 42804 ("quote_id" uuid vs "id" text) because the LIVE
+-- public.quotes.id column is TEXT (verified via information_schema), not the
+-- uuid the canonical file previously claimed. Quote ids are opaque app
+-- strings (legacy 'qt_...' prefixed ids + current crypto.randomUUID()
+-- strings), so text is the authoritative production type. quote_items.quote_id
+-- is therefore TEXT below, matching the live parent. The failed run created
+-- nothing (to_regclass returned NULL for both tables), so this file still
+-- runs from a clean slate. The live quotes table is NOT modified here.
 -- ===================================================================
 
 -- ---------------- dependency: updated_at helper (canonical, already live) ----------------
@@ -41,7 +51,7 @@ $$;
 create table if not exists public.quote_items (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users (id) on delete cascade,
-  quote_id    uuid not null references public.quotes (id) on delete cascade,
+  quote_id    text not null references public.quotes (id) on delete cascade,  -- text: matches LIVE quotes.id (see R1.1 note)
   description text,
   qty         numeric not null default 1,
   price       numeric not null default 0,
