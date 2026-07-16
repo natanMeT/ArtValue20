@@ -505,11 +505,12 @@ describe('provider messages · normalized internal request (C2)', () => {
 });
 
 describe('gemini text · policy vocab', () => {
-  it('text whitelist is the explicit seven, frozen, all real actions', () => {
-    // C2 added the infrastructure-only 'text.multi_turn' (not product-wired).
+  it('text whitelist is the explicit eight, frozen, all real actions', () => {
+    // C2 added the infrastructure-only 'text.multi_turn'; Slice B added the
+    // product-wired 'jake.draft_message' (Jake drafting lane).
     expect(Object.isFrozen(GEMINI_TEXT_ACTION_TYPES)).toBe(true);
     expect([...GEMINI_TEXT_ACTION_TYPES].sort()).toEqual(
-      ['crm.suggest_next_action', 'studio.prompt_enhance', 'text.campaign', 'text.copy', 'text.crm_message', 'text.multi_turn', 'text.strategy'],
+      ['crm.suggest_next_action', 'jake.draft_message', 'studio.prompt_enhance', 'text.campaign', 'text.copy', 'text.crm_message', 'text.multi_turn', 'text.strategy'],
     );
     for (const a of GEMINI_TEXT_ACTION_TYPES) expect(AI_ACTION_TYPES.includes(a), a).toBe(true);
   });
@@ -517,7 +518,7 @@ describe('gemini text · policy vocab', () => {
   it('executable subset = gemini-first text actions only, frozen', () => {
     expect(Object.isFrozen(GEMINI_EXECUTABLE_ACTION_TYPES)).toBe(true);
     expect([...GEMINI_EXECUTABLE_ACTION_TYPES].sort()).toEqual(
-      ['crm.suggest_next_action', 'studio.prompt_enhance', 'text.copy', 'text.crm_message', 'text.multi_turn'],
+      ['crm.suggest_next_action', 'jake.draft_message', 'studio.prompt_enhance', 'text.copy', 'text.crm_message', 'text.multi_turn'],
     );
     for (const a of GEMINI_EXECUTABLE_ACTION_TYPES) expect(GEMINI_TEXT_ACTION_TYPES.includes(a), a).toBe(true);
     // anthropic-first text actions stay whitelisted-but-deferred
@@ -935,9 +936,10 @@ describe('guardrail · gitignore + deploy docs', () => {
 
 describe('guardrail · frozen files carry no gateway wiring', () => {
   it('no do-not-touch file references the AI gateway (no wiring crept in)', () => {
+    // gemini.js left this list in Slice B (jake.draft_message): its ONE
+    // authorized gateway operation is draftWithJake, guarded precisely below.
     const frozen = [
       '../../components/ai/Assistant.jsx',
-      '../gemini.js',
       '../geminiImage.js',
       '../jakePack.js',
       '../jakeAgent.js',
@@ -945,6 +947,25 @@ describe('guardrail · frozen files carry no gateway wiring', () => {
     for (const rel of frozen) {
       const code = read(rel);
       expect(code.includes('aiGateway'), rel).toBe(false);
+    }
+  });
+
+  it('gemini.js: ONLY draftWithJake is gateway-routed — no other legacy operation migrated', () => {
+    const code = read('../gemini.js');
+    // the single allowed gateway import
+    expect(/import \{ callAiGateway \} from '\.\/aiGatewayClient\.js';/.test(code)).toBe(true);
+    // draftWithJake MUST use the gateway with the dedicated action
+    expect(code.includes("callAiGateway('jake.draft_message'")).toBe(true);
+    // and no OTHER gateway action / surface is wired from this file
+    const calls = code.match(/callAiGateway\(/g) || [];
+    expect(calls.length).toBe(1);
+    expect(code.includes('actionProfiles')).toBe(false);
+    // unauthorized legacy operations stay OFF the gateway (accidental-migration guard)
+    for (const fn of ['chatJake', 'forceActionsJake', 'generateLeadIdeas', 'enhanceImagePrompt', 'runCreativeDirector']) {
+      const start = code.indexOf(`export async function ${fn}(`);
+      expect(start, `${fn} present`).toBeGreaterThan(-1);
+      const body = code.slice(start, code.indexOf('\n}', start));
+      expect(body.includes('callAiGateway'), `${fn} must not use the gateway`).toBe(false);
     }
   });
 });
@@ -1301,12 +1322,15 @@ describe('guardrail · DEV smoke + product wiring untouched by this slice', () =
     expect(code.includes('crm.suggest_next_action')).toBe(false);
   });
 
-  it('no Jake/Assistant/legacy-Gemini file references the gateway or profiles', () => {
-    for (const rel of ['../../components/ai/Assistant.jsx', '../jakePack.js', '../jakeAgent.js', '../gemini.js']) {
+  it('no Jake/Assistant file references the gateway or profiles', () => {
+    // gemini.js is exempt SOLELY for its Slice B draftWithJake→gateway route —
+    // its precise guard lives in the 'ONLY draftWithJake is gateway-routed' test.
+    for (const rel of ['../../components/ai/Assistant.jsx', '../jakePack.js', '../jakeAgent.js']) {
       const code = read(rel);
       expect(code.includes('aiGateway'), rel).toBe(false);
       expect(code.includes('actionProfiles'), rel).toBe(false);
     }
+    expect(read('../gemini.js').includes('actionProfiles')).toBe(false);
   });
 });
 

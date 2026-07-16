@@ -76,6 +76,9 @@ export const GEMINI_TEXT_ACTION_TYPES = Object.freeze([
   // Infrastructure-only multi-turn action (C2) — gemini-first, executable,
   // NOT wired to any product surface.
   'text.multi_turn',
+  // Jake drafting lane (Slice B) — gemini-first, executable, wired to the
+  // frontend draftWithJake seam. Same multi-turn input contract as C2.
+  'jake.draft_message',
   'studio.prompt_enhance',
   'crm.suggest_next_action',
 ]);
@@ -130,6 +133,7 @@ const UNTRUSTED_PAYLOAD_KEYS = Object.freeze(new Set([
   'responsejsonschema', 'response_json_schema',
   'responseformat', 'response_format',
   'schema', 'parsepolicy', 'parse_policy',
+  'thinkingconfig', 'thinking_config', 'thinkingbudget', 'thinking_budget',
 ]));
 
 function isPlainObject(value) {
@@ -319,10 +323,22 @@ export function buildGeminiMessagesRequest(messages, profile) {
     ? prof.systemInstruction.trim()
     : null;
 
-  // Minimal, broadly-compatible body. NOTE: no `thinkingConfig` — kept off for
-  // cross-model compatibility. Only universally-accepted generationConfig
-  // fields, plus (for json profiles) responseMimeType + the server-owned schema.
+  // Minimal, broadly-compatible body. NOTE: `thinkingConfig` is kept off by
+  // default for cross-model compatibility (2.0-era models 400 on it). Only
+  // universally-accepted generationConfig fields, plus (for json profiles)
+  // responseMimeType + the server-owned schema.
   const generationConfig = { temperature, maxOutputTokens };
+  // Narrow, SERVER-OWNED thinking control: a profile may pin a numeric
+  // thinkingBudget (e.g. 0 for the Jake drafting lane, matching its legacy
+  // request body on thinking-capable models). Sourced ONLY from the action
+  // profile — the equivalent payload keys are stripped/rejected upstream, so a
+  // caller can never set it. Absent/null → the field is omitted entirely and
+  // every existing action's request body stays byte-identical.
+  const thinkingBudget = (typeof prof.thinkingBudget === 'number'
+    && Number.isFinite(prof.thinkingBudget) && prof.thinkingBudget >= 0)
+    ? Math.round(prof.thinkingBudget)
+    : null;
+  if (thinkingBudget !== null) generationConfig.thinkingConfig = { thinkingBudget };
   const body = {
     contents: list.map((m) => ({
       role: m.role === 'assistant' ? 'model' : 'user',

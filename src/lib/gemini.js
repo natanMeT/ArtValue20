@@ -5,7 +5,11 @@
 // demo result so the feature works offline / before a key is added.
 // ===================================================================
 
-import { activePack, buildJakeSystem, buildJakeDraftSystem } from './jakePack.js';
+import { activePack, buildJakeSystem } from './jakePack.js';
+// Jake drafting lane (Slice B): draftWithJake is served by the server-owned AI
+// Gateway action `jake.draft_message` — the ONLY operation in this file that is
+// gateway-routed. Everything else stays on its legacy path.
+import { callAiGateway } from './aiGatewayClient.js';
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.0-flash';
@@ -1031,21 +1035,44 @@ ${contextText}
   throw lastErr || new Error('NO_BRAIN');
 }
 
-// PUBLIC — drafting lane: write a letter / WhatsApp / email / reply from real
-// data. Prose ONLY (no actions block). Smart-routed with fallback. { text, brain }.
-export async function draftWithJake(history, contextText) {
-  if (!isGeminiConfigured) return { text: await demoChat(history), brain: 'demo' };
-  const sys = buildJakeDraftSystem(activePack, contextText);
-  const order = jakeBrainOrder();
-  if (!order.length) return { text: await demoChat(history), brain: 'demo' };
-  let lastErr;
-  for (const b of order) {
-    try {
-      const text = b === 'cloud' ? await jakeCloudChat(history, sys, { temperature: 0.85 }) : await jakeLocalChat(history, sys, { temperature: 0.85 });
-      return { text, brain: b };
-    } catch (e) { lastErr = e; } // eslint-disable-line no-await-in-loop
+// Map the legacy (history, contextText) drafting interface to the Gateway's
+// strict multi-turn payload: { messages: [{role,text}...], context?: {summary} }.
+// Mirrors the legacy cloud path's own shaping (jakeCloudChat): empty texts are
+// skipped, non-assistant roles coerce to 'user', and the window opens on the
+// first user turn. Carries ONLY conversation + context data — never provider/
+// model/system/options (the server profile owns all instruction authority).
+function buildJakeDraftGatewayPayload(history, contextText) {
+  const list = Array.isArray(history) ? history : [];
+  const messages = [];
+  for (const m of list) {
+    const text = (m && typeof m.text === 'string') ? m.text.trim() : '';
+    if (!text) continue;
+    messages.push({ role: m.role === 'assistant' ? 'assistant' : 'user', text });
   }
-  throw lastErr || new Error('NO_BRAIN');
+  while (messages.length && messages[0].role !== 'user') messages.shift();
+  const summary = (typeof contextText === 'string') ? contextText.trim() : '';
+  return summary ? { messages, context: { summary } } : { messages };
+}
+
+// PUBLIC — drafting lane: write a letter / WhatsApp / email / reply from real
+// data. Prose ONLY (no actions block). Returns { text, brain }; throws on
+// failure (the caller shows a calm message — never the raw error).
+//
+// Slice B: served EXCLUSIVELY by the AI Gateway action `jake.draft_message`.
+// No browser Gemini key is read, no direct Google call is made, and a Gateway
+// failure NEVER falls back to the legacy Gemini/Ollama path. The unconfigured
+// environment (no Supabase) keeps the calm demo behavior, like before.
+export async function draftWithJake(history, contextText) {
+  const res = await callAiGateway('jake.draft_message', buildJakeDraftGatewayPayload(history, contextText));
+  if (res && res.ok) {
+    const text = (res.result && typeof res.result.text === 'string') ? res.result.text.trim() : '';
+    if (!text) throw new Error('EMPTY_RESPONSE');
+    return { text, brain: 'gateway' };
+  }
+  if (res && res.error && res.error.code === 'supabase_not_configured') {
+    return { text: await demoChat(history), brain: 'demo' };
+  }
+  throw new Error((res && res.error && res.error.code) || 'NO_BRAIN');
 }
 
 // ===================================================================
