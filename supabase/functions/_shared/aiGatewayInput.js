@@ -33,9 +33,13 @@ export const AI_GATEWAY_INPUT_LIMITS = Object.freeze({
   // prior hard cap anywhere in the gateway; 20_000 is the explicit new bound.
   // Over-limit input FAILS deterministically — it is never silently truncated.
   MAX_PROMPT_CHARS: 20000,
+  // Multi-turn (C2) bounds — all measured on TRIMMED content; over-limit input
+  // FAILS deterministically, never truncated.
+  MAX_MESSAGES: 20,
+  MAX_MESSAGE_CHARS: 4000,
+  MAX_COMBINED_MESSAGE_CHARS: 30000,
+  MAX_CONTEXT_CHARS: 12000,
   // Defensive structural bounds applied to the WHOLE payload by the safe scanner.
-  // They matter mainly for the future object/array fields in C2; a prompt-only
-  // payload is a shallow { prompt: string } that never approaches them.
   MAX_OBJECT_KEYS: 32,
   MAX_ARRAY_ITEMS: 64,
   MAX_DEPTH: 6,
@@ -112,7 +116,14 @@ const PROMPT_FIELD = Object.freeze({
 });
 
 function promptOnlyProfile() {
-  return { allowedKeys: ['prompt'], fields: { prompt: PROMPT_FIELD } };
+  return { kind: 'prompt', allowedKeys: ['prompt'], fields: { prompt: PROMPT_FIELD } };
+}
+
+// Multi-turn profile (C2): { messages: [{role,text}...], context?: { summary } }.
+// The message/context rules live in validateMultiTurnPayload — a dedicated
+// deterministic validator, NOT a permissive generic schema engine.
+function multiTurnProfile() {
+  return { kind: 'multiTurn', allowedKeys: ['messages', 'context'], fields: {} };
 }
 
 function deepFreeze(value) {
@@ -126,6 +137,9 @@ function deepFreeze(value) {
 const PROFILES = deepFreeze({
   'text.copy': promptOnlyProfile(),
   'text.crm_message': promptOnlyProfile(),
+  // Infrastructure-only multi-turn action (C2) — proves the normalized-messages
+  // provider path end-to-end. No product surface calls it.
+  'text.multi_turn': multiTurnProfile(),
   'studio.prompt_enhance': promptOnlyProfile(),
   'crm.suggest_next_action': promptOnlyProfile(),
 });
@@ -141,6 +155,71 @@ function resolveProfile(actionType) {
 
 export function hasAiGatewayInputProfile(actionType) {
   return resolveProfile(actionType) !== null;
+}
+
+// ---- multi-turn payload validator (C2; payload already structurally safe) ----
+// Runs AFTER scanStructure + the unknown-top-key policy, so every value here is
+// a plain object / array / primitive reached through data descriptors only (no
+// getters, no dangerous or symbol keys, bounded depth). Rules:
+//   messages: required array, 1..MAX_MESSAGES items; each item a plain object
+//     with EXACTLY { role, text }; role ∈ user|assistant (system/tool/developer
+//     and anything else rejected); text trimmed, non-empty, ≤ MAX_MESSAGE_CHARS;
+//     combined trimmed text ≤ MAX_COMBINED_MESSAGE_CHARS; first message = user.
+//   context: optional plain object with EXACTLY { summary: string }, trimmed,
+//     non-empty, ≤ MAX_CONTEXT_CHARS. Context is caller DATA, never instruction
+//     authority — no role/system/prompt/provider/model/options fields exist.
+// Never mutates input; never truncates; returns fresh normalized objects.
+function validateMultiTurnPayload(payload) {
+  const md = Object.getOwnPropertyDescriptor(payload, 'messages');
+  if (!md || !('value' in md)) return fail('missing_field');
+  const raw = md.value;
+  if (!Array.isArray(raw)) return fail('messages_not_array');
+  if (raw.length < 1) return fail('messages_empty');
+  if (raw.length > AI_GATEWAY_INPUT_LIMITS.MAX_MESSAGES) return fail('too_many_messages');
+
+  const messages = [];
+  let inputChars = 0;
+  for (let i = 0; i < raw.length; i += 1) {
+    const m = raw[i];
+    if (!isPlainObject(m)) return fail('message_not_object');
+    for (const k of Object.getOwnPropertyNames(m)) {
+      if (k !== 'role' && k !== 'text') return fail('message_unknown_field');
+    }
+    const rd = Object.getOwnPropertyDescriptor(m, 'role');
+    const td = Object.getOwnPropertyDescriptor(m, 'text');
+    const role = (rd && 'value' in rd) ? rd.value : undefined;
+    const text = (td && 'value' in td) ? td.value : undefined;
+    if (role !== 'user' && role !== 'assistant') return fail('invalid_role');
+    if (typeof text !== 'string') return fail('field_not_string');
+    const v = text.trim();
+    if (v.length === 0) return fail('empty_field');
+    if (v.length > AI_GATEWAY_INPUT_LIMITS.MAX_MESSAGE_CHARS) return fail('message_too_long');
+    inputChars += v.length;
+    messages.push({ role, text: v });
+  }
+  if (inputChars > AI_GATEWAY_INPUT_LIMITS.MAX_COMBINED_MESSAGE_CHARS) return fail('messages_too_long');
+  if (messages[0].role !== 'user') return fail('first_message_not_user');
+
+  const cd = Object.getOwnPropertyDescriptor(payload, 'context');
+  let context = null;
+  if (cd) {
+    if (!('value' in cd)) return fail('accessor_property');
+    const c = cd.value;
+    if (!isPlainObject(c)) return fail('context_not_object');
+    for (const k of Object.getOwnPropertyNames(c)) {
+      if (k !== 'summary') return fail('context_unknown_field');
+    }
+    const sd = Object.getOwnPropertyDescriptor(c, 'summary');
+    if (!sd || !('value' in sd)) return fail('missing_field');
+    if (typeof sd.value !== 'string') return fail('field_not_string');
+    const s = sd.value.trim();
+    if (s.length === 0) return fail('empty_field');
+    if (s.length > AI_GATEWAY_INPUT_LIMITS.MAX_CONTEXT_CHARS) return fail('context_too_long');
+    inputChars += s.length;
+    context = { summary: s };
+  }
+
+  return { ok: true, payload: context ? { messages, context } : { messages }, inputChars };
 }
 
 // ---- core: validate + normalize an untrusted payload for an action ----
@@ -168,6 +247,13 @@ export function validateAiGatewayInput(actionType, payload) {
   // rejected, never silently accepted.
   for (const k of Object.getOwnPropertyNames(payload)) {
     if (!profile.allowedKeys.includes(k)) return fail('unknown_field');
+  }
+
+  // Multi-turn actions branch into their dedicated validator (C2).
+  if (profile.kind === 'multiTurn') {
+    const r = validateMultiTurnPayload(payload);
+    if (!r.ok) return r;
+    return { ok: true, actionType: action, payload: r.payload, inputChars: r.inputChars };
   }
 
   // Per-field validation → a FRESH normalized payload (caller object untouched).
@@ -211,6 +297,24 @@ export function countAiGatewayInputChars(actionType, normalizedPayload) {
   const found = resolveProfile(actionType);
   if (!found || !isPlainObject(normalizedPayload)) return 0;
   let n = 0;
+  if (found.profile.kind === 'multiTurn') {
+    // Sum of normalized message texts + context summary — never roles, field
+    // names, punctuation, or any server-owned text.
+    const md = Object.getOwnPropertyDescriptor(normalizedPayload, 'messages');
+    const arr = (md && 'value' in md && Array.isArray(md.value)) ? md.value : [];
+    for (const m of arr) {
+      if (!isPlainObject(m)) continue;
+      const td = Object.getOwnPropertyDescriptor(m, 'text');
+      if (td && 'value' in td && typeof td.value === 'string') n += td.value.length;
+    }
+    const cd = Object.getOwnPropertyDescriptor(normalizedPayload, 'context');
+    const ctx = (cd && 'value' in cd && isPlainObject(cd.value)) ? cd.value : null;
+    if (ctx) {
+      const sd = Object.getOwnPropertyDescriptor(ctx, 'summary');
+      if (sd && 'value' in sd && typeof sd.value === 'string') n += sd.value.length;
+    }
+    return n;
+  }
   for (const name of Object.keys(found.profile.fields)) {
     const spec = found.profile.fields[name];
     if (spec.type !== 'string') continue;

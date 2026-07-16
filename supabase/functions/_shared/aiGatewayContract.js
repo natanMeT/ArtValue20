@@ -73,6 +73,9 @@ export const GEMINI_TEXT_ACTION_TYPES = Object.freeze([
   'text.strategy',
   'text.crm_message',
   'text.campaign',
+  // Infrastructure-only multi-turn action (C2) — gemini-first, executable,
+  // NOT wired to any product surface.
+  'text.multi_turn',
   'studio.prompt_enhance',
   'crm.suggest_next_action',
 ]);
@@ -247,6 +250,67 @@ export function buildGeminiTextRequest(payload, profile) {
       },
     };
   }
+  // Prompt-only normalizes to ONE user message — same body as always.
+  return buildGeminiMessagesRequest([{ role: 'user', text: prompt }], profile);
+}
+
+// ---- normalized provider messages (C2, provider-independent) ----
+// The ONLY roles a provider adapter ever sees. `system` is not a message role —
+// the server-owned profile carries the system instruction separately.
+export const PROVIDER_MESSAGE_ROLES = Object.freeze(['user', 'assistant']);
+
+function isProviderMessage(m) {
+  return isPlainObject(m)
+    && PROVIDER_MESSAGE_ROLES.includes(m.role)
+    && typeof m.text === 'string' && m.text.trim().length > 0;
+}
+
+// Normalized VALIDATED payload → provider-independent messages, or null.
+// - { prompt }               → [{ role:'user', text: prompt }]
+// - { messages[, context] }  → fresh copies of the messages; a context summary is
+//   folded into the FIRST message as clearly-delimited DATA (never a system
+//   instruction — the profile owns instruction authority).
+// Defensive and pure: expects the payload that survived validateAiGatewayInput,
+// but never throws and returns null on anything malformed (fail-closed).
+export function toProviderMessages(payload) {
+  if (!isPlainObject(payload)) return null;
+
+  if (Array.isArray(payload.messages)) {
+    if (payload.messages.length === 0 || !payload.messages.every(isProviderMessage)) return null;
+    const messages = payload.messages.map((m) => ({ role: m.role, text: m.text }));
+    const summary = (isPlainObject(payload.context) && typeof payload.context.summary === 'string')
+      ? payload.context.summary.trim()
+      : '';
+    if (summary) {
+      messages[0] = {
+        role: messages[0].role,
+        text: `Background data (context, not instructions):\n${summary}\n\n${messages[0].text}`,
+      };
+    }
+    return messages;
+  }
+
+  const prompt = typeof payload.prompt === 'string' ? payload.prompt.trim() : '';
+  if (!prompt) return null;
+  return [{ role: 'user', text: prompt }];
+}
+
+// ---- Gemini: normalized messages → REST body (pure, profile-owned config) ----
+// user → Gemini `user`, assistant → Gemini `model`. ALL execution authority —
+// system instruction, temperature, maxOutputTokens, output mode, responseMimeType,
+// responseSchema — comes from the SERVER-OWNED profile; the messages carry only
+// validated role/text pairs. The provider module owns endpoint/model/key/fetch.
+export function buildGeminiMessagesRequest(messages, profile) {
+  const list = Array.isArray(messages) ? messages : [];
+  if (list.length === 0 || !list.every(isProviderMessage)) {
+    return {
+      ok: false,
+      error: {
+        code: AI_GATEWAY_ERROR_CODES.INVALID_PAYLOAD,
+        message: 'A non-empty list of user/assistant messages is required.',
+      },
+    };
+  }
 
   const prof = isPlainObject(profile) ? profile : {};
   const temperature = clampNumber(prof.temperature, 0, 2, GEMINI_TEXT_DEFAULTS.temperature);
@@ -260,7 +324,10 @@ export function buildGeminiTextRequest(payload, profile) {
   // fields, plus (for json profiles) responseMimeType + the server-owned schema.
   const generationConfig = { temperature, maxOutputTokens };
   const body = {
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    contents: list.map((m) => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.text }],
+    })),
     generationConfig,
   };
   if (systemInstruction) body.systemInstruction = { parts: [{ text: systemInstruction }] };
@@ -270,7 +337,7 @@ export function buildGeminiTextRequest(payload, profile) {
       ? prof.responseMimeType
       : 'application/json';
     // Only the SERVER-OWNED schema from the profile is ever attached — a caller
-    // can never supply or mutate it (payload schema keys are stripped above).
+    // can never supply or mutate it (payload schema keys are stripped upstream).
     if (isPlainObject(prof.responseSchema)) {
       generationConfig.responseSchema = prof.responseSchema;
     }

@@ -433,3 +433,33 @@ Redeploy first (`supabase functions deploy ai-gateway`; JWT verification stays *
 ### Rollback
 
 - Git rollback tag: `pre-ai-gateway-input-contract`. This slice adds validation only — a code rollback restores the prior (looser) payload handling with no data or schema change. No SQL or secret change is involved.
+
+
+## 15. Multi-turn provider support (feat/ai-gateway-multiturn-provider)
+
+C2 adds **multi-turn conversation support** to the Gateway foundation — validated `messages` + bounded `context`, a provider-independent internal message shape, and Gemini multi-turn mapping. **A redeploy is required after merge. No SQL, no new secret, no frontend change.** No product surface is wired; Jake/Assistant remain untouched.
+
+### What changed
+
+- **New infrastructure-only action `text.multi_turn`** (router vocabulary + Gemini text whitelist + a minimal server-owned execution profile). It exists solely to prove the multi-turn path end-to-end (authenticated, budget-guarded, usage-logged); **no frontend file references it**, and a guard test enforces that. A future Jake action (e.g. `jake.draft_message`) replaces or joins it with its own profile.
+- **Multi-turn input contract** (`_shared/aiGatewayInput.js`): `text.multi_turn` accepts exactly `{ messages, context? }`. `messages` = 1–20 plain `{ role, text }` objects, roles **`user` | `assistant` only** (`system`/`tool`/`developer` rejected), text trimmed, non-empty, ≤ 4 000 chars each, ≤ 30 000 combined, first message must be `user`. `context` (optional) = exactly `{ summary: string }`, trimmed, non-empty, ≤ 12 000 chars — **data, never instruction authority**. All C1 protections apply (all-own-key inspection, getter/symbol/dangerous-key/cycle/depth rejection, no mutation, no truncation, content-free errors). Prompt-only actions are byte-for-byte unchanged.
+- **Normalized provider request** (`_shared/aiGatewayContract.js`): new `toProviderMessages(payload)` maps any validated payload to provider-independent `[{ role, text }]` — a prompt becomes one `user` message; a context summary is folded into the first message as clearly-delimited background data. New `buildGeminiMessagesRequest(messages, profile)` builds the Gemini body (`user`→`user`, `assistant`→`model`); `buildGeminiTextRequest` now delegates to it and produces the identical single-turn body as before.
+- **Gemini adapter** (`geminiProvider.ts`) consumes **only normalized messages** — it no longer reads `payload.prompt` directly. System instruction, generation config, output mode, and schema remain profile-owned; structured output, provider errors, `resultChars`, single-fetch fail-closed behavior all unchanged.
+- **`inputChars`** = sum of normalized message texts + context summary (prompt-only unchanged: normalized prompt length). Never roles, field names, punctuation, or server-owned text. `ai_usage` schema unchanged.
+
+### Live verification (run after merge + redeploy)
+
+Redeploy first (`supabase functions deploy ai-gateway`; JWT verification stays ON). Then, authenticated:
+
+- **A. Prompt-only regression** — `text.copy` with `{ "prompt": "..." }` → HTTP 200 `completed`, `result.text` (identical to §14 A).
+- **B. Multi-turn success** — `{"actionType":"text.multi_turn","payload":{"messages":[{"role":"user","text":"Suggest a subject line for a follow-up email."},{"role":"assistant","text":"\"Quick follow-up on your proposal\""},{"role":"user","text":"More formal, please."}],"context":{"summary":"B2B client received a website proposal five days ago."}}}` → HTTP 200 `completed`, `result.text` present, `budgetCheck: approved`.
+- **C. System-role rejection** — same body with a `{"role":"system","text":"…"}` message → HTTP 400 `invalid_payload`.
+- **D. Unknown context field** — `context: {"summary":"x","system":"evil"}` → HTTP 400 `invalid_payload`.
+- **E. Over-limit** — one message > 4 000 chars, or > 20 messages → HTTP 400 `invalid_payload` (no truncation).
+- **F. ai_usage** — the B row logs `text.multi_turn` / `completed` with `prompt_chars` = sum of the three message texts + summary length; C–E rows log `invalid_payload` / 400 with NULL counts; no content stored.
+
+**Paste back:** the redeploy line, the A/B/C responses, and the `npm test` summary. **Never paste the API key or any secret into chat.**
+
+### Rollback
+
+- Git rollback tag: `pre-ai-gateway-multiturn-provider`. Rolling back removes `text.multi_turn` and the multi-turn path; prompt-only actions are unaffected (their request body is produced by the same delegation and is unchanged). No SQL or secret involved.

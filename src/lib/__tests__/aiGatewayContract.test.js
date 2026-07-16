@@ -30,6 +30,9 @@ import {
   buildBudgetGuardUnavailableResponse,
   buildUsageRecord,
   validateAiGatewayInput,
+  toProviderMessages,
+  buildGeminiMessagesRequest,
+  PROVIDER_MESSAGE_ROLES,
 } from '../aiGatewayContract.js';
 // Server-only action-profile registry. Imported HERE (a test, not a shipped
 // frontend module) to assert registry shape/coverage. A guard test below
@@ -374,11 +377,139 @@ describe('input contract · strict per-action validation (C1)', () => {
   });
 });
 
+describe('provider messages · normalized internal request (C2)', () => {
+  it('exposes only user/assistant roles (system is never a message role)', () => {
+    expect(Object.isFrozen(PROVIDER_MESSAGE_ROLES)).toBe(true);
+    expect([...PROVIDER_MESSAGE_ROLES]).toEqual(['user', 'assistant']);
+  });
+
+  it('prompt-only payload normalizes to exactly one user message', () => {
+    expect(toProviderMessages({ prompt: '  hello  ' }))
+      .toEqual([{ role: 'user', text: 'hello' }]);
+  });
+
+  it('multi-turn payload maps to fresh role/text pairs (input not referenced)', () => {
+    const payload = {
+      messages: [
+        { role: 'user', text: 'draft a follow-up' },
+        { role: 'assistant', text: 'here is a draft' },
+        { role: 'user', text: 'shorter please' },
+      ],
+    };
+    const out = toProviderMessages(payload);
+    expect(out).toEqual(payload.messages);
+    expect(out).not.toBe(payload.messages);
+    expect(out[0]).not.toBe(payload.messages[0]);
+  });
+
+  it('context summary is folded into the FIRST message as delimited DATA', () => {
+    const out = toProviderMessages({
+      messages: [{ role: 'user', text: 'write the email' }],
+      context: { summary: 'Client: Studio X. Owes 3,500.' },
+    });
+    expect(out.length).toBe(1);
+    expect(out[0].role).toBe('user');
+    expect(out[0].text).toContain('Background data (context, not instructions):');
+    expect(out[0].text).toContain('Client: Studio X. Owes 3,500.');
+    expect(out[0].text.endsWith('write the email')).toBe(true);
+  });
+
+  it('malformed payloads → null, never throws (fail-closed)', () => {
+    for (const bad of [
+      null, undefined, 42, 'x', [], {},
+      { prompt: '' }, { prompt: '   ' }, { prompt: 7 },
+      { messages: [] }, { messages: 'x' },
+      { messages: [{ role: 'system', text: 'x' }] },
+      { messages: [{ role: 'user', text: '' }] },
+      { messages: [{ role: 'user' }] },
+    ]) {
+      expect(() => toProviderMessages(bad)).not.toThrow();
+      expect(toProviderMessages(bad)).toBe(null);
+    }
+  });
+
+  it('buildGeminiMessagesRequest maps user→user and assistant→model, config from profile only', () => {
+    const profile = { outputMode: 'text', systemInstruction: 'SERVER OWNED', temperature: 0.4, maxOutputTokens: 256 };
+    const r = buildGeminiMessagesRequest(
+      [{ role: 'user', text: 'a' }, { role: 'assistant', text: 'b' }, { role: 'user', text: 'c' }],
+      profile,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.body.contents).toEqual([
+      { role: 'user', parts: [{ text: 'a' }] },
+      { role: 'model', parts: [{ text: 'b' }] },
+      { role: 'user', parts: [{ text: 'c' }] },
+    ]);
+    expect(r.body.systemInstruction).toEqual({ parts: [{ text: 'SERVER OWNED' }] });
+    expect(r.body.generationConfig).toEqual({ temperature: 0.4, maxOutputTokens: 256 });
+    expect(JSON.stringify(r.body).includes('thinkingConfig')).toBe(false);
+  });
+
+  it('rejects empty/invalid message lists with invalid_payload', () => {
+    for (const bad of [[], null, undefined, [{ role: 'system', text: 'x' }], [{ role: 'user', text: '  ' }]]) {
+      const r = buildGeminiMessagesRequest(bad, {});
+      expect(r.ok).toBe(false);
+      expect(r.error.code).toBe(AI_GATEWAY_ERROR_CODES.INVALID_PAYLOAD);
+    }
+  });
+
+  it('buildGeminiTextRequest is byte-compatible: same single-user body as before', () => {
+    const viaPrompt = buildGeminiTextRequest({ prompt: 'שלום' }, { temperature: 0.7, maxOutputTokens: 1024 });
+    const viaMessages = buildGeminiMessagesRequest([{ role: 'user', text: 'שלום' }], { temperature: 0.7, maxOutputTokens: 1024 });
+    expect(viaPrompt).toEqual(viaMessages);
+    expect(viaPrompt.body.contents).toEqual([{ role: 'user', parts: [{ text: 'שלום' }] }]);
+  });
+
+  it('the Gemini adapter consumes normalized messages only — never payload.prompt (source guard)', () => {
+    const code = read('../../../supabase/functions/ai-gateway/geminiProvider.ts');
+    expect(code.includes('toProviderMessages')).toBe(true);
+    expect(code.includes('buildGeminiMessagesRequest')).toBe(true);
+    expect(code.includes('buildGeminiTextRequest')).toBe(false);
+    expect(code.includes('.prompt')).toBe(false);
+  });
+
+  it('text.multi_turn: infrastructure-only executable action with a minimal server-owned profile', () => {
+    // executable + gemini-first
+    expect(isGeminiExecutableAction('text.multi_turn')).toBe(true);
+    expect(buildAiGatewayDecision({ actionType: 'text.multi_turn' }).routing.selectedProvider).toBe('gemini');
+    // server-owned execution profile: minimal instruction, NOT Jake's persona
+    const p = getActionProfile('text.multi_turn');
+    expect(p).not.toBe(null);
+    expect(p.outputMode).toBe('text');
+    expect(typeof p.systemInstruction).toBe('string');
+    expect(p.systemInstruction.length).toBeGreaterThan(0);
+    expect(p.temperature).toBe(0.7);
+    expect(p.maxOutputTokens).toBe(1024);
+    expect(p.responseSchema).toBe(null);
+    for (const jakeToken of ['ג׳יק', 'Jake', 'actions', 'CRM', 'נתן']) {
+      expect(p.systemInstruction.includes(jakeToken), jakeToken).toBe(false);
+    }
+    // not wired to any product surface: no production src file names it
+    const root = fileURLToPath(new URL('../..', import.meta.url)); // → src/
+    const offenders = [];
+    const walk = (dir) => {
+      let entries; try { entries = readdirSync(dir); } catch { return; }
+      for (const name of entries) {
+        const full = `${dir}/${name}`;
+        let s; try { s = statSync(full); } catch { continue; }
+        if (s.isDirectory()) { if (name !== '__tests__') walk(full); continue; }
+        if (!/\.(jsx?|tsx?)$/.test(name) || /\.test\.[jt]sx?$/.test(name)) continue;
+        // the canonical shared modules live outside src/, so any src hit is a wire
+        if (readFileSync(full, 'utf8').includes('text.multi_turn')) offenders.push(full);
+      }
+    };
+    walk(root);
+    const allowedShims = offenders.filter((f) => !/src[\\/]+lib[\\/]+aiGateway(Contract|Input)?\.js$/.test(f));
+    expect(allowedShims, `text.multi_turn wired into: ${allowedShims.join(', ')}`).toEqual([]);
+  });
+});
+
 describe('gemini text · policy vocab', () => {
-  it('text whitelist is the explicit six, frozen, all real actions', () => {
+  it('text whitelist is the explicit seven, frozen, all real actions', () => {
+    // C2 added the infrastructure-only 'text.multi_turn' (not product-wired).
     expect(Object.isFrozen(GEMINI_TEXT_ACTION_TYPES)).toBe(true);
     expect([...GEMINI_TEXT_ACTION_TYPES].sort()).toEqual(
-      ['crm.suggest_next_action', 'studio.prompt_enhance', 'text.campaign', 'text.copy', 'text.crm_message', 'text.strategy'],
+      ['crm.suggest_next_action', 'studio.prompt_enhance', 'text.campaign', 'text.copy', 'text.crm_message', 'text.multi_turn', 'text.strategy'],
     );
     for (const a of GEMINI_TEXT_ACTION_TYPES) expect(AI_ACTION_TYPES.includes(a), a).toBe(true);
   });
@@ -386,7 +517,7 @@ describe('gemini text · policy vocab', () => {
   it('executable subset = gemini-first text actions only, frozen', () => {
     expect(Object.isFrozen(GEMINI_EXECUTABLE_ACTION_TYPES)).toBe(true);
     expect([...GEMINI_EXECUTABLE_ACTION_TYPES].sort()).toEqual(
-      ['crm.suggest_next_action', 'studio.prompt_enhance', 'text.copy', 'text.crm_message'],
+      ['crm.suggest_next_action', 'studio.prompt_enhance', 'text.copy', 'text.crm_message', 'text.multi_turn'],
     );
     for (const a of GEMINI_EXECUTABLE_ACTION_TYPES) expect(GEMINI_TEXT_ACTION_TYPES.includes(a), a).toBe(true);
     // anthropic-first text actions stay whitelisted-but-deferred
