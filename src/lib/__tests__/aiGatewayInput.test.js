@@ -18,6 +18,7 @@ const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)),
 const ACTIONS = ['text.copy', 'text.crm_message', 'studio.prompt_enhance', 'crm.suggest_next_action'];
 const isReject = (r) => Boolean(r) && r.ok === false
   && r.error && r.error.code === 'invalid_payload' && typeof r.error.reason === 'string';
+const isRejectReason = (r, reason) => isReject(r) && r.error.reason === reason;
 
 describe('input contract · profile registry', () => {
   it('all 4 current executable actions have an input profile', () => {
@@ -154,6 +155,165 @@ describe('input contract · rejects invalid payloads', () => {
     const r = validateAiGatewayInput('text.copy', p);
     expect(isReject(r)).toBe(true);
     expect(invoked).toBe(false);
+  });
+});
+
+describe('input contract · multi-turn profile (text.multi_turn, C2)', () => {
+  const MT = 'text.multi_turn';
+  const msgs = (...texts) => texts.map((t, i) => ({ role: i % 2 === 0 ? 'user' : 'assistant', text: t }));
+
+  it('text.multi_turn has a profile and the registry still equals the executable set', () => {
+    expect(hasAiGatewayInputProfile(MT)).toBe(true);
+    expect([...AI_GATEWAY_INPUT_PROFILE_KEYS].sort())
+      .toEqual([...GEMINI_EXECUTABLE_ACTION_TYPES].sort());
+  });
+
+  it('valid multi-turn payload normalizes to fresh trimmed messages + correct inputChars', () => {
+    const payload = {
+      messages: [
+        { role: 'user', text: '  draft a follow-up  ' },
+        { role: 'assistant', text: 'here is a draft' },
+        { role: 'user', text: 'shorter' },
+      ],
+    };
+    const r = validateAiGatewayInput(MT, payload);
+    expect(r.ok).toBe(true);
+    expect(r.actionType).toBe(MT);
+    expect(r.payload.messages).toEqual([
+      { role: 'user', text: 'draft a follow-up' },
+      { role: 'assistant', text: 'here is a draft' },
+      { role: 'user', text: 'shorter' },
+    ]);
+    expect(r.payload.messages).not.toBe(payload.messages);
+    expect('context' in r.payload).toBe(false);
+    expect(r.inputChars).toBe('draft a follow-up'.length + 'here is a draft'.length + 'shorter'.length);
+    // caller input untouched
+    expect(payload.messages[0].text).toBe('  draft a follow-up  ');
+  });
+
+  it('valid context { summary } is trimmed, normalized, and counted', () => {
+    const r = validateAiGatewayInput(MT, {
+      messages: msgs('write it'),
+      context: { summary: '  Client owes 3,500  ' },
+    });
+    expect(r.ok).toBe(true);
+    expect(r.payload.context).toEqual({ summary: 'Client owes 3,500' });
+    expect(r.inputChars).toBe('write it'.length + 'Client owes 3,500'.length);
+    expect(countAiGatewayInputChars(MT, r.payload)).toBe(r.inputChars);
+  });
+
+  it('multi-turn action does NOT accept a prompt payload; prompt actions do NOT accept messages', () => {
+    expect(isRejectReason(validateAiGatewayInput(MT, { prompt: 'x' }), 'unknown_field')).toBe(true);
+    expect(isRejectReason(validateAiGatewayInput('text.copy', { messages: msgs('x') }), 'unknown_field')).toBe(true);
+  });
+
+  it('rejects missing/empty/non-array/oversized messages', () => {
+    expect(isRejectReason(validateAiGatewayInput(MT, {}), 'missing_field')).toBe(true);
+    expect(isRejectReason(validateAiGatewayInput(MT, { messages: [] }), 'messages_empty')).toBe(true);
+    expect(isRejectReason(validateAiGatewayInput(MT, { messages: 'hi' }), 'messages_not_array')).toBe(true);
+    expect(isRejectReason(validateAiGatewayInput(MT, { messages: { 0: 'x' } }), 'messages_not_array')).toBe(true);
+    const tooMany = Array.from({ length: 21 }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'assistant', text: 'x' }));
+    expect(isRejectReason(validateAiGatewayInput(MT, { messages: tooMany }), 'too_many_messages')).toBe(true);
+    // 20 messages is accepted
+    const atLimit = Array.from({ length: 20 }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'assistant', text: 'x' }));
+    expect(validateAiGatewayInput(MT, { messages: atLimit }).ok).toBe(true);
+  });
+
+  it('rejects malformed message objects (shape, keys, role, text)', () => {
+    const cases = [
+      [{ messages: ['x'] }, 'message_not_object'],
+      [{ messages: [null] }, 'message_not_object'],
+      [{ messages: [{ role: 'user', text: 'x', extra: 1 }] }, 'message_unknown_field'],
+      [{ messages: [{ text: 'x' }] }, 'invalid_role'],           // missing role
+      [{ messages: [{ role: 'user' }] }, 'field_not_string'],    // missing text
+      [{ messages: [{ role: 'system', text: 'x' }] }, 'invalid_role'],
+      [{ messages: [{ role: 'tool', text: 'x' }] }, 'invalid_role'],
+      [{ messages: [{ role: 'developer', text: 'x' }] }, 'invalid_role'],
+      [{ messages: [{ role: 'model', text: 'x' }] }, 'invalid_role'],
+      [{ messages: [{ role: 'user', text: '' }] }, 'empty_field'],
+      [{ messages: [{ role: 'user', text: '   ' }] }, 'empty_field'],
+      [{ messages: [{ role: 'user', text: 42 }] }, 'field_not_string'],
+    ];
+    for (const [payload, reason] of cases) {
+      expect(isRejectReason(validateAiGatewayInput(MT, payload), reason), reason).toBe(true);
+    }
+  });
+
+  it('enforces per-message, combined, and first-role limits without truncation', () => {
+    const over = 'x'.repeat(AI_GATEWAY_INPUT_LIMITS.MAX_MESSAGE_CHARS + 1);
+    expect(isRejectReason(validateAiGatewayInput(MT, { messages: [{ role: 'user', text: over }] }), 'message_too_long')).toBe(true);
+    const atMax = 'x'.repeat(AI_GATEWAY_INPUT_LIMITS.MAX_MESSAGE_CHARS);
+    expect(validateAiGatewayInput(MT, { messages: [{ role: 'user', text: atMax }] }).ok).toBe(true);
+    // 8 × 4000 = 32,000 > 30,000 combined → rejected (each message individually legal)
+    const eight = Array.from({ length: 8 }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'assistant', text: atMax }));
+    expect(isRejectReason(validateAiGatewayInput(MT, { messages: eight }), 'messages_too_long')).toBe(true);
+    // first message must be user
+    expect(isRejectReason(
+      validateAiGatewayInput(MT, { messages: [{ role: 'assistant', text: 'a' }, { role: 'user', text: 'b' }] }),
+      'first_message_not_user',
+    )).toBe(true);
+  });
+
+  it('rejects hostile structures inside messages (getter/symbol/dangerous key/class/cycle/depth)', () => {
+    let invoked = false;
+    const withGetter = { role: 'user' };
+    Object.defineProperty(withGetter, 'text', { enumerable: true, configurable: true, get() { invoked = true; return 'x'; } });
+    expect(validateAiGatewayInput(MT, { messages: [withGetter] }).ok).toBe(false);
+    expect(invoked).toBe(false);
+    expect(validateAiGatewayInput(MT, { messages: [{ role: 'user', text: 'x', [Symbol('s')]: 1 }] }).ok).toBe(false);
+    expect(validateAiGatewayInput(MT, { messages: [JSON.parse('{"role":"user","text":"x","__proto__":{"p":1}}')] }).ok).toBe(false);
+    class Msg { constructor() { this.role = 'user'; this.text = 'x'; } }
+    expect(validateAiGatewayInput(MT, { messages: [new Msg()] }).ok).toBe(false);
+    const cyc = { role: 'user', text: 'x' }; cyc.self = cyc;
+    expect(validateAiGatewayInput(MT, { messages: [cyc] }).ok).toBe(false);
+    let deep = {}; let cur = deep;
+    for (let i = 0; i < 10; i += 1) { cur.n = {}; cur = cur.n; }
+    expect(validateAiGatewayInput(MT, { messages: [{ role: 'user', text: 'x' }], context: { summary: 'ok' }, extra: deep }).ok).toBe(false);
+  });
+
+  it('context: rejects unknown keys, wrong shapes, instruction-like/authority fields, over-limit', () => {
+    const m = msgs('hi');
+    const cases = [
+      [{ messages: m, context: 'x' }, 'context_not_object'],
+      [{ messages: m, context: ['x'] }, 'context_not_object'],
+      [{ messages: m, context: {} }, 'missing_field'],
+      [{ messages: m, context: { summary: 'ok', extra: 1 } }, 'context_unknown_field'],
+      [{ messages: m, context: { summary: 'ok', system: 'evil' } }, 'context_unknown_field'],
+      [{ messages: m, context: { summary: 'ok', prompt: 'evil' } }, 'context_unknown_field'],
+      [{ messages: m, context: { provider: 'gemini', summary: 'ok' } }, 'context_unknown_field'],
+      [{ messages: m, context: { model: 'x', summary: 'ok' } }, 'context_unknown_field'],
+      [{ messages: m, context: { options: {}, summary: 'ok' } }, 'context_unknown_field'],
+      [{ messages: m, context: { role: 'system', summary: 'ok' } }, 'context_unknown_field'],
+      [{ messages: m, context: { records: [], summary: 'ok' } }, 'context_unknown_field'],
+      [{ messages: m, context: { summary: 42 } }, 'field_not_string'],
+      [{ messages: m, context: { summary: '  ' } }, 'empty_field'],
+      [{ messages: m, context: { summary: { nested: 1 } } }, 'field_not_string'],
+      [{ messages: m, context: { summary: 'x'.repeat(AI_GATEWAY_INPUT_LIMITS.MAX_CONTEXT_CHARS + 1) } }, 'context_too_long'],
+    ];
+    for (const [payload, reason] of cases) {
+      expect(isRejectReason(validateAiGatewayInput(MT, payload), reason), reason).toBe(true);
+    }
+    // context at limit accepted (no truncation)
+    const atMax = 'x'.repeat(AI_GATEWAY_INPUT_LIMITS.MAX_CONTEXT_CHARS);
+    const ok = validateAiGatewayInput(MT, { messages: m, context: { summary: atMax } });
+    expect(ok.ok).toBe(true);
+    expect(ok.payload.context.summary.length).toBe(AI_GATEWAY_INPUT_LIMITS.MAX_CONTEXT_CHARS);
+    // context getter (non-data descriptor) rejected without invocation
+    let invoked = false;
+    const p = { messages: m };
+    Object.defineProperty(p, 'context', { enumerable: true, configurable: true, get() { invoked = true; return {}; } });
+    expect(validateAiGatewayInput(MT, p).ok).toBe(false);
+    expect(invoked).toBe(false);
+  });
+
+  it('multi-turn errors are content-free and never throw on hostile shapes', () => {
+    const secret = 'MT_SECRET_CONTENT';
+    const r = validateAiGatewayInput(MT, { messages: [{ role: 'wizard', text: secret }] });
+    expect(r.ok).toBe(false);
+    expect(JSON.stringify(r)).not.toContain(secret);
+    for (const p of [null, [], 'x', 42, { messages: [Symbol('s')] }]) {
+      expect(() => validateAiGatewayInput(MT, p)).not.toThrow();
+    }
   });
 });
 

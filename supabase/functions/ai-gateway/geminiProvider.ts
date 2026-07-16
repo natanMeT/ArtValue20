@@ -14,7 +14,8 @@
 // ===================================================================
 
 import {
-  buildGeminiTextRequest,
+  toProviderMessages,
+  buildGeminiMessagesRequest,
   parseGeminiTextResponse,
   parseStructuredResult,
   providerResultChars,
@@ -54,10 +55,19 @@ export async function runGeminiText(
     return { status: 503, body: buildProviderNotConfiguredResponse(decision), resultChars: null };
   }
 
-  const built = buildGeminiTextRequest(
+  // The adapter consumes ONLY normalized provider messages (never a raw browser
+  // payload): the validated payload — prompt-only or multi-turn — is mapped to
+  // provider-independent [{ role, text }] first, then to the Gemini body with the
+  // SERVER-OWNED profile. user → user, assistant → model.
+  const messages = toProviderMessages(
     decision && decision.request ? decision.request.payload : undefined,
-    profile,
   );
+  const built = messages
+    ? buildGeminiMessagesRequest(messages, profile)
+    : {
+      ok: false as const,
+      error: { code: 'invalid_payload', message: 'Invalid payload.' },
+    };
   if (!built.ok) {
     return { status: 400, body: buildInvalidPayloadResponse(decision, built.error), resultChars: null };
   }

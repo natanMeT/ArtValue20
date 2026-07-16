@@ -20,6 +20,10 @@ export const AI_ACTION_TYPES = Object.freeze([
   'text.strategy',
   'text.crm_message',
   'text.campaign',
+  // Infrastructure-only multi-turn text action (Gateway V2 · C2). Proves the
+  // normalized-messages provider path end-to-end. NOT wired to any product
+  // surface; a future Jake action (jake.draft_message) replaces/joins it.
+  'text.multi_turn',
   'studio.prompt_enhance',
   'crm.suggest_next_action',
   'image.poster',
@@ -125,6 +129,7 @@ export const COST_TIERS = Object.freeze([
 export const COST_TIER_BY_ACTION = Object.freeze({
   'text.copy': 'low',
   'text.crm_message': 'low',
+  'text.multi_turn': 'low',
   'studio.prompt_enhance': 'low',
   'crm.suggest_next_action': 'low',
   'text.strategy': 'medium',
@@ -154,6 +159,7 @@ const BUDGET_CHECK_TIERS = Object.freeze(['medium', 'medium_high', 'high']);
 export const DEFAULT_PROVIDER_BY_ACTION = Object.freeze({
   'text.copy': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'text.crm_message': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
+  'text.multi_turn': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'studio.prompt_enhance': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'crm.suggest_next_action': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'text.strategy': Object.freeze(['anthropic', 'gemini', 'openai', 'openrouter', 'ollama']),
