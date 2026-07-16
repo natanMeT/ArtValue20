@@ -24,6 +24,10 @@ export const AI_ACTION_TYPES = Object.freeze([
   // normalized-messages provider path end-to-end. NOT wired to any product
   // surface; a future Jake action (jake.draft_message) replaces/joins it.
   'text.multi_turn',
+  // Jake drafting lane (Slice B): multi-turn Hebrew message drafting served by
+  // the Gateway with a server-owned drafting profile. Wired to the frontend
+  // draftWithJake seam; instruction authority stays server-side.
+  'jake.draft_message',
   'studio.prompt_enhance',
   'crm.suggest_next_action',
   'image.poster',
@@ -130,6 +134,7 @@ export const COST_TIER_BY_ACTION = Object.freeze({
   'text.copy': 'low',
   'text.crm_message': 'low',
   'text.multi_turn': 'low',
+  'jake.draft_message': 'low',
   'studio.prompt_enhance': 'low',
   'crm.suggest_next_action': 'low',
   'text.strategy': 'medium',
@@ -160,6 +165,7 @@ export const DEFAULT_PROVIDER_BY_ACTION = Object.freeze({
   'text.copy': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'text.crm_message': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'text.multi_turn': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
+  'jake.draft_message': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'studio.prompt_enhance': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'crm.suggest_next_action': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'text.strategy': Object.freeze(['anthropic', 'gemini', 'openai', 'openrouter', 'ollama']),

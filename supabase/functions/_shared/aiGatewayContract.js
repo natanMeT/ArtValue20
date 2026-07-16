@@ -76,6 +76,9 @@ export const GEMINI_TEXT_ACTION_TYPES = Object.freeze([
   // Infrastructure-only multi-turn action (C2) — gemini-first, executable,
   // NOT wired to any product surface.
   'text.multi_turn',
+  // Jake drafting lane (Slice B) — gemini-first, executable, wired to the
+  // frontend draftWithJake seam. Same multi-turn input contract as C2.
+  'jake.draft_message',
   'studio.prompt_enhance',
   'crm.suggest_next_action',
 ]);

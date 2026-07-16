@@ -140,6 +140,9 @@ const PROFILES = deepFreeze({
   // Infrastructure-only multi-turn action (C2) — proves the normalized-messages
   // provider path end-to-end. No product surface calls it.
   'text.multi_turn': multiTurnProfile(),
+  // Jake drafting lane (Slice B): same strict multi-turn contract as C2 —
+  // { messages: [{role,text}...], context?: { summary } }, nothing more.
+  'jake.draft_message': multiTurnProfile(),
   'studio.prompt_enhance': promptOnlyProfile(),
   'crm.suggest_next_action': promptOnlyProfile(),
 });
