@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { SectionHeader } from '../components/ui/atoms.jsx';
 import Icon from '../components/ui/Icon.jsx';
+import { resolveLocalEngineUrl } from '../lib/localEngines.js';
 
 // Fooocus runs as its own local Gradio app (default 127.0.0.1:7865). We embed the
 // FULL native UI in an iframe so every option Fooocus offers is available, identical
 // to the standalone software — no feature gets lost in a custom rebuild.
-const FOOOCUS_URL = (import.meta.env.VITE_FOOOCUS_URL || 'http://127.0.0.1:7865').replace(/\/$/, '');
+// Gated: the localhost default applies ONLY in dev / explicit opt-in builds —
+// a hosted production build resolves to '' and this page never probes.
+const FOOOCUS_URL = resolveLocalEngineUrl(import.meta.env.VITE_FOOOCUS_URL, 'http://127.0.0.1:7865');
 
 export default function Fooocus() {
   const [status, setStatus] = useState('checking'); // checking | up | down
@@ -18,6 +21,7 @@ export default function Fooocus() {
   // resolves = reachable, rejects = engine down. (We can't read the status code,
   // only whether the socket answered.)
   const ping = useCallback(async () => {
+    if (!FOOOCUS_URL) { setStatus('down'); return; } // gate closed (hosted build) — no probe
     setChecking(true);
     try {
       const ctrl = new AbortController();
@@ -33,13 +37,14 @@ export default function Fooocus() {
   }, []);
 
   useEffect(() => {
+    if (!FOOOCUS_URL) { setStatus('down'); return undefined; } // gate closed — no probe, no interval
     ping();
     const iv = setInterval(ping, 15000);
     return () => clearInterval(iv);
   }, [ping]);
 
   const reload = () => { setFrameKey((k) => k + 1); ping(); };
-  const openNewTab = () => window.open(FOOOCUS_URL, '_blank', 'noopener');
+  const openNewTab = () => { if (FOOOCUS_URL) window.open(FOOOCUS_URL, '_blank', 'noopener'); };
   const goFullscreen = () => { try { wrapRef.current?.requestFullscreen?.(); } catch { /* noop */ } };
 
   return (

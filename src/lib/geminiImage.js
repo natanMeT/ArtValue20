@@ -5,12 +5,16 @@
 // Returns { src, engine, demo }.
 // ===================================================================
 
+import { resolveLocalEngineUrl } from './localEngines.js';
+
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const IMG_MODEL = import.meta.env.VITE_GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
 // Local GPU image server (e.g. AUTOMATIC1111 / Forge with --api). Free, runs on your machine.
-const LOCAL_URL = (import.meta.env.VITE_LOCAL_IMAGE_URL || '').replace(/\/$/, '');
+// Gated: hosted production builds resolve to '' (see localEngines.js).
+const LOCAL_URL = resolveLocalEngineUrl(import.meta.env.VITE_LOCAL_IMAGE_URL);
 // ComfyUI local server (its API differs from A1111). Default port 8188.
-const COMFY_URL = (import.meta.env.VITE_COMFYUI_URL || '').replace(/\/$/, '');
+// Gated: hosted production builds resolve to '' (see localEngines.js).
+const COMFY_URL = resolveLocalEngineUrl(import.meta.env.VITE_COMFYUI_URL);
 const COMFY_MODEL = import.meta.env.VITE_COMFYUI_MODEL || 'RealVisXL_V4.0.safetensors';
 const COMFY_FLUX_MODEL = import.meta.env.VITE_COMFYUI_FLUX_MODEL || 'flux1-dev-fp8.safetensors';
 // Realism LoRA for Flux — kills the "plastic AI skin" look. Empty string disables it.
