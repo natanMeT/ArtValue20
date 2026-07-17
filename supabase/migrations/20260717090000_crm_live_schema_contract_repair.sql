@@ -22,6 +22,25 @@
 --                   notes / updated_at, + FK client_id → clients(id) cascade
 --   * transactions: + user_id (as above), + client_id (uuid, FK clients(id)
 --                   on delete set null), + updated_at
+--
+-- FK SEMANTICS (strict, R3.1): every foreign key below is verified by child
+-- table + child column + referenced schema/table/column + ON DELETE action.
+--   exact match  → skipped;
+--   no FK        → canonical FK added;
+--   MISMATCH     → the wrong FK is dropped and the canonical one added —
+--                  metadata-only, safe ONLY because the zero-row preflight
+--                  guarantees empty tables. Wrong semantics are never
+--                  silently accepted.
+-- KNOWN LIVE MISMATCH this reconciles: quotes_client_id_fkey exists live as
+-- ON DELETE SET NULL, but the app contract is ON DELETE CASCADE — the
+-- DELETE_CLIENT reducer optimistically removes the client's quotes
+-- (store.jsx) and api.deleteClient deletes ONLY the client row, relying on
+-- DB cascade ("FK cascade removes the client's quotes + their items"). With
+-- SET NULL, deleted clients would leave orphan quotes that reappear on
+-- reload, diverging from the UI state. Quote documents are client-scoped by
+-- product design; transactions (the financial ledger) are the records that
+-- SURVIVE client deletion (client_id → set null), matching the reducer,
+-- which keeps manual transactions.
 --   * updated_at triggers + canonical user/client indexes for all three
 --   * replaces the 3 unsafe public policies with clients_own / quotes_own /
 --     transactions_own (FOR ALL USING + WITH CHECK auth.uid() = user_id)
@@ -54,6 +73,8 @@
 do $mig$
 declare
   v_rows bigint;
+  fk record;   -- expected FK spec being processed
+  mis record;  -- existing mismatched FK constraint on the same column
 begin
   -- ---------- PREFLIGHT: abort before ANY change if any row exists ----------
   select (select count(*) from public.clients)
@@ -86,17 +107,6 @@ begin
   alter table public.clients add column if not exists project_type text;
   alter table public.clients add column if not exists updated_at   timestamptz not null default now();
 
-  if not exists (
-    select 1
-    from pg_constraint con
-    join pg_attribute att on att.attrelid = con.conrelid and att.attnum = any (con.conkey)
-    where con.conrelid = 'public.clients'::regclass and con.contype = 'f' and att.attname = 'user_id'
-  ) then
-    alter table public.clients add constraint clients_user_id_fkey
-      foreign key (user_id) references auth.users (id) on delete cascade;
-  end if;
-  alter table public.clients alter column user_id set not null;  -- safe: table verified empty
-
   -- ===================================================================
   -- quotes — add the missing app-contract columns (id stays TEXT; legacy
   -- items/subtotal/vat/total kept untouched)
@@ -108,26 +118,6 @@ begin
   alter table public.quotes add column if not exists notes      text;
   alter table public.quotes add column if not exists updated_at timestamptz not null default now();
 
-  if not exists (
-    select 1
-    from pg_constraint con
-    join pg_attribute att on att.attrelid = con.conrelid and att.attnum = any (con.conkey)
-    where con.conrelid = 'public.quotes'::regclass and con.contype = 'f' and att.attname = 'user_id'
-  ) then
-    alter table public.quotes add constraint quotes_user_id_fkey
-      foreign key (user_id) references auth.users (id) on delete cascade;
-  end if;
-  if not exists (
-    select 1
-    from pg_constraint con
-    join pg_attribute att on att.attrelid = con.conrelid and att.attnum = any (con.conkey)
-    where con.conrelid = 'public.quotes'::regclass and con.contype = 'f' and att.attname = 'client_id'
-  ) then
-    alter table public.quotes add constraint quotes_client_id_fkey
-      foreign key (client_id) references public.clients (id) on delete cascade;
-  end if;
-  alter table public.quotes alter column user_id set not null;  -- safe: table verified empty
-
   -- ===================================================================
   -- transactions — add the missing app-contract columns
   -- ===================================================================
@@ -135,25 +125,73 @@ begin
   alter table public.transactions add column if not exists client_id  uuid;
   alter table public.transactions add column if not exists updated_at timestamptz not null default now();
 
-  if not exists (
-    select 1
-    from pg_constraint con
-    join pg_attribute att on att.attrelid = con.conrelid and att.attnum = any (con.conkey)
-    where con.conrelid = 'public.transactions'::regclass and con.contype = 'f' and att.attname = 'user_id'
-  ) then
-    alter table public.transactions add constraint transactions_user_id_fkey
-      foreign key (user_id) references auth.users (id) on delete cascade;
-  end if;
-  if not exists (
-    select 1
-    from pg_constraint con
-    join pg_attribute att on att.attrelid = con.conrelid and att.attnum = any (con.conkey)
-    where con.conrelid = 'public.transactions'::regclass and con.contype = 'f' and att.attname = 'client_id'
-  ) then
-    alter table public.transactions add constraint transactions_client_id_fkey
-      foreign key (client_id) references public.clients (id) on delete set null;
-  end if;
-  alter table public.transactions alter column user_id set not null;  -- safe: table verified empty
+  -- ===================================================================
+  -- FOREIGN KEYS — strict semantics reconciliation (R3.1).
+  -- Each expected FK is matched on child table + child column + referenced
+  -- schema/table/column + ON DELETE action ('c' = cascade, 'n' = set null).
+  -- Exact match → skip. No FK → add canonical. MISMATCH (e.g. the verified
+  -- live quotes_client_id_fkey ON DELETE SET NULL vs. the product-proven
+  -- CASCADE) → drop the wrong FK and add the canonical one. This is
+  -- metadata-only and safe ONLY because the preflight above guarantees all
+  -- three tables are EMPTY. Wrong semantics are never silently accepted.
+  -- ===================================================================
+  for fk in
+    select * from (values
+      ('clients',      'user_id',   'auth',   'users',   'id', 'c', 'clients_user_id_fkey'),
+      ('quotes',       'user_id',   'auth',   'users',   'id', 'c', 'quotes_user_id_fkey'),
+      ('quotes',       'client_id', 'public', 'clients', 'id', 'c', 'quotes_client_id_fkey'),
+      ('transactions', 'user_id',   'auth',   'users',   'id', 'c', 'transactions_user_id_fkey'),
+      ('transactions', 'client_id', 'public', 'clients', 'id', 'n', 'transactions_client_id_fkey')
+    ) as t(child_table, child_col, ref_schema, ref_table, ref_col, del_action, conname)
+  loop
+    -- exact match: same child column, same referenced schema.table(column),
+    -- same ON DELETE action?
+    perform 1
+      from pg_constraint con
+      join pg_class child   on child.oid   = con.conrelid
+      join pg_namespace cns on cns.oid     = child.relnamespace
+      join pg_class parent  on parent.oid  = con.confrelid
+      join pg_namespace pns on pns.oid     = parent.relnamespace
+      join pg_attribute ca  on ca.attrelid = con.conrelid  and ca.attnum = con.conkey[1]
+      join pg_attribute pa  on pa.attrelid = con.confrelid and pa.attnum = con.confkey[1]
+     where con.contype = 'f'
+       and cns.nspname = 'public' and child.relname = fk.child_table
+       and array_length(con.conkey, 1) = 1
+       and ca.attname = fk.child_col
+       and pns.nspname = fk.ref_schema and parent.relname = fk.ref_table
+       and pa.attname = fk.ref_col
+       and con.confdeltype = fk.del_action;
+    if found then
+      continue; -- canonical FK already in place
+    end if;
+
+    -- drop every OTHER foreign key on this child column (wrong target and/or
+    -- wrong delete action) — reconciliation under the zero-row guarantee.
+    for mis in
+      select con.conname
+        from pg_constraint con
+        join pg_class child   on child.oid   = con.conrelid
+        join pg_namespace cns on cns.oid     = child.relnamespace
+        join pg_attribute ca  on ca.attrelid = con.conrelid and ca.attnum = any (con.conkey)
+       where con.contype = 'f'
+         and cns.nspname = 'public' and child.relname = fk.child_table
+         and ca.attname = fk.child_col
+    loop
+      raise notice 'crm_live_schema_contract_repair: replacing mismatched FK %.% (%)', fk.child_table, fk.child_col, mis.conname;
+      execute format('alter table public.%I drop constraint %I', fk.child_table, mis.conname);
+    end loop;
+
+    execute format(
+      'alter table public.%I add constraint %I foreign key (%I) references %I.%I (%I) on delete %s',
+      fk.child_table, fk.conname, fk.child_col, fk.ref_schema, fk.ref_table, fk.ref_col,
+      case fk.del_action when 'c' then 'cascade' when 'n' then 'set null' end
+    );
+  end loop;
+
+  -- ownership becomes mandatory (safe: tables verified empty by the preflight)
+  alter table public.clients      alter column user_id set not null;
+  alter table public.quotes       alter column user_id set not null;
+  alter table public.transactions alter column user_id set not null;
 
   -- ---------- canonical indexes ----------
   create index if not exists idx_clients_user  on public.clients (user_id);
@@ -224,6 +262,28 @@ $mig$;
 --         ('transactions','updated_at'))
 --     order by table_name, column_name;
 --    -- expect all 14 rows; user_id rows NOT NULL / uuid.
+
+-- 2b. FK semantics are canonical (esp. quotes.client_id now CASCADE):
+--    select child.relname as child_table, ca.attname as child_col,
+--           pns.nspname || '.' || parent.relname as references_table,
+--           pa.attname as ref_col,
+--           case con.confdeltype when 'c' then 'CASCADE' when 'n' then 'SET NULL' else con.confdeltype::text end as on_delete
+--      from pg_constraint con
+--      join pg_class child   on child.oid   = con.conrelid
+--      join pg_namespace cns on cns.oid     = child.relnamespace
+--      join pg_class parent  on parent.oid  = con.confrelid
+--      join pg_namespace pns on pns.oid     = parent.relnamespace
+--      join pg_attribute ca  on ca.attrelid = con.conrelid  and ca.attnum = con.conkey[1]
+--      join pg_attribute pa  on pa.attrelid = con.confrelid and pa.attnum = con.confkey[1]
+--     where con.contype = 'f' and cns.nspname = 'public'
+--       and child.relname in ('clients','quotes','transactions')
+--     order by child.relname, ca.attname;
+--    -- expect exactly 5 rows:
+--    --   clients.user_id        → auth.users.id       CASCADE
+--    --   quotes.client_id       → public.clients.id   CASCADE   (was SET NULL live)
+--    --   quotes.user_id         → auth.users.id       CASCADE
+--    --   transactions.client_id → public.clients.id   SET NULL
+--    --   transactions.user_id   → auth.users.id       CASCADE
 
 -- 3. The unsafe permissive policy is GONE and ownership policies are in place:
 --    select tablename, policyname, cmd, qual, with_check from pg_policies

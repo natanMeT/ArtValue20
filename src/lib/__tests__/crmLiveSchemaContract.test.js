@@ -83,7 +83,7 @@ describe('R3 · repair migration — coverage and types', () => {
     // every user_id is uuid and becomes NOT NULL (zero-row guarantee makes this safe)
     for (const t of ['clients', 'quotes', 'transactions']) {
       expect(new RegExp(`alter table public\\.${t} add column if not exists user_id\\s+uuid`).test(MIG), t).toBe(true);
-      expect(MIG.includes(`alter table public.${t} alter column user_id set not null`), t).toBe(true);
+      expect(new RegExp(`alter table public\\.${t}\\s+alter column user_id set not null`).test(MIG), t).toBe(true);
     }
     // updated_at everywhere + canonical triggers
     expect((MIG.match(/add column if not exists updated_at\s+timestamptz not null default now\(\)/g) || []).length).toBe(3);
@@ -93,13 +93,61 @@ describe('R3 · repair migration — coverage and types', () => {
     }
   });
 
-  it('adds the canonical FKs and indexes', () => {
-    expect(MIG).toContain('foreign key (user_id) references auth.users (id) on delete cascade');
-    expect(MIG).toContain('foreign key (client_id) references public.clients (id) on delete cascade');      // quotes
-    expect(MIG).toContain('foreign key (client_id) references public.clients (id) on delete set null');     // transactions
+  it('declares the exact five canonical FK specs — including the delete actions — and the indexes', () => {
+    // the strict reconciliation loop is driven by this frozen spec table:
+    // (child_table, child_col, ref_schema, ref_table, ref_col, del_action, conname)
+    for (const spec of [
+      "('clients',      'user_id',   'auth',   'users',   'id', 'c', 'clients_user_id_fkey')",
+      "('quotes',       'user_id',   'auth',   'users',   'id', 'c', 'quotes_user_id_fkey')",
+      "('quotes',       'client_id', 'public', 'clients', 'id', 'c', 'quotes_client_id_fkey')",       // CASCADE — product-proven
+      "('transactions', 'user_id',   'auth',   'users',   'id', 'c', 'transactions_user_id_fkey')",
+      "('transactions', 'client_id', 'public', 'clients', 'id', 'n', 'transactions_client_id_fkey')", // SET NULL — ledger survives
+    ]) {
+      expect(MIG.includes(spec), spec).toBe(true);
+    }
+    // and exactly those five (no extra FK spec rows)
+    expect((MIG.match(/_fkey'\)/g) || []).length).toBe(5);
+    // the canonical FK is added via the audited dynamic statement
+    expect(MIG).toContain("foreign key (%I) references %I.%I (%I) on delete %s");
+    expect(MIG).toContain("case fk.del_action when 'c' then 'cascade' when 'n' then 'set null' end");
     for (const idx of ['idx_clients_user', 'idx_quotes_user', 'idx_quotes_client', 'idx_tx_user']) {
       expect(new RegExp(`create index if not exists ${idx} `).test(MIG), idx).toBe(true);
     }
+  });
+
+  it('FK guard is STRICT: matches child column + referenced schema/table/column + ON DELETE action', () => {
+    // the exact-match probe must constrain every dimension — a wrong-target or
+    // wrong-delete-action FK can never satisfy it
+    for (const cond of [
+      'ca.attname = fk.child_col',
+      'pns.nspname = fk.ref_schema and parent.relname = fk.ref_table',
+      'pa.attname = fk.ref_col',
+      'con.confdeltype = fk.del_action',
+      'array_length(con.conkey, 1) = 1',
+    ]) {
+      expect(MIG.includes(cond), cond).toBe(true);
+    }
+    // exact match → skip; mismatch → drop the wrong FK and add the canonical
+    // one (metadata-only under the zero-row guard); never silently accepted
+    expect(MIG).toContain('continue; -- canonical FK already in place');
+    expect(MIG).toContain("execute format('alter table public.%I drop constraint %I', fk.child_table, mis.conname)");
+    expect(MIG).toContain('replacing mismatched FK');
+    // the verified LIVE mismatch (quotes_client_id_fkey ON DELETE SET NULL)
+    // is called out as intentionally reconciled to CASCADE
+    expect(/quotes_client_id_fkey[^]*SET NULL/i.test(MIG)).toBe(true);
+    // reconciliation happens BEFORE the policy changes (executable order)
+    const exe = MIG.split('\n').filter((l) => !/^\s*--/.test(l)).join('\n');
+    expect(exe.indexOf('drop constraint')).toBeLessThan(exe.indexOf('create policy'));
+  });
+
+  it('quotes.client_id delete semantics are pinned CASCADE across schema.sql and the migration', () => {
+    // canonical fresh-DB contract
+    expect(schemaColumnLine('quotes', 'client_id')).toContain('references public.clients (id) on delete cascade');
+    // ledger survives client deletion in BOTH contracts
+    expect(schemaColumnLine('transactions', 'client_id')).toContain('references public.clients (id) on delete set null');
+    // and the repository evidence is documented where the decision lives
+    expect(SCHEMA.includes('PRODUCT-PROVEN')).toBe(true);
+    expect(MIG.includes('api.deleteClient')).toBe(true);
   });
 
   it('quotes.id / quote_items / outreach_leads are untouched (text compat preserved)', () => {
@@ -135,9 +183,12 @@ describe('R3 · repair migration — safety', () => {
   });
 
   it('contains no destructive or data-mutating statements', () => {
-    for (const banned of [/^drop table\b/, /^drop column\b/, /^delete\b/, /^truncate\b/, /^update\b/, /^insert\b/, /^grant\b/, /^revoke\b/, /rename\b/]) {
+    for (const banned of [/^drop table\b/, /^delete\b/, /^truncate\b/, /^update\b/, /^insert\b/, /^grant\b/, /^revoke\b/, /rename\b/]) {
       expect(executable.some((l) => banned.test(l)), String(banned)).toBe(false);
     }
+    // no column is ever dropped anywhere (constraint drops are the ONLY drops
+    // besides trigger/policy recreation, and only inside the guarded FK loop)
+    expect(executable.some((l) => l.includes('drop column'))).toBe(false);
     expect(MIG.includes('backfill')).toBe(true); // the guard message forbids guessing ownership
   });
 
@@ -163,7 +214,11 @@ describe('R3 · repair migration — safety', () => {
     for (const l of executable.filter((x) => x.startsWith('create index'))) {
       expect(l.includes('if not exists'), l).toBe(true);
     }
-    // FK additions are wrapped in pg_constraint existence checks
-    expect((MIG.match(/add constraint \w+_fkey/g) || []).length).toBe((MIG.match(/from pg_constraint con/g) || []).length);
+    // FK work happens ONLY inside the strict reconciliation loop: one dynamic
+    // add-constraint statement, guarded by the exact-match probe (perform +
+    // continue), so a second run after success is a clean no-op
+    expect((MIG.match(/add constraint/g) || []).length).toBe(1);
+    expect((MIG.match(/perform 1/g) || []).length).toBe(1);
+    expect(MIG.indexOf('perform 1')).toBeLessThan(MIG.indexOf('add constraint'));
   });
 });

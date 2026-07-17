@@ -53,6 +53,12 @@ create table if not exists public.quotes (
   id         text primary key default (gen_random_uuid()::text),
   user_id    uuid not null references auth.users (id) on delete cascade,
   number     text,
+  -- ON DELETE CASCADE is the PRODUCT-PROVEN semantic (R3.1): DELETE_CLIENT in
+  -- store.jsx optimistically removes the client's quotes, and api.deleteClient
+  -- deletes only the client row, relying on this cascade ("FK cascade removes
+  -- the client's quotes + their items"). SET NULL would resurrect orphan
+  -- quotes on reload. Financial history that must SURVIVE client deletion
+  -- lives in transactions (client_id → on delete set null), not here.
   client_id  uuid references public.clients (id) on delete cascade,
   date       date,
   valid_days integer default 30,
