@@ -105,6 +105,19 @@ create table if not exists public.outreach_leads (
 -- ---- migrations for re-runs on existing tables ----
 alter table public.outreach_leads add column if not exists need text;
 
+-- ---- live-production compatibility (R3, 2026-07-17) ----
+-- The LIVE clients/quotes/transactions tables predate this canonical file and
+-- carry legacy extras the current app neither reads nor writes:
+--   clients.pipeline_stage, clients.project_value,
+--   quotes.items / quotes.subtotal / quotes.vat / quotes.total.
+-- Those are intentionally NOT part of this fresh-database schema. The
+-- versioned migration supabase/migrations/20260717090000_crm_live_schema_
+-- contract_repair.sql repairs the live tables IN PLACE (adds the missing
+-- app-contract columns above + per-user ownership RLS, guarded by a
+-- zero-row preflight) while leaving the legacy columns untouched. This file
+-- remains the contract for a FRESH database; the migration is the contract
+-- for the existing live one. quotes.id stays TEXT in both (see note above).
+
 -- ---------------- indexes ----------------
 create index if not exists idx_clients_user      on public.clients (user_id);
 create index if not exists idx_quotes_user       on public.quotes (user_id);
