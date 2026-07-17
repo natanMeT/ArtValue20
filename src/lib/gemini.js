@@ -10,13 +10,15 @@ import { activePack, buildJakeSystem } from './jakePack.js';
 // Gateway action `jake.draft_message` — the ONLY operation in this file that is
 // gateway-routed. Everything else stays on its legacy path.
 import { callAiGateway } from './aiGatewayClient.js';
+import { resolveLocalEngineUrl } from './localEngines.js';
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.0-flash';
 
 // Local LLM (Ollama / any OpenAI-compatible server). When set, ALL text AI runs
 // locally on the user's GPU — free, unlimited, private — instead of Gemini cloud.
-const LOCAL_LLM_URL = (import.meta.env.VITE_LOCAL_LLM_URL || '').replace(/\/$/, '');
+// Gated: hosted production builds resolve to '' (see localEngines.js).
+const LOCAL_LLM_URL = resolveLocalEngineUrl(import.meta.env.VITE_LOCAL_LLM_URL);
 const LOCAL_LLM_MODEL = import.meta.env.VITE_LOCAL_LLM_MODEL || 'aya-expanse:8b';
 // Separate model for the AdStudio Creative Director (DictaLM = wilder/more original).
 // Jake & all other text AI keep using LOCAL_LLM_MODEL (aya — fast & coherent).
@@ -41,7 +43,8 @@ const JAKE_NO_THINK = /qwen3/i.test(JAKE_MODEL) ? '\n\n/no_think' : '';
 export const isGeminiConfigured = Boolean(API_KEY) || useLocalLLM;
 
 // If the GPU is full (ComfyUI holding image models), free it so the LLM can load.
-const COMFY_URL = (import.meta.env.VITE_COMFYUI_URL || '').replace(/\/$/, '');
+// Gated: hosted production builds resolve to '' (see localEngines.js).
+const COMFY_URL = resolveLocalEngineUrl(import.meta.env.VITE_COMFYUI_URL);
 async function freeImageVram() {
   if (!COMFY_URL) return;
   try {
