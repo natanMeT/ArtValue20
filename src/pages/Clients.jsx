@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useStore } from '../store/store.jsx';
+import { saveLabel } from '../lib/saveLabel.js';
 import { StaggerGroup, Reveal } from '../components/ui/motion.jsx';
 import Icon from '../components/ui/Icon.jsx';
 import Modal from '../components/ui/Modal.jsx';
@@ -27,7 +28,7 @@ function initials(name) {
 }
 
 export default function Clients() {
-  const { data, dispatch, toast } = useStore();
+  const { data, dispatch, toast, mode } = useStore();
   const navigate = useNavigate();
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState('all');
@@ -56,10 +57,10 @@ export default function Clients() {
   const save = (client) => {
     if (client.id) {
       dispatch({ type: 'UPDATE_CLIENT', payload: client });
-      toast('הלקוח עודכן · נשמר מקומית');
+      toast(`הלקוח עודכן · ${saveLabel(mode)}`);
     } else {
       dispatch({ type: 'ADD_CLIENT', payload: client });
-      toast('לקוח נוסף · נשמר מקומית');
+      toast(`לקוח נוסף · ${saveLabel(mode)}`);
     }
     setEditing(null);
   };
