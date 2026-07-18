@@ -53,6 +53,12 @@ create table if not exists public.quotes (
   id         text primary key default (gen_random_uuid()::text),
   user_id    uuid not null references auth.users (id) on delete cascade,
   number     text,
+  -- ON DELETE CASCADE is the PRODUCT-PROVEN semantic (R3.1): DELETE_CLIENT in
+  -- store.jsx optimistically removes the client's quotes, and api.deleteClient
+  -- deletes only the client row, relying on this cascade ("FK cascade removes
+  -- the client's quotes + their items"). SET NULL would resurrect orphan
+  -- quotes on reload. Financial history that must SURVIVE client deletion
+  -- lives in transactions (client_id → on delete set null), not here.
   client_id  uuid references public.clients (id) on delete cascade,
   date       date,
   valid_days integer default 30,
@@ -104,6 +110,19 @@ create table if not exists public.outreach_leads (
 
 -- ---- migrations for re-runs on existing tables ----
 alter table public.outreach_leads add column if not exists need text;
+
+-- ---- live-production compatibility (R3, 2026-07-17) ----
+-- The LIVE clients/quotes/transactions tables predate this canonical file and
+-- carry legacy extras the current app neither reads nor writes:
+--   clients.pipeline_stage, clients.project_value,
+--   quotes.items / quotes.subtotal / quotes.vat / quotes.total.
+-- Those are intentionally NOT part of this fresh-database schema. The
+-- versioned migration supabase/migrations/20260717090000_crm_live_schema_
+-- contract_repair.sql repairs the live tables IN PLACE (adds the missing
+-- app-contract columns above + per-user ownership RLS, guarded by a
+-- zero-row preflight) while leaving the legacy columns untouched. This file
+-- remains the contract for a FRESH database; the migration is the contract
+-- for the existing live one. quotes.id stays TEXT in both (see note above).
 
 -- ---------------- indexes ----------------
 create index if not exists idx_clients_user      on public.clients (user_id);
