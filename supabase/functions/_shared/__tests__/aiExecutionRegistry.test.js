@@ -50,10 +50,21 @@ describe('purity and isolation', () => {
     expect(imports.sort()).toEqual(['./aiGateway.js', './aiProviderCore.js']);
   });
 
-  it('no existing runtime or shared file imports aiExecutionRegistry (zero wiring)', () => {
+  it('index.ts is the SOLE production runtime/shared importer of aiExecutionRegistry (Slice 2C)', () => {
+    // Slice 2C wired the registry into the Edge Function shell: index.ts MUST
+    // import createExecutionRegistry from the canonical shared path...
+    const indexSrc = readFileSync(
+      fileURLToPath(new URL('../../ai-gateway/index.ts', import.meta.url)),
+      'utf8',
+    );
+    expect(indexSrc).toMatch(/import\s*\{\s*createExecutionRegistry\s*\}\s*from\s*'\.\.\/_shared\/aiExecutionRegistry\.js'/);
+    // ...and every OTHER production runtime/shared module (including the new
+    // gemini adapter, which must never import or instantiate the registry)
+    // must still carry no registry reference. Tests may import the registry
+    // for verification; this sole-importer rule covers production modules only.
     const files = [
-      '../../ai-gateway/index.ts',
       '../../ai-gateway/geminiProvider.ts',
+      '../../ai-gateway/geminiAdapter.ts',
       '../../ai-gateway/actionProfiles.ts',
       '../../ai-gateway/budgetGuard.ts',
       '../../ai-gateway/budgetPolicy.ts',

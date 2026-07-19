@@ -44,11 +44,23 @@ import {
   validateAiGatewayInput,
   AI_GATEWAY_ERROR_CODES,
 } from '../_shared/aiGatewayContract.js';
-import { runGeminiText } from './geminiProvider.ts';
+import { createExecutionRegistry } from '../_shared/aiExecutionRegistry.js';
+import { geminiAdapter, requiredGatewayCapabilities } from './geminiAdapter.ts';
 import { getActionProfile } from './actionProfiles.ts';
 import { getBudgetPolicy, resolveEstimatedCostUsd } from './budgetPolicy.ts';
 import { reserveAiBudget } from './budgetGuard.ts';
 import { logUsage } from './usageLog.ts';
+
+// ---- execution registry (M2 Slice 2C): ONE instance, ONE registration ----
+// Registration captures the adapter by typeof only — it can NEVER invoke
+// run/isConfigured. A failed registration is a server misconfiguration:
+// fail fast at module load (same precedent as the actionProfiles coverage
+// check) with a deterministic, content-free error.
+const executionRegistry = createExecutionRegistry();
+const geminiRegistration = executionRegistry.register(geminiAdapter);
+if (!geminiRegistration.ok) {
+  throw new Error('ai-gateway: gemini adapter registration failed');
+}
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -247,8 +259,31 @@ serve?.(async (req: Request): Promise<Response> => {
       return json(buildBudgetGuardUnavailableResponse(decision), 503);
     }
 
-    // Approved + reserved → run the provider. resultChars is a COUNT only.
-    const { status, body: out, resultChars } = await runGeminiText(decision, profile);
+    // Approved + reserved → resolve the server-owned required capabilities
+    // and select the ONE adapter for the server-owned routing decision. Both
+    // steps are deterministic and fail CLOSED to the existing provider-error
+    // path (502, same client-visible body, content-free usage row) — no
+    // fallback, no second provider, no retry. The provider id comes ONLY
+    // from decision.routing.selectedProvider; the capability list comes ONLY
+    // from the static server-owned map + its profile drift guard.
+    const requiredCapabilities = requiredGatewayCapabilities(decision.actionType, profile);
+    if (requiredCapabilities === null) {
+      await recordUsage({ decision, promptChars: inputChars, userId, status: 'provider_error', httpStatus: 502, provider: 'gemini', errorCode: 'provider_error' });
+      return json(buildProviderErrorResponse(decision), 502);
+    }
+    const selection = executionRegistry.selectAdapter({
+      provider: decision.routing.selectedProvider,
+      capabilities: requiredCapabilities,
+    });
+    if (!selection.ok) {
+      await recordUsage({ decision, promptChars: inputChars, userId, status: 'provider_error', httpStatus: 502, provider: 'gemini', errorCode: 'provider_error' });
+      return json(buildProviderErrorResponse(decision), 502);
+    }
+
+    // Selected → run the provider EXACTLY ONCE. selection.adapter.run IS the
+    // unchanged Gemini implementation reference, called with the same
+    // decision/profile arguments as before. resultChars is a COUNT only.
+    const { status, body: out, resultChars } = await selection.adapter.run(decision, profile);
     await recordUsage({
       decision,
       promptChars: inputChars,
