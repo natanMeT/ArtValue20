@@ -12,7 +12,10 @@
 // Purity (same house pattern as aiGateway.js / aiGatewayContract.js):
 // imports ONLY the pure shared modules; no runtime/edge globals, no
 // network, no env, no DB client, no timestamps/ids/randomness; never
-// throws on hostile input;
+// throws on hostile input — including exotic hostile values (throwing
+// getters, throwing/revoked Proxies) whose reflection operations throw:
+// every public object-accepting function fails CLOSED (null / false /
+// safe error result) instead of propagating;
 // never mutates caller input; all vocabularies frozen. It is a LEAF of the
 // pure module graph — nothing existing imports it (M2 Slice 1 ships the
 // contract only; wiring is a later slice).
@@ -134,12 +137,18 @@ export function buildProviderTextResult(rawText) {
 // `json` must already be a validated, safe plain object (the gateway's
 // structured-result validator produces it); rawText is the raw provider
 // string it was parsed from, used ONLY for the content-free char count.
+// A hostile `json` value whose reflection traps throw (Proxy) fail-closes
+// to an invalid_provider_response error result.
 export function buildProviderJsonResult(json, rawText) {
-  if (!isPlainObject(json) || hasDangerousOwnKey(json)) {
+  try {
+    if (!isPlainObject(json) || hasDangerousOwnKey(json)) {
+      return buildProviderErrorResult(AI_GATEWAY_ERROR_CODES.INVALID_PROVIDER_RESPONSE);
+    }
+    const resultChars = (typeof rawText === 'string') ? rawText.length : null;
+    return { ok: true, kind: 'json', json, resultChars };
+  } catch {
     return buildProviderErrorResult(AI_GATEWAY_ERROR_CODES.INVALID_PROVIDER_RESPONSE);
   }
-  const resultChars = (typeof rawText === 'string') ? rawText.length : null;
-  return { ok: true, kind: 'json', json, resultChars };
 }
 
 export function buildProviderErrorResult(code) {
@@ -149,9 +158,20 @@ export function buildProviderErrorResult(code) {
 // ---- adapter-result shape validation (strict, never throws) ----
 // Validates an UNTRUSTED value against the normalized result contract above
 // and returns a FRESH normalized copy, or null on any violation (extra keys,
-// wrong types, unknown kind/code, accessor properties, dangerous keys).
-// Exact-key discipline: a result carries nothing but its contract fields.
+// missing keys, wrong types, unknown kind/code, accessor properties,
+// dangerous keys, hostile Proxies). Exact-key discipline in BOTH directions:
+// a result carries nothing but its contract fields, and every contract field
+// must be present as an own DATA property.
 export function validateProviderResult(value) {
+  try {
+    return validateProviderResultImpl(value);
+  } catch {
+    // Reflection on a hostile value (throwing/revoked Proxy) threw — fail closed.
+    return null;
+  }
+}
+
+function validateProviderResultImpl(value) {
   if (!isPlainObject(value) || hasDangerousOwnKey(value)) return null;
 
   const ok = readData(value, 'ok');
@@ -167,10 +187,16 @@ export function validateProviderResult(value) {
     for (const k of Object.getOwnPropertyNames(err.value)) {
       if (k !== 'code' && k !== 'httpStatus' && k !== 'message') return null;
     }
+    // STRICT shape: all three contract fields must exist as own DATA
+    // properties (absent or accessor → reject). Only `code` carries meaning;
+    // httpStatus/message are then RE-DERIVED from the safe table so
+    // caller-supplied values never survive validation.
     const code = readData(err.value, 'code');
     if (!code.present || !PROVIDER_ADAPTER_ERROR_CODES.includes(code.value)) return null;
-    // Re-derive httpStatus/message from the safe table: a caller-supplied
-    // message can NEVER survive validation, so nothing can leak through it.
+    const httpStatus = readData(err.value, 'httpStatus');
+    if (!httpStatus.present) return null;
+    const message = readData(err.value, 'message');
+    if (!message.present) return null;
     return { ok: false, error: mapProviderError(code.value) };
   }
 
@@ -212,30 +238,79 @@ export function isProviderResult(value) {
 // unknown provider or capability rejects the whole declaration (fail closed,
 // no silent filtering). Returns a deeply frozen fresh object, or null.
 export function declareProviderCapabilities(provider, capabilities) {
-  const prov = normalizeProvider(provider);
-  if (!prov) return null;
-  if (!Array.isArray(capabilities) || capabilities.length === 0) return null;
-  const seen = new Set();
-  for (const cap of capabilities) {
-    if (typeof cap !== 'string' || !PROVIDER_CAPABILITIES.includes(cap)) return null;
-    seen.add(cap);
+  try {
+    const prov = normalizeProvider(provider);
+    if (!prov) return null;
+    if (!Array.isArray(capabilities) || capabilities.length === 0) return null;
+    const seen = new Set();
+    for (let i = 0; i < capabilities.length; i += 1) {
+      // Descriptor reads only — an accessor element (throwing getter) rejects
+      // the declaration instead of being invoked.
+      const d = Object.getOwnPropertyDescriptor(capabilities, i);
+      if (!d || !('value' in d)) return null;
+      const cap = d.value;
+      if (typeof cap !== 'string' || !PROVIDER_CAPABILITIES.includes(cap)) return null;
+      seen.add(cap);
+    }
+    // Canonical order = vocabulary order, so equal declarations are deep-equal
+    // regardless of the order the caller listed them in.
+    const caps = PROVIDER_CAPABILITIES.filter((c) => seen.has(c));
+    return Object.freeze({ provider: prov, capabilities: Object.freeze(caps) });
+  } catch {
+    // Reflection on a hostile value (throwing/revoked Proxy) threw — fail closed.
+    return null;
   }
-  // Canonical order = vocabulary order, so equal declarations are deep-equal
-  // regardless of the order the caller listed them in.
-  const caps = PROVIDER_CAPABILITIES.filter((c) => seen.has(c));
-  return Object.freeze({ provider: prov, capabilities: Object.freeze(caps) });
 }
 
-// True only for a declaration produced by (or equal in shape to) the builder
-// above that includes the given capability. Never throws.
-export function providerDeclaresCapability(declaration, capability) {
+// STRICT canonical-declaration check (module-private): true ONLY for a value
+// deep-equal in shape to a declareProviderCapabilities output —
+//   exactly { provider, capabilities } as own DATA properties,
+//   provider = a CANONICAL AI_PROVIDERS id (no case/whitespace variants),
+//   capabilities = a non-empty array whose own keys are exactly its indices
+//     (+ length), every element a known capability, no duplicates, listed in
+//     canonical vocabulary order.
+// One unknown capability poisons the WHOLE declaration — it never partially
+// counts. Dangerous keys, extra fields, and accessors reject.
+function isCanonicalDeclaration(declaration) {
   if (!isPlainObject(declaration) || hasDangerousOwnKey(declaration)) return false;
-  if (typeof capability !== 'string' || !PROVIDER_CAPABILITIES.includes(capability)) return false;
+  for (const k of Object.getOwnPropertyNames(declaration)) {
+    if (k !== 'provider' && k !== 'capabilities') return false;
+  }
+
   const prov = readData(declaration, 'provider');
   if (!prov.present || normalizeProvider(prov.value) !== prov.value) return false;
+
   const caps = readData(declaration, 'capabilities');
-  if (!caps.present || !Array.isArray(caps.value)) return false;
-  return caps.value.includes(capability);
+  if (!caps.present || !Array.isArray(caps.value) || caps.value.length === 0) return false;
+  const arr = caps.value;
+  const INDEX_RE = /^(0|[1-9]\d*)$/;
+  for (const k of Object.getOwnPropertyNames(arr)) {
+    if (k !== 'length' && !(INDEX_RE.test(k) && Number(k) < arr.length)) return false;
+  }
+  let lastIndex = -1;
+  for (let i = 0; i < arr.length; i += 1) {
+    const d = Object.getOwnPropertyDescriptor(arr, i);
+    if (!d || !('value' in d)) return false;
+    const index = PROVIDER_CAPABILITIES.indexOf(d.value);
+    // index <= lastIndex rejects both duplicates and non-canonical ordering.
+    if (index === -1 || index <= lastIndex) return false;
+    lastIndex = index;
+  }
+  return true;
+}
+
+// True only for a STRICTLY canonical declaration (see above) that includes the
+// given known capability. A malformed declaration — e.g. a valid capability
+// listed alongside an unknown one — always answers false. Never throws.
+export function providerDeclaresCapability(declaration, capability) {
+  try {
+    if (typeof capability !== 'string' || !PROVIDER_CAPABILITIES.includes(capability)) return false;
+    if (!isCanonicalDeclaration(declaration)) return false;
+    return readData(declaration, 'capabilities').value.includes(capability);
+  } catch {
+    // Reflection on a hostile value (throwing/revoked Proxy) threw — fail closed.
+    return false;
+  }
 }
 
 // ---- adapter-shape validation (structural only — NEVER invokes anything) ----
@@ -249,8 +324,17 @@ export function providerDeclaresCapability(declaration, capability) {
 // Extra keys reject (an adapter carries nothing the contract doesn't name).
 // Returns { ok: true, provider, capabilities } (frozen declaration) or
 // { ok: false, reason } with a fixed content-free slug. Never throws; never
-// executes or registers the adapter.
+// executes or registers the adapter. A hostile adapter value whose reflection
+// traps throw (throwing/revoked Proxy) fail-closes to reason 'unsafe_input'.
 export function validateProviderAdapterShape(adapter) {
+  try {
+    return validateProviderAdapterShapeImpl(adapter);
+  } catch {
+    return { ok: false, reason: 'unsafe_input' };
+  }
+}
+
+function validateProviderAdapterShapeImpl(adapter) {
   if (!isPlainObject(adapter)) return { ok: false, reason: 'adapter_not_object' };
   if (hasDangerousOwnKey(adapter)) return { ok: false, reason: 'dangerous_key' };
 

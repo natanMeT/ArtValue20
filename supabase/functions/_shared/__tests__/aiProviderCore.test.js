@@ -243,6 +243,43 @@ describe('validateProviderResult / isProviderResult', () => {
     });
   });
 
+  it('requires ALL THREE error fields (code, httpStatus, message) as own data properties', () => {
+    // code alone is NOT a valid normalized error shape.
+    expect(validateProviderResult({ ok: false, error: { code: 'provider_error' } })).toBe(null);
+    // Missing httpStatus rejected.
+    expect(validateProviderResult({ ok: false, error: { code: 'provider_error', message: 'x' } })).toBe(null);
+    // Missing message rejected.
+    expect(validateProviderResult({ ok: false, error: { code: 'provider_error', httpStatus: 502 } })).toBe(null);
+  });
+
+  it('rejects accessor properties for ANY required error field without invoking the getter', () => {
+    for (const field of ['code', 'httpStatus', 'message']) {
+      const err = { code: 'provider_error', httpStatus: 502, message: 'Provider request failed.' };
+      delete err[field];
+      let invoked = false;
+      Object.defineProperty(err, field, {
+        get() { invoked = true; throw new Error('boom'); },
+        enumerable: true,
+        configurable: true,
+      });
+      const value = { ok: false, error: err };
+      expect(() => validateProviderResult(value), field).not.toThrow();
+      expect(validateProviderResult(value), field).toBe(null);
+      expect(invoked, `getter for ${field} must never be invoked`).toBe(false);
+    }
+  });
+
+  it('accepts a COMPLETE error shape with hostile status/message and normalizes to safe values', () => {
+    const smuggled = {
+      ok: false,
+      error: { code: 'invalid_payload', httpStatus: 200, message: 'LEAKED-UPSTREAM api_key=abc' },
+    };
+    expect(validateProviderResult(smuggled)).toEqual({
+      ok: false,
+      error: { code: 'invalid_payload', httpStatus: 400, message: 'Invalid payload.' },
+    });
+  });
+
   it('rejects error results with unknown codes or extra keys', () => {
     expect(validateProviderResult({ ok: false, error: { code: 'budget_exceeded', httpStatus: 502, message: 'x' } })).toBe(null);
     expect(validateProviderResult({ ok: false, error: { code: 'provider_error', httpStatus: 502, message: 'x', detail: 'y' } })).toBe(null);
@@ -304,6 +341,50 @@ describe('declareProviderCapabilities', () => {
     expect(providerDeclaresCapability(null, 'text')).toBe(false);
     expect(providerDeclaresCapability({ provider: 'GROK', capabilities: ['text'] }, 'text')).toBe(false);
     expect(providerDeclaresCapability({ provider: 'Gemini', capabilities: ['text'] }, 'text')).toBe(false); // non-canonical id
+  });
+
+  it('providerDeclaresCapability is STRICT: one unknown capability poisons the whole declaration', () => {
+    // The headline case: a valid capability alongside an unknown one may NOT count.
+    expect(providerDeclaresCapability({ provider: 'gemini', capabilities: ['text', 'evil'] }, 'text')).toBe(false);
+    expect(providerDeclaresCapability({ provider: 'gemini', capabilities: [] }, 'text')).toBe(false); // empty
+    expect(providerDeclaresCapability({ provider: 'gemini', capabilities: ['text', 'text'] }, 'text')).toBe(false); // duplicate
+    expect(providerDeclaresCapability({ provider: 'gemini', capabilities: ['json', 'text'] }, 'text')).toBe(false); // non-canonical order
+    expect(providerDeclaresCapability({ provider: 'gemini', capabilities: ['text'], extra: 1 }, 'text')).toBe(false); // extra field
+    // Dangerous own key on the declaration object.
+    const polluted = JSON.parse('{"__proto__": {}, "provider": "gemini", "capabilities": ["text"]}');
+    expect(providerDeclaresCapability(polluted, 'text')).toBe(false);
+  });
+
+  it('providerDeclaresCapability rejects accessor properties without invoking getters', () => {
+    let invoked = false;
+    const hostileDecl = { provider: 'gemini' };
+    Object.defineProperty(hostileDecl, 'capabilities', {
+      get() { invoked = true; throw new Error('boom'); },
+      enumerable: true,
+    });
+    expect(() => providerDeclaresCapability(hostileDecl, 'text')).not.toThrow();
+    expect(providerDeclaresCapability(hostileDecl, 'text')).toBe(false);
+    expect(invoked).toBe(false);
+
+    // Accessor ELEMENT inside the capabilities array.
+    const arr = ['text'];
+    Object.defineProperty(arr, 1, {
+      get() { invoked = true; throw new Error('boom'); },
+      enumerable: true,
+    });
+    arr.length = 2;
+    expect(() => providerDeclaresCapability({ provider: 'gemini', capabilities: arr }, 'text')).not.toThrow();
+    expect(providerDeclaresCapability({ provider: 'gemini', capabilities: arr }, 'text')).toBe(false);
+    expect(invoked).toBe(false);
+  });
+
+  it('every declareProviderCapabilities output passes providerDeclaresCapability', () => {
+    for (const p of AI_PROVIDERS) {
+      const d = declareProviderCapabilities(p, ['multi_turn', 'json', 'text']); // any order in → canonical out
+      expect(providerDeclaresCapability(d, 'text'), p).toBe(true);
+      expect(providerDeclaresCapability(d, 'json'), p).toBe(true);
+      expect(providerDeclaresCapability(d, 'multi_turn'), p).toBe(true);
+    }
   });
 });
 
@@ -386,6 +467,101 @@ describe('validateProviderAdapterShape', () => {
     expect(Object.getOwnPropertyNames(adapter).sort()).toEqual(keysBefore);
     expect(adapter.provider).toBe('gemini');
     expect(adapter.capabilities).toEqual(['text', 'json', 'multi_turn']);
+  });
+});
+
+// ---------------------------------------------------------------
+// Hostile Proxy inputs — the "never throws" guarantee must hold even
+// when reflection itself (getPrototypeOf / ownKeys / descriptor / has)
+// throws or the Proxy is revoked. Every public object-accepting
+// function fails CLOSED instead of propagating.
+// ---------------------------------------------------------------
+describe('hostile Proxy inputs', () => {
+  const throwingProxy = (target = {}) => new Proxy(target, {
+    getPrototypeOf() { throw new Error('trap'); },
+    ownKeys() { throw new Error('trap'); },
+    getOwnPropertyDescriptor() { throw new Error('trap'); },
+    has() { throw new Error('trap'); },
+    get() { throw new Error('trap'); },
+  });
+  const revokedProxy = (target = {}) => {
+    const { proxy, revoke } = Proxy.revocable(target, {});
+    revoke();
+    return proxy;
+  };
+  const hostileValues = () => [
+    ['throwing proxy', throwingProxy()],
+    ['revoked proxy', revokedProxy()],
+    ['throwing array proxy', throwingProxy([])],
+    ['revoked array proxy', revokedProxy([])],
+  ];
+
+  it('validateProviderResult / isProviderResult fail closed', () => {
+    for (const [label, hostile] of hostileValues()) {
+      expect(() => validateProviderResult(hostile), label).not.toThrow();
+      expect(validateProviderResult(hostile), label).toBe(null);
+      expect(() => isProviderResult(hostile), label).not.toThrow();
+      expect(isProviderResult(hostile), label).toBe(false);
+    }
+  });
+
+  it('buildProviderJsonResult fails closed to a safe error result', () => {
+    const invalid = buildProviderErrorResult('invalid_provider_response');
+    for (const [label, hostile] of hostileValues()) {
+      expect(() => buildProviderJsonResult(hostile, '{}'), label).not.toThrow();
+      expect(buildProviderJsonResult(hostile, '{}'), label).toEqual(invalid);
+    }
+  });
+
+  it('declareProviderCapabilities fails closed to null', () => {
+    for (const [label, hostile] of hostileValues()) {
+      // hostile as the capabilities list...
+      expect(() => declareProviderCapabilities('gemini', hostile), label).not.toThrow();
+      expect(declareProviderCapabilities('gemini', hostile), label).toBe(null);
+      // ...and as the provider (non-string → normalizes to null, no throw).
+      expect(() => declareProviderCapabilities(hostile, ['text']), label).not.toThrow();
+      expect(declareProviderCapabilities(hostile, ['text']), label).toBe(null);
+    }
+  });
+
+  it('providerDeclaresCapability fails closed to false', () => {
+    for (const [label, hostile] of hostileValues()) {
+      expect(() => providerDeclaresCapability(hostile, 'text'), label).not.toThrow();
+      expect(providerDeclaresCapability(hostile, 'text'), label).toBe(false);
+      // Hostile capabilities array nested inside an otherwise-valid declaration.
+      const decl = { provider: 'gemini', capabilities: hostile };
+      expect(() => providerDeclaresCapability(decl, 'text'), label).not.toThrow();
+      expect(providerDeclaresCapability(decl, 'text'), label).toBe(false);
+    }
+  });
+
+  it('validateProviderAdapterShape / isProviderAdapterShape fail closed', () => {
+    for (const [label, hostile] of hostileValues()) {
+      expect(() => validateProviderAdapterShape(hostile), label).not.toThrow();
+      const r = validateProviderAdapterShape(hostile);
+      expect(r.ok, label).toBe(false);
+      // Plain-object proxies throw during reflection → 'unsafe_input'; array
+      // proxies are rejected even earlier (an array is not an adapter object).
+      expect(['unsafe_input', 'adapter_not_object'], label).toContain(r.reason);
+      expect(() => isProviderAdapterShape(hostile), label).not.toThrow();
+      expect(isProviderAdapterShape(hostile), label).toBe(false);
+      // Hostile capabilities nested inside an otherwise-valid adapter → the
+      // nested guard fails closed and the shape check reports the field.
+      const adapter = { provider: 'gemini', capabilities: hostile, isConfigured() {}, run() {} };
+      expect(() => validateProviderAdapterShape(adapter), label).not.toThrow();
+      expect(validateProviderAdapterShape(adapter), label).toEqual({ ok: false, reason: 'invalid_capabilities' });
+    }
+    // The catch path specifically: object-target proxies throw mid-reflection.
+    expect(validateProviderAdapterShape(throwingProxy())).toEqual({ ok: false, reason: 'unsafe_input' });
+    expect(validateProviderAdapterShape(revokedProxy())).toEqual({ ok: false, reason: 'unsafe_input' });
+  });
+
+  it('mapProviderError is unaffected by hostile non-string codes', () => {
+    const fallback = { code: 'provider_error', httpStatus: 502, message: 'Provider request failed.' };
+    for (const [label, hostile] of hostileValues()) {
+      expect(() => mapProviderError(hostile), label).not.toThrow();
+      expect(mapProviderError(hostile), label).toEqual(fallback);
+    }
   });
 });
 
