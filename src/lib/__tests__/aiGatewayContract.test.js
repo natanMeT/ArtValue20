@@ -340,7 +340,7 @@ describe('input contract · strict per-action validation (C1)', () => {
     const code = read('../../../supabase/functions/ai-gateway/index.ts');
     const validateIdx = code.indexOf('validateAiGatewayInput(');
     const guardIdx = code.indexOf('reserveAiBudget({');
-    const providerIdx = code.indexOf('runGeminiText(decision');
+    const providerIdx = code.indexOf('.adapter.run(decision');
     expect(validateIdx).toBeGreaterThan(-1);
     expect(guardIdx).toBeGreaterThan(-1);
     expect(providerIdx).toBeGreaterThan(-1);
@@ -370,7 +370,7 @@ describe('input contract · strict per-action validation (C1)', () => {
     const code = read('../../../supabase/functions/ai-gateway/index.ts');
     const rejectIdx = code.indexOf('buildInvalidPayloadResponse');
     const guardIdx = code.indexOf('reserveAiBudget({');
-    const providerIdx = code.indexOf('runGeminiText(decision');
+    const providerIdx = code.indexOf('.adapter.run(decision');
     expect(rejectIdx).toBeGreaterThan(-1);
     expect(rejectIdx).toBeLessThan(guardIdx);    // no budget reservation on invalid input
     expect(rejectIdx).toBeLessThan(providerIdx); // no provider call on invalid input
@@ -832,13 +832,18 @@ describe('guardrail · usage.budgetCheck reflects real enforcement state', () =>
 });
 
 describe('guardrail · edge function shell', () => {
-  it('delegates to contract + gemini provider; holds no key/secret/fetch/env itself', () => {
+  it('delegates to contract + gemini adapter via the execution registry; holds no key/secret/fetch/env itself', () => {
     const code = read('../../../supabase/functions/ai-gateway/index.ts');
     expect(code).toMatch(/from '\.\.\/_shared\/aiGatewayContract\.js'/);
-    expect(code).toMatch(/from '\.\/geminiProvider\.ts'/);
+    // Slice 2C: the shell reaches Gemini ONLY through the adapter + registry —
+    // never by importing the provider module directly.
+    expect(code).toMatch(/from '\.\/geminiAdapter\.ts'/);
+    expect(code).toMatch(/from '\.\.\/_shared\/aiExecutionRegistry\.js'/);
+    expect(code.includes("from './geminiProvider.ts'")).toBe(false);
+    expect(code.includes('runGeminiText')).toBe(false);
     expect(code.includes('src/lib')).toBe(false);
     expect(code.includes('buildAiGatewayResponse')).toBe(true);
-    expect(code.includes('runGeminiText')).toBe(true);
+    expect(code.includes('selection.adapter.run(decision, profile)')).toBe(true);
     // HTTP shell essentials
     expect(code.includes('POST')).toBe(true);
     expect(code.includes('OPTIONS')).toBe(true);
@@ -1651,7 +1656,7 @@ describe('budget · index.ts flow (auth-first, guard-before-provider)', () => {
 
   it('the budget guard runs BEFORE the Gemini provider call', () => {
     const guardCallIdx = code.indexOf('reserveAiBudget({');       // the CALL
-    const providerCallIdx = code.indexOf('runGeminiText(decision'); // the CALL
+    const providerCallIdx = code.indexOf('.adapter.run(decision'); // the CALL
     expect(guardCallIdx).toBeGreaterThan(-1);
     expect(providerCallIdx).toBeGreaterThan(-1);
     expect(guardCallIdx).toBeLessThan(providerCallIdx);

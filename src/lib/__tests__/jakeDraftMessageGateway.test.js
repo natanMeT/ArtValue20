@@ -125,12 +125,14 @@ describe('jake.draft_message · strict input contract', () => {
   });
 
   it('invalid input fails at the validator — i.e. BEFORE budget reservation and provider execution (shell order guard)', () => {
-    // The shell runs validateAiGatewayInput → reserveAiBudget → runGeminiText in
-    // that source order for EVERY executable action, jake.draft_message included.
+    // The shell runs validateAiGatewayInput → reserveAiBudget → the
+    // registry-selected adapter.run (Slice 2C; run IS the unchanged Gemini
+    // implementation) in that source order for EVERY executable action,
+    // jake.draft_message included.
     const code = read('../../../supabase/functions/ai-gateway/index.ts');
     const v = code.indexOf('validateAiGatewayInput(decision.actionType');
     const b = code.indexOf('reserveAiBudget(');
-    const p = code.indexOf('runGeminiText(decision');
+    const p = code.indexOf('.adapter.run(decision');
     expect(v).toBeGreaterThan(-1);
     expect(b).toBeGreaterThan(v);
     expect(p).toBeGreaterThan(b);
