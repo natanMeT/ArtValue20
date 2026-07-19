@@ -28,6 +28,14 @@ export const AI_ACTION_TYPES = Object.freeze([
   // the Gateway with a server-owned drafting profile. Wired to the frontend
   // draftWithJake seam; instruction authority stays server-side.
   'jake.draft_message',
+  // Jake conversational lane (M2 J1): multi-turn Jake CHAT with the full
+  // server-owned production authority (persona + rules + action protocol +
+  // confirm mode). Server-only in J1 — NO frontend caller is routed yet.
+  'jake.chat',
+  // Jake force-actions lane (M2 J1): the second-pass actions-only engine —
+  // exactly ONE user message in, a fenced ```actions block (or []) out.
+  // Server-only in J1 — NO frontend caller is routed yet.
+  'jake.force_actions',
   'studio.prompt_enhance',
   'crm.suggest_next_action',
   'image.poster',
@@ -135,6 +143,8 @@ export const COST_TIER_BY_ACTION = Object.freeze({
   'text.crm_message': 'low',
   'text.multi_turn': 'low',
   'jake.draft_message': 'low',
+  'jake.chat': 'low',
+  'jake.force_actions': 'low',
   'studio.prompt_enhance': 'low',
   'crm.suggest_next_action': 'low',
   'text.strategy': 'medium',
@@ -166,6 +176,8 @@ export const DEFAULT_PROVIDER_BY_ACTION = Object.freeze({
   'text.crm_message': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'text.multi_turn': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'jake.draft_message': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
+  'jake.chat': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
+  'jake.force_actions': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'studio.prompt_enhance': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'crm.suggest_next_action': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'text.strategy': Object.freeze(['anthropic', 'gemini', 'openai', 'openrouter', 'ollama']),
