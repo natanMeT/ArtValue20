@@ -36,6 +36,9 @@ const EXPECTED_CAPABILITIES = {
   'crm.suggest_next_action': ['json'],
   'text.multi_turn': ['text', 'multi_turn'],
   'jake.draft_message': ['text', 'multi_turn'],
+  // M2 J1 — server-only Jake chat + force-actions lanes.
+  'jake.chat': ['text', 'multi_turn'],
+  'jake.force_actions': ['text', 'multi_turn'],
 };
 
 // ---------------------------------------------------------------

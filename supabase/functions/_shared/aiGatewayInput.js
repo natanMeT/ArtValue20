@@ -126,6 +126,22 @@ function multiTurnProfile() {
   return { kind: 'multiTurn', allowedKeys: ['messages', 'context'], fields: {} };
 }
 
+// Single-user-turn profile (M2 J1, jake.force_actions): the SAME strict
+// multi-turn payload shape — { messages, context?: { summary } } — further
+// constrained to EXACTLY ONE message whose role is 'user'. An assistant
+// message or a second message FAILS (never trimmed or repaired); every other
+// multi-turn rule (exact keys, trimmed non-empty text, per-message + combined
+// + context limits, structural safety) applies unchanged.
+function singleUserTurnProfile() {
+  return {
+    kind: 'multiTurn',
+    allowedKeys: ['messages', 'context'],
+    fields: {},
+    maxMessages: 1,
+    roles: Object.freeze(['user']),
+  };
+}
+
 function deepFreeze(value) {
   if (value && typeof value === 'object') {
     for (const k of Object.keys(value)) deepFreeze(value[k]);
@@ -143,6 +159,11 @@ const PROFILES = deepFreeze({
   // Jake drafting lane (Slice B): same strict multi-turn contract as C2 —
   // { messages: [{role,text}...], context?: { summary } }, nothing more.
   'jake.draft_message': multiTurnProfile(),
+  // Jake conversational lane (M2 J1): same strict multi-turn contract.
+  'jake.chat': multiTurnProfile(),
+  // Jake force-actions lane (M2 J1): exactly ONE user message + optional
+  // { summary } context — assistant messages and multi-message histories fail.
+  'jake.force_actions': singleUserTurnProfile(),
   'studio.prompt_enhance': promptOnlyProfile(),
   'crm.suggest_next_action': promptOnlyProfile(),
 });
@@ -171,14 +192,25 @@ export function hasAiGatewayInputProfile(actionType) {
 //   context: optional plain object with EXACTLY { summary: string }, trimmed,
 //     non-empty, ≤ MAX_CONTEXT_CHARS. Context is caller DATA, never instruction
 //     authority — no role/system/prompt/provider/model/options fields exist.
+// A profile may TIGHTEN (never widen) the shared rules: `maxMessages` lowers
+// the message cap below MAX_MESSAGES, `roles` restricts the allowed role set
+// below user|assistant (singleUserTurnProfile uses both). Absent → the C2
+// defaults apply and every pre-existing multi-turn action stays byte-identical.
 // Never mutates input; never truncates; returns fresh normalized objects.
-function validateMultiTurnPayload(payload) {
+function validateMultiTurnPayload(payload, profile) {
+  const capRaw = (profile && typeof profile.maxMessages === 'number') ? profile.maxMessages : NaN;
+  const maxMessages = (Number.isInteger(capRaw) && capRaw >= 1 && capRaw <= AI_GATEWAY_INPUT_LIMITS.MAX_MESSAGES)
+    ? capRaw
+    : AI_GATEWAY_INPUT_LIMITS.MAX_MESSAGES;
+  const allowedRoles = (profile && Array.isArray(profile.roles) && profile.roles.length > 0)
+    ? profile.roles
+    : null; // null → the default user|assistant rule below
   const md = Object.getOwnPropertyDescriptor(payload, 'messages');
   if (!md || !('value' in md)) return fail('missing_field');
   const raw = md.value;
   if (!Array.isArray(raw)) return fail('messages_not_array');
   if (raw.length < 1) return fail('messages_empty');
-  if (raw.length > AI_GATEWAY_INPUT_LIMITS.MAX_MESSAGES) return fail('too_many_messages');
+  if (raw.length > maxMessages) return fail('too_many_messages');
 
   const messages = [];
   let inputChars = 0;
@@ -193,6 +225,7 @@ function validateMultiTurnPayload(payload) {
     const role = (rd && 'value' in rd) ? rd.value : undefined;
     const text = (td && 'value' in td) ? td.value : undefined;
     if (role !== 'user' && role !== 'assistant') return fail('invalid_role');
+    if (allowedRoles && !allowedRoles.includes(role)) return fail('invalid_role');
     if (typeof text !== 'string') return fail('field_not_string');
     const v = text.trim();
     if (v.length === 0) return fail('empty_field');
@@ -254,7 +287,7 @@ export function validateAiGatewayInput(actionType, payload) {
 
   // Multi-turn actions branch into their dedicated validator (C2).
   if (profile.kind === 'multiTurn') {
-    const r = validateMultiTurnPayload(payload);
+    const r = validateMultiTurnPayload(payload, profile);
     if (!r.ok) return r;
     return { ok: true, actionType: action, payload: r.payload, inputChars: r.inputChars };
   }

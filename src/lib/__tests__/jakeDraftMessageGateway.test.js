@@ -157,8 +157,12 @@ describe('jake.draft_message · server-owned drafting profile', () => {
   });
 
   it('every OTHER profile carries thinkingBudget null and keeps its previous request-body shape', () => {
+    // M2 J1 added jake.chat / jake.force_actions, which (like this action)
+    // legitimately pin thinkingBudget 0 — the null pin protects only the
+    // actions that predate the thinking seam.
+    const THINKING_PINNED = [ACTION, 'jake.chat', 'jake.force_actions'];
     for (const action of ACTION_PROFILE_KEYS) {
-      if (action === ACTION) continue;
+      if (THINKING_PINNED.includes(action)) continue;
       const other = getActionProfile(action);
       expect(other.thinkingBudget, action).toBe(null);
       const built = buildGeminiMessagesRequest([{ role: 'user', text: 'hi' }], other);

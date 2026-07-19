@@ -60,6 +60,8 @@ const REQUIRED_CAPABILITIES_BY_ACTION: Readonly<Record<string, CapabilityRule>> 
   'crm.suggest_next_action': JSON_ONLY,
   'text.multi_turn': TEXT_MULTI_TURN,
   'jake.draft_message': TEXT_MULTI_TURN,
+  'jake.chat': TEXT_MULTI_TURN,
+  'jake.force_actions': TEXT_MULTI_TURN,
 });
 
 // Exported for coverage tests only (key set must exactly equal the

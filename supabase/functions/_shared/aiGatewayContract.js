@@ -79,6 +79,11 @@ export const GEMINI_TEXT_ACTION_TYPES = Object.freeze([
   // Jake drafting lane (Slice B) — gemini-first, executable, wired to the
   // frontend draftWithJake seam. Same multi-turn input contract as C2.
   'jake.draft_message',
+  // Jake conversational + force-actions lanes (M2 J1) — gemini-first,
+  // executable, server-only for now (NO frontend caller is routed in J1;
+  // chatJake/forceActionsJake migrate together in J2).
+  'jake.chat',
+  'jake.force_actions',
   'studio.prompt_enhance',
   'crm.suggest_next_action',
 ]);

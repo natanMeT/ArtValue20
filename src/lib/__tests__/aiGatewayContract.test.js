@@ -505,12 +505,13 @@ describe('provider messages · normalized internal request (C2)', () => {
 });
 
 describe('gemini text · policy vocab', () => {
-  it('text whitelist is the explicit eight, frozen, all real actions', () => {
+  it('text whitelist is the explicit ten, frozen, all real actions', () => {
     // C2 added the infrastructure-only 'text.multi_turn'; Slice B added the
-    // product-wired 'jake.draft_message' (Jake drafting lane).
+    // product-wired 'jake.draft_message' (Jake drafting lane); M2 J1 added the
+    // server-only 'jake.chat' + 'jake.force_actions' (no frontend caller yet).
     expect(Object.isFrozen(GEMINI_TEXT_ACTION_TYPES)).toBe(true);
     expect([...GEMINI_TEXT_ACTION_TYPES].sort()).toEqual(
-      ['crm.suggest_next_action', 'jake.draft_message', 'studio.prompt_enhance', 'text.campaign', 'text.copy', 'text.crm_message', 'text.multi_turn', 'text.strategy'],
+      ['crm.suggest_next_action', 'jake.chat', 'jake.draft_message', 'jake.force_actions', 'studio.prompt_enhance', 'text.campaign', 'text.copy', 'text.crm_message', 'text.multi_turn', 'text.strategy'],
     );
     for (const a of GEMINI_TEXT_ACTION_TYPES) expect(AI_ACTION_TYPES.includes(a), a).toBe(true);
   });
@@ -518,7 +519,7 @@ describe('gemini text · policy vocab', () => {
   it('executable subset = gemini-first text actions only, frozen', () => {
     expect(Object.isFrozen(GEMINI_EXECUTABLE_ACTION_TYPES)).toBe(true);
     expect([...GEMINI_EXECUTABLE_ACTION_TYPES].sort()).toEqual(
-      ['crm.suggest_next_action', 'jake.draft_message', 'studio.prompt_enhance', 'text.copy', 'text.crm_message', 'text.multi_turn'],
+      ['crm.suggest_next_action', 'jake.chat', 'jake.draft_message', 'jake.force_actions', 'studio.prompt_enhance', 'text.copy', 'text.crm_message', 'text.multi_turn'],
     );
     for (const a of GEMINI_EXECUTABLE_ACTION_TYPES) expect(GEMINI_TEXT_ACTION_TYPES.includes(a), a).toBe(true);
     // anthropic-first text actions stay whitelisted-but-deferred
