@@ -82,7 +82,7 @@ export default function CreativeWorkflowMap({ workflows = CREATIVE_WORKFLOWS, ac
           <Icon name="wand" size={18} style={{ color: 'var(--lime-deep)' }} /> מפת ה־Workflows
         </div>
         <p className="creative-workflow-h-sub">
-          ComfyUI לתהליכים מקצועיים ומבוקרים (זהות, עריכה, וידאו) · Fooocus לקונספטים מהירים וחקירה.
+          תהליכים מקצועיים ומבוקרים — יצירה, עריכה, זהות, וידאו ומסחר — ישירות מתוך הסטודיו.
         </p>
       </div>
 
