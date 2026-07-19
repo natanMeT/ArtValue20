@@ -1222,12 +1222,16 @@ function demoLeadIdeas(niche, count) {
   return new Promise((resolve) => setTimeout(() => resolve(base.slice(0, count)), 600));
 }
 
-// ---- demo fallback (no API key) ----
+// ---- demo fallback (public-safe copy) ----
+// PUBLIC-PRODUCT COPY RULE: this message reaches end users on hosted production.
+// It must never mention API keys, env files, or any technical configuration, and
+// must never instruct the user to configure the system. Gateway drafting still
+// works in this state, so it must not claim ALL AI features are unavailable.
 function demoChat(history) {
-  const last = [...history].reverse().find((m) => m.role === 'user')?.text || '';
+  void history; // signature preserved (callers pass the chat history)
   return new Promise((resolve) =>
     setTimeout(() => resolve(
-      `היי, אני ג׳יק 🙂 כרגע אני במצב הדגמה (ללא מפתח AI) אז אני מוגבל.\nשאלת: «${last.slice(0, 60)}»\nכדי שאוכל לעזור באמת — הוסיפו מפתח AI ב-.env ואדע לנתח לקוחות, לידים, משימות והכנסות בזמן אמת.`
+      'היי, אני ג׳ייק 🙂 כרגע השיחה החכמה המלאה אינה זמינה. אפשר להמשיך להשתמש בפעולות הניסוח והכלים הזמינים במערכת, או לנסות שוב מאוחר יותר.'
     ), 700)
   );
 }
