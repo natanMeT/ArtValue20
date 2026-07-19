@@ -18,9 +18,13 @@ const isRegisteredRoute = (to) => appSrc.includes(`path="${to}"`);
 // duplicated by the regrouping). /settings is footer-only by design.
 const EXPECTED_MAIN_ROUTES = [
   '/', '/clients', '/outreach', '/projects', '/tasks', '/pipeline',
-  '/quotes', '/diagnose', '/adstudio', '/studio', '/workflow', '/fooocus',
+  '/quotes', '/diagnose', '/adstudio', '/studio',
   '/finance', '/activity', '/inventory', '/assets', '/templates',
 ];
+
+// R4.1 — retired local-engine studios: gone from the nav, legacy URLs
+// redirect to /studio, and the page modules are no longer imported.
+const RETIRED_ROUTES = ['/workflow', '/fooocus'];
 const EXPECTED_GROWTH_ROUTES = ['/growth', '/growth/leads', '/growth/calendar', '/growth/content', '/calls'];
 
 const EXPECTED_SECTION_LABELS = ['ניהול העסק', 'צמיחה ולידים', 'סטודיו וכלים'];
@@ -88,6 +92,26 @@ describe('sidebarNav — nothing dropped, nothing duplicated', () => {
 
   it('total item count = main routes + growth routes (nothing extra crept in)', () => {
     expect(SIDEBAR_ROUTE_ITEMS.length).toBe(EXPECTED_MAIN_ROUTES.length + EXPECTED_GROWTH_ROUTES.length);
+  });
+});
+
+describe('sidebarNav — retired studios (R4.1)', () => {
+  it('retired routes are absent from every nav section', () => {
+    for (const route of RETIRED_ROUTES) {
+      expect(SIDEBAR_ROUTE_ITEMS.some((i) => i.to === route), `retired route still in nav: ${route}`).toBe(false);
+    }
+  });
+
+  it('legacy /workflow and /fooocus URLs redirect calmly to /studio', () => {
+    for (const route of RETIRED_ROUTES) {
+      const re = new RegExp(`path="${route}"\\s+element=\\{<Navigate to="/studio" replace />\\}`);
+      expect(re.test(appSrc), `missing redirect for ${route}`).toBe(true);
+    }
+  });
+
+  it('retired page modules are no longer imported anywhere in App.jsx', () => {
+    expect(appSrc.includes('WorkflowStudio')).toBe(false);
+    expect(appSrc.includes("from './pages/Fooocus.jsx'")).toBe(false);
   });
 });
 

@@ -10,6 +10,9 @@
 // status: 'live' | 'soon'
 // `mode` values match ImageStudio MODES ids (text/img2img/inpaint/video/
 // flf/character/album). `route` values are existing hash routes only.
+// (R4.1: the Workflow Studio + Fooocus route cards were retired with their
+// pages; every live card now targets an ImageStudio mode, and `route` stays
+// in the schema for future non-retired destinations.)
 // ===================================================================
 
 // Consent-safe note surfaced on presenter/reference workflows.
@@ -120,33 +123,6 @@ export const CREATIVE_WORKFLOWS = [
     cta: 'פתח',
     tags: ['אלבום', 'זהות', 'אופנה'],
     consent: true,
-  },
-  // ---- Live: existing external Studio routes ----
-  {
-    id: 'workflow-studio',
-    title: 'Workflow Studio',
-    subtitle: 'פייפליינים מתקדמים',
-    description: 'כל הכפתורים של ComfyUI מתוך ה-CRM: Max-Realism, PuLID, Qwen-Edit — כוונון והרצה.',
-    engine: 'comfyui',
-    status: 'live',
-    category: 'advanced',
-    mode: null,
-    route: '#/workflow',
-    cta: 'פתח',
-    tags: ['מתקדם', 'פייפליין', 'כוונון'],
-  },
-  {
-    id: 'fooocus',
-    title: 'Fooocus',
-    subtitle: 'קונספט מהיר · חקירה',
-    description: 'התוכנה המלאה של Fooocus מוטמעת — לקונספטים מהירים, וריאציות וחקירה יצירתית קלה.',
-    engine: 'fooocus',
-    status: 'live',
-    category: 'create',
-    mode: null,
-    route: '#/fooocus',
-    cta: 'פתח',
-    tags: ['מהיר', 'קונספט', 'חקירה'],
   },
   {
     id: 'product-presenter',

@@ -11,8 +11,11 @@ import {
 
 // The existing ImageStudio MODES ids a live card may activate.
 const VALID_MODES = ['text', 'img2img', 'inpaint', 'video', 'flf', 'presenter', 'lock', 'character', 'album'];
-// Existing hash routes a live card may link to.
-const VALID_ROUTES = ['#/workflow', '#/fooocus'];
+// Existing hash routes a live card may link to. (R4.1: the local-engine
+// studio routes #/workflow + #/fooocus were retired — no card may link to
+// them; the schema keeps `route` for future non-retired destinations.)
+const VALID_ROUTES = [];
+const RETIRED_ROUTES = ['#/workflow', '#/fooocus'];
 const REQUIRED_FIELDS = ['id', 'title', 'subtitle', 'description', 'engine', 'status', 'category', 'cta', 'tags'];
 
 describe('creativeWorkflows · structure', () => {
@@ -103,14 +106,12 @@ describe('creativeWorkflows · specific cards', () => {
     }
   });
 
-  it('Fooocus card links to #/fooocus and uses the fooocus engine', () => {
-    expect(byId('fooocus').route).toBe('#/fooocus');
-    expect(byId('fooocus').engine).toBe('fooocus');
-  });
-
-  it('Workflow Studio card links to #/workflow', () => {
-    expect(byId('workflow-studio').route).toBe('#/workflow');
-    expect(byId('workflow-studio').engine).toBe('comfyui');
+  it('retired studio cards are gone and no card links to a retired route (R4.1)', () => {
+    expect(byId('workflow-studio')).toBeUndefined();
+    expect(byId('fooocus')).toBeUndefined();
+    for (const w of CREATIVE_WORKFLOWS) {
+      expect(RETIRED_ROUTES.includes(w.route), `${w.id} links to a retired route`).toBe(false);
+    }
   });
 
   it('exposes the consent note on presenter/reference workflows', () => {

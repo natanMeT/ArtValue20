@@ -87,36 +87,26 @@ describe('localEngines · gate CLOSED (hosted production default)', () => {
   });
 });
 
-// ---- source guards: the gate cannot be bypassed and Fooocus has no raw
-// localhost fallback left. ----
+// ---- source guards: the gate cannot be bypassed. (R4.1: Fooocus.jsx was
+// retired and deleted, so its per-file guards left with it; the /fooocus
+// route now redirects to /studio in App.jsx.) ----
 describe('localEngines · source guards (no bypass)', () => {
   const GEMINI = read('../gemini.js');
   const GEMINI_IMAGE = read('../geminiImage.js');
-  const FOOOCUS = read('../../pages/Fooocus.jsx');
 
   it('every local-engine env URL resolves through resolveLocalEngineUrl()', () => {
     expect(GEMINI.includes("resolveLocalEngineUrl(import.meta.env.VITE_LOCAL_LLM_URL)")).toBe(true);
     expect(GEMINI.includes("resolveLocalEngineUrl(import.meta.env.VITE_COMFYUI_URL)")).toBe(true);
     expect(GEMINI_IMAGE.includes("resolveLocalEngineUrl(import.meta.env.VITE_LOCAL_IMAGE_URL)")).toBe(true);
     expect(GEMINI_IMAGE.includes("resolveLocalEngineUrl(import.meta.env.VITE_COMFYUI_URL)")).toBe(true);
-    expect(FOOOCUS.includes("resolveLocalEngineUrl(import.meta.env.VITE_FOOOCUS_URL, 'http://127.0.0.1:7865')")).toBe(true);
     // the old ungated read pattern must not return in any of these files
-    for (const [name, src] of [['gemini.js', GEMINI], ['geminiImage.js', GEMINI_IMAGE], ['Fooocus.jsx', FOOOCUS]]) {
+    for (const [name, src] of [['gemini.js', GEMINI], ['geminiImage.js', GEMINI_IMAGE]]) {
       expect(/\(import\.meta\.env\.VITE_(COMFYUI_URL|LOCAL_LLM_URL|LOCAL_IMAGE_URL|FOOOCUS_URL)\s*\|\|/.test(src), name).toBe(false);
     }
   });
 
-  it('Fooocus never probes or falls back to localhost when the gate is closed', () => {
-    // the localhost literal appears ONLY as the gated devDefault argument
-    const raw = FOOOCUS.split('\n').filter((l) => l.includes('127.0.0.1:7865') && !/^\s*(\/\/|\*|<li>)/.test(l.trim()) && !l.includes('resolveLocalEngineUrl'));
-    expect(raw, `ungated localhost fallback lines: ${raw.join(' | ')}`).toEqual([]);
-    // both the probe and the polling interval short-circuit on the empty URL
-    expect(FOOOCUS.includes('if (!FOOOCUS_URL) { setStatus(\'down\'); return; }')).toBe(true);
-    expect(FOOOCUS.includes('if (!FOOOCUS_URL) { setStatus(\'down\'); return undefined; }')).toBe(true);
-  });
-
   it('only localEngines.js decides enablement (no scattered VITE_ENABLE_LOCAL_ENGINES reads)', () => {
-    for (const [name, src] of [['gemini.js', GEMINI], ['geminiImage.js', GEMINI_IMAGE], ['Fooocus.jsx', FOOOCUS]]) {
+    for (const [name, src] of [['gemini.js', GEMINI], ['geminiImage.js', GEMINI_IMAGE]]) {
       expect(src.includes('VITE_ENABLE_LOCAL_ENGINES'), name).toBe(false);
     }
     expect(read('../localEngines.js').includes("VITE_ENABLE_LOCAL_ENGINES === 'true'")).toBe(true);

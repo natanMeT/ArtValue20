@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Routes, Route, useLocation, Outlet } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useStore } from './store/store.jsx';
 import Sidebar from './components/layout/Sidebar.jsx';
@@ -24,9 +24,7 @@ import Templates from './pages/Templates.jsx';
 import Quotes from './pages/Quotes.jsx';
 import Diagnose from './pages/Diagnose.jsx';
 import ImageStudio from './pages/ImageStudio.jsx';
-import WorkflowStudio from './pages/WorkflowStudio.jsx';
 import AdStudio from './pages/AdStudio.jsx';
-import Fooocus from './pages/Fooocus.jsx';
 import Finance from './pages/Finance.jsx';
 import Inventory from './pages/Inventory.jsx';
 import Activity from './pages/Activity.jsx';
@@ -113,9 +111,10 @@ function MainRoutes() {
         <Route path="/quotes" element={<Quotes />} />
         <Route path="/diagnose" element={<Diagnose />} />
         <Route path="/studio" element={<ImageStudio />} />
-        <Route path="/workflow" element={<WorkflowStudio />} />
         <Route path="/adstudio" element={<AdStudio />} />
-        <Route path="/fooocus" element={<Fooocus />} />
+        {/* R4.1 — retired local-engine studios. Legacy links land on Image Studio. */}
+        <Route path="/workflow" element={<Navigate to="/studio" replace />} />
+        <Route path="/fooocus" element={<Navigate to="/studio" replace />} />
         <Route path="/finance" element={<Finance />} />
         <Route path="/inventory" element={<Inventory />} />
         <Route path="/activity" element={<Activity />} />
