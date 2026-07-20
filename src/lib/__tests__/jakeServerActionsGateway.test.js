@@ -465,7 +465,7 @@ describe('compatibility · existing actions and frontend untouched', () => {
     ]);
   });
 
-  it('NO frontend production file references the new actions (server-only in J1)', () => {
+  it('gemini.js is the ONLY frontend production file referencing the two actions (J2: the migrated lanes)', () => {
     const root = fileURLToPath(new URL('../..', import.meta.url)); // src/
     const offenders = [];
     const walk = (dir) => {
@@ -480,17 +480,23 @@ describe('compatibility · existing actions and frontend untouched', () => {
       }
     };
     walk(root);
-    // the canonical vocabulary lives in supabase/functions/_shared; the ONLY
-    // acceptable src hits would be the pure re-export shims, which contain no
-    // action-id literals — so any src hit is an unauthorized frontend wire.
-    expect(offenders, `new jake actions wired into frontend: ${offenders.join(', ')}`).toEqual([]);
+    // M2 J2: chatJake/forceActionsJake in gemini.js are gateway-routed, so the
+    // action-id literals legitimately live there — and ONLY there. Any other
+    // src hit is an unauthorized frontend wire (UI components never name
+    // gateway actions; they keep calling the chatJake/forceActionsJake seam).
+    expect(offenders.length, `unexpected frontend wires: ${offenders.join(', ')}`).toBe(1);
+    expect(offenders[0].replace(/\\/g, '/').endsWith('/lib/gemini.js')).toBe(true);
   });
 
-  it('frontend chatJake/forceActionsJake are untouched (still legacy-brained, not gateway-routed — J2 scope)', () => {
+  it('frontend chatJake/forceActionsJake are gateway-routed together (M2 J2) — signatures preserved', () => {
     const gemini = read('../gemini.js');
     expect(gemini.includes('export async function chatJake(history, contextText)')).toBe(true);
     expect(gemini.includes('export async function forceActionsJake(userText, contextText)')).toBe(true);
-    for (const banned of ["callAiGateway('jake.chat'", "callAiGateway('jake.force_actions'"]) {
+    for (const required of ["callAiGateway('jake.chat'", "callAiGateway('jake.force_actions'"]) {
+      expect(gemini.includes(required), required).toBe(true);
+    }
+    // the legacy dual-brain plumbing these lanes used is GONE (no dormant path)
+    for (const banned of ['jakeCloudChat', 'jakeLocalChat']) {
       expect(gemini.includes(banned), banned).toBe(false);
     }
   });
