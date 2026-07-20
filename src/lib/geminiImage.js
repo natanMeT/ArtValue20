@@ -64,7 +64,6 @@ const POLLI_TOKEN = import.meta.env.VITE_POLLINATIONS_TOKEN || '';
 const POLLI_MODEL = import.meta.env.VITE_POLLINATIONS_MODEL || 'flux';
 
 export const isImageAiConfigured = Boolean(API_KEY || LOCAL_URL || COMFY_URL || POLLI_TOKEN);
-export const imageEngineName = (LOCAL_URL || COMFY_URL) ? 'מקומי · Stable Diffusion' : POLLI_TOKEN ? 'Pollinations · Flux' : API_KEY ? 'Nano Banana · Gemini' : null;
 
 function pollinations(text) {
   const seed = Math.floor(Math.random() * 1_000_000);
@@ -670,34 +669,11 @@ export async function generateMaxRealism(prompt, opts = {}) {
   return { src, engine: 'local', demo: false, maxreal: true };
 }
 
-// PuLID single scene (face-identity → fresh image) with full knob control.
-export async function generatePulidScene(file, prompt, opts = {}) {
-  if (!file) throw new Error('יש להעלות תמונת פנים לייחוס');
-  const text = (prompt || '').trim();
-  if (!text) throw new Error('יש להזין תיאור לסצנה');
-  const portrait = opts.portrait !== false;
-  const w = opts.width ?? (portrait ? 1152 : 1536);
-  const h = opts.height ?? (portrait ? 1536 : 1152);
-  const weight = opts.weight ?? 0.85;
-  const faceDetail = opts.faceDetail !== false && await hasFaceDetailerNode();
-  const upscale = opts.upscale !== false && await hasUpscaleModel();
-  const name = await uploadToComfy(file);
-  const graph = pulidGraph(name, text, rndSeed(), w, h, weight, faceDetail, upscale, opts);
-  const src = await comfyWait(await comfySubmit(graph), 400);
-  return { src, engine: 'local', demo: false, pulid: true };
-}
-
-// Qwen-Image-Edit (instruction editing, identity-preserving) with knob control.
-export async function qwenEdit(file, instruction, opts = {}) {
-  if (!file) throw new Error('יש להעלות תמונה לעריכה');
-  const text = (instruction || '').trim();
-  if (!text) throw new Error('יש לכתוב מה לשנות בתמונה');
-  if (!await hasQwenEditNode()) throw new Error('Qwen-Image-Edit אינו מותקן במנוע');
-  const name = await uploadToComfy(file);
-  const graph = qwenEditGraph(name, text, rndSeed(), opts);
-  const src = await comfyWait(await comfySubmit(graph), 320);
-  return { src, engine: 'local', demo: false, qwen: true };
-}
+// M2 J3C S2: the dead standalone exports generatePulidScene and qwenEdit were
+// retired here (zero non-test callers — ImageStudio uses characterPackPulid and
+// qwenCompose/productLockBlend instead). pulidGraph and hasQwenEditNode remain
+// in active use by the surviving operations; qwenEditGraph is retained (single-
+// image reference for qwenComposeGraph) pending a separately approved slice.
 
 // Product Presenter — Qwen multi-image compose: presenter photo + product photo
 // + an instruction → one composed marketing image. Instruction-based and
