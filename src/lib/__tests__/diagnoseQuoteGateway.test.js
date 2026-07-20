@@ -566,9 +566,13 @@ describe('diagnoseQuote · frontend migration (source guards)', () => {
     expect(lane2.includes('demoResult(input)')).toBe(true);
   });
 
-  it('Diagnose.jsx is untouched: same import, same diagnoseQuote(form) call, no gateway wiring', () => {
+  it('Diagnose.jsx keeps the same diagnoseQuote(form) call and no gateway wiring; demo badge keys on isSupabaseConfigured (M2 J3C S1)', () => {
     const diagnose = read('../../pages/Diagnose.jsx');
-    expect(diagnose.includes("import { diagnoseQuote, isGeminiConfigured } from '../lib/gemini.js';")).toBe(true);
+    // M2 J3C S1 (truthful UI): the lane is Gateway-served, so the demo badge now
+    // keys on isSupabaseConfigured instead of the misleading isGeminiConfigured.
+    expect(diagnose.includes("import { diagnoseQuote } from '../lib/gemini.js';")).toBe(true);
+    expect(diagnose.includes("import { isSupabaseConfigured } from '../lib/supabase.js';")).toBe(true);
+    expect(diagnose.includes('isGeminiConfigured')).toBe(false);
     expect(diagnose.includes('await diagnoseQuote(form)')).toBe(true);
     expect(diagnose.includes('aiGateway')).toBe(false);
     expect(diagnose.includes('callAiGateway')).toBe(false);

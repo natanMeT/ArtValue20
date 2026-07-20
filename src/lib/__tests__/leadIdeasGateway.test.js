@@ -453,9 +453,13 @@ describe('generateLeadIdeas · frontend migration (source guards)', () => {
     expect(gemini.includes("const LEAD_CATEGORIES = ['winery'")).toBe(false);
   });
 
-  it('Outreach.jsx is untouched: same generateLeadIdeas call, no gateway wiring', () => {
+  it('Outreach.jsx keeps the same generateLeadIdeas call and no gateway wiring; demo wording keys on isSupabaseConfigured (M2 J3C S1)', () => {
     const outreach = read('../../pages/Outreach.jsx');
-    expect(outreach.includes("import { generateLeadIdeas, isGeminiConfigured } from '../lib/gemini.js';")).toBe(true);
+    // M2 J3C S1 (truthful UI): the lane is Gateway-served, so the demo wording now
+    // keys on isSupabaseConfigured instead of the misleading isGeminiConfigured.
+    expect(outreach.includes("import { generateLeadIdeas } from '../lib/gemini.js';")).toBe(true);
+    expect(outreach.includes("import { isSupabaseConfigured } from '../lib/supabase.js';")).toBe(true);
+    expect(outreach.includes('isGeminiConfigured')).toBe(false);
     expect(outreach.includes('generateLeadIdeas(niche, 6)')).toBe(true);
     expect(outreach.includes('aiGateway')).toBe(false);
   });
