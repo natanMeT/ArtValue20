@@ -18,6 +18,7 @@ import {
   buildGeminiMessagesRequest,
   parseGeminiTextResponse,
   parseStructuredResult,
+  normalizeActionsBlockResult,
   providerResultChars,
   buildProviderNotConfiguredResponse,
   buildProviderErrorResponse,
@@ -116,6 +117,20 @@ export async function runGeminiText(
         return { status: 502, body: buildInvalidProviderResponse(decision), resultChars };
       }
       return { status: 200, body: buildProviderJsonSuccessResponse(decision, parsed.value), resultChars };
+    }
+
+    if (profile && profile.resultTransform === 'actions_block') {
+      // jake.force_actions lane: the caller-visible text is normalized to ONE
+      // canonical fenced actions block, or exactly "[]" (fail-closed) — provider
+      // prose, checkmarks, or echoed instructions never reach the client. The
+      // server never interprets or executes the ops; parsing + confirmation stay
+      // with the frontend extractActions flow. result_chars keeps counting the
+      // RAW provider text (content-free, pre-normalization).
+      return {
+        status: 200,
+        body: buildProviderSuccessResponse(decision, normalizeActionsBlockResult(rawText)),
+        resultChars,
+      };
     }
 
     return { status: 200, body: buildProviderSuccessResponse(decision, rawText), resultChars };
