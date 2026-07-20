@@ -22,6 +22,11 @@ import { GEMINI_EXECUTABLE_ACTION_TYPES } from '../_shared/aiGatewayContract.js'
 
 export type OutputMode = 'text' | 'json';
 export type ParsePolicy = 'text' | 'json_strict';
+// Narrow, SERVER-OWNED post-processing of the raw provider TEXT before it is
+// placed into the success response. 'actions_block' = normalize to a single
+// canonical fenced ```actions block or exactly "[]" (jake.force_actions lane);
+// null = raw text passes through unchanged (every other text action).
+export type ResultTransform = 'actions_block' | null;
 
 export interface ActionProfile {
   outputMode: OutputMode;
@@ -38,6 +43,9 @@ export interface ActionProfile {
   responseSchema: Record<string, any> | null;
   parsePolicy: ParsePolicy;
   resultContract: string | null;
+  // SERVER-OWNED deterministic output correction (see ResultTransform above).
+  // Never accepted from the frontend or the payload.
+  resultTransform: ResultTransform;
 }
 
 // Recursively freeze a profile (and its nested responseSchema) so nothing —
@@ -66,6 +74,7 @@ function textProfile(): ActionProfile {
     responseSchema: null,
     parsePolicy: 'text',
     resultContract: null,
+    resultTransform: null,
   };
 }
 
@@ -90,6 +99,7 @@ function textMultiTurnProfile(): ActionProfile {
     responseSchema: null,
     parsePolicy: 'text',
     resultContract: null,
+    resultTransform: null,
   };
 }
 
@@ -130,6 +140,7 @@ function jakeDraftMessageProfile(): ActionProfile {
     responseSchema: null,
     parsePolicy: 'text',
     resultContract: null,
+    resultTransform: null,
   };
 }
 
@@ -274,6 +285,7 @@ function jakeChatProfile(): ActionProfile {
     responseSchema: null,
     parsePolicy: 'text',
     resultContract: null,
+    resultTransform: null,
   };
 }
 
@@ -281,7 +293,12 @@ function jakeChatProfile(): ActionProfile {
 // forceActionsJake called the cloud path with temperature 0.1, maxTokens 1400,
 // AND thinkingConfig: { thinkingBudget: 0 }. Plain text (the fenced actions
 // block is parsed by the CALLER'S extractActions, exactly as before) — no
-// JSON mode, no schema, no result contract.
+// JSON mode, no schema, no result contract. resultTransform 'actions_block'
+// makes the caller-visible text deterministic: the provider output is
+// normalized server-side to ONE canonical fenced actions block or exactly
+// "[]" (normalizeActionsBlockResult) — prose/checkmarks/echoed instructions
+// never reach the client. The server still never interprets or executes the
+// ops; the frontend confirm flow keeps full action semantics.
 function jakeForceActionsProfile(): ActionProfile {
   return {
     outputMode: 'text',
@@ -293,6 +310,7 @@ function jakeForceActionsProfile(): ActionProfile {
     responseSchema: null,
     parsePolicy: 'text',
     resultContract: null,
+    resultTransform: 'actions_block',
   };
 }
 
@@ -334,6 +352,7 @@ function crmSuggestNextActionProfile(): ActionProfile {
     responseSchema: CRM_SUGGEST_NEXT_ACTION_SCHEMA,
     parsePolicy: 'json_strict',
     resultContract: CRM_SUGGEST_NEXT_ACTION,
+    resultTransform: null,
   };
 }
 

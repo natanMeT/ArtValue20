@@ -495,6 +495,73 @@ export function providerResultChars(rawText) {
   return (typeof rawText === 'string') ? rawText.length : null;
 }
 
+// ---- jake.force_actions: deterministic actions-block output normalizer ----
+// The force-actions lane stays TEXT mode (the frontend's extractActions parses
+// the fenced block exactly as before), but raw provider text is not
+// deterministic: models wrap the block in prose, checkmarks, or echoed
+// instructions. This pure normalizer makes the lane's caller-visible result
+// canonical and fail-closed:
+//   - the FIRST valid ```actions fenced block whose body JSON.parses to a
+//     non-empty ARRAY → exactly "```actions\n" + JSON.stringify(array) + "\n```"
+//   - an empty array, or no valid block at all → exactly "[]"
+// The parsed array is ALWAYS re-serialized — the provider's original JSON bytes
+// never pass through. The server never inspects, validates, or executes the
+// ops: action semantics (parsing, confirmation, execution) remain entirely
+// with the frontend confirm flow. Never throws; any non-string or unsafe
+// input fails closed to "[]".
+export const ACTIONS_BLOCK_EMPTY_RESULT = '[]';
+
+// Fail closed on any parsed structure carrying a prototype-polluting own key
+// (same key set the structured-result validator rejects). Iterative — no
+// recursion depth to exhaust. Returns true on anything unsafe.
+function containsUnsafeActionsKey(root) {
+  const stack = [root];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node || typeof node !== 'object') continue;
+    if (Array.isArray(node)) {
+      for (const item of node) stack.push(item);
+      continue;
+    }
+    for (const key of Object.keys(node)) {
+      if (UNSAFE_OBJECT_KEYS.includes(key)) return true;
+      stack.push(node[key]);
+    }
+    for (const k of UNSAFE_OBJECT_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(node, k)) return true;
+    }
+  }
+  return false;
+}
+
+export function normalizeActionsBlockResult(rawText) {
+  try {
+    if (typeof rawText !== 'string' || !rawText.trim()) return ACTIONS_BLOCK_EMPTY_RESULT;
+    // Fresh regex per call (stateful lastIndex must never leak between calls).
+    // Tolerant on input — case-insensitive label, optional spaces, CRLF — but
+    // the OUTPUT fence is always the canonical lowercase ```actions form.
+    const fence = /```[ \t]*actions[ \t]*\r?\n([\s\S]*?)```/gi;
+    let match;
+    while ((match = fence.exec(rawText)) !== null) {
+      let parsed;
+      try {
+        parsed = JSON.parse(match[1]);
+      } catch {
+        continue; // not valid JSON — keep scanning for a later valid block
+      }
+      if (!Array.isArray(parsed)) continue;
+      if (containsUnsafeActionsKey(parsed)) return ACTIONS_BLOCK_EMPTY_RESULT;
+      if (parsed.length === 0) return ACTIONS_BLOCK_EMPTY_RESULT;
+      const serialized = JSON.stringify(parsed);
+      if (typeof serialized !== 'string') return ACTIONS_BLOCK_EMPTY_RESULT;
+      return '```actions\n' + serialized + '\n```';
+    }
+    return ACTIONS_BLOCK_EMPTY_RESULT;
+  } catch {
+    return ACTIONS_BLOCK_EMPTY_RESULT;
+  }
+}
+
 // Structured (json) success — result carries ONLY the validated, normalized
 // object under `json` (never raw text, never the schema or system instruction).
 export function buildProviderJsonSuccessResponse(decision, json) {
