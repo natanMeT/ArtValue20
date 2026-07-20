@@ -138,6 +138,7 @@ const UNTRUSTED_PAYLOAD_KEYS = Object.freeze(new Set([
   'responsejsonschema', 'response_json_schema',
   'responseformat', 'response_format',
   'schema', 'parsepolicy', 'parse_policy',
+  'resulttransform', 'result_transform',
   'thinkingconfig', 'thinking_config', 'thinkingbudget', 'thinking_budget',
 ]));
 

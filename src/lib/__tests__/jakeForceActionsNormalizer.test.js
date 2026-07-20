@@ -5,6 +5,9 @@ import {
   normalizeActionsBlockResult,
   ACTIONS_BLOCK_EMPTY_RESULT,
   validateAiGatewayInput,
+  normalizeGatewayPayload,
+  toProviderMessages,
+  buildGeminiMessagesRequest,
 } from '../aiGatewayContract.js';
 import {
   getActionProfile,
@@ -221,5 +224,24 @@ describe('resultTransform wiring · jake.force_actions only', () => {
     });
     expect(r.ok).toBe(false);
     expect(r.error.code).toBe('invalid_payload');
+  });
+
+  it('defense-in-depth: the shared sanitizer independently strips resultTransform (any casing/snake_case)', () => {
+    const clean = normalizeGatewayPayload({
+      prompt: 'keep', resultTransform: 'actions_block', ResultTransform: 'x', result_transform: 'x',
+    });
+    expect(clean).toEqual({ prompt: 'keep' });
+  });
+
+  it('the Gemini request body neither contains nor depends on resultTransform', () => {
+    const force = getActionProfile(FORCE);
+    const r = validateAiGatewayInput(FORCE, { messages: [{ role: 'user', text: 'תוסיף את דני' }] });
+    const built = buildGeminiMessagesRequest(toProviderMessages(r.payload), force);
+    expect(built.ok).toBe(true);
+    expect(JSON.stringify(built.body).includes('resultTransform')).toBe(false);
+    expect(JSON.stringify(built.body).includes('actions_block')).toBe(false);
+    // identical body whether or not the profile carries the transform flag
+    const withoutFlag = { ...force, resultTransform: null };
+    expect(buildGeminiMessagesRequest(toProviderMessages(r.payload), withoutFlag).body).toEqual(built.body);
   });
 });
