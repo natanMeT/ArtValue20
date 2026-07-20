@@ -10,6 +10,7 @@ import { chatJake, forceActionsJake, draftWithJake, jakeBrainLabel, jakeBrainPre
 import { extractActions, executeActions, describeActions, detectBulkDelete, buildBulkDeleteGate } from '../../lib/jakeAgent.js';
 import { activePack } from '../../lib/jakePack.js';
 import { withBusinessBrain } from '../../lib/jakeBusinessContext.js';
+import { selectJakeChatHistory } from '../../lib/jakeChatHistory.js';
 import { studioHandoffFor } from '../../lib/assistantStudioHandoff.js';
 import { createArtValueCreative } from '../../creative/v2/createArtValueCreative.js';
 import { PRODUCTION_STAGES, PRODUCTION_STAGE_ORDER } from '../../creative/v2/productionProgress.js';
@@ -897,7 +898,13 @@ export default function Assistant() {
     // untouched — this is pure Jake orchestration.)
     setLoading(true);
     try {
-      const convo = next.filter((mm) => mm.text && !mm.system).slice(-14);
+      // Caller-owned conversation selection (M2 J2 hotfix): same textual/non-
+      // system candidates + same last-14 window as always, then the window
+      // OPENS on the first user turn — so a proactive assistant briefing stays
+      // visible in the UI but never becomes an assistant-first model history
+      // (the deployed server chat contract requires user-first; chatJake maps
+      // whatever it receives byte-exactly and repairs nothing).
+      const convo = selectJakeChatHistory(next);
       const { text: reply } = await chatJake(convo, withBusinessBrain(activePack.buildContext(data), text));
       let { clean, actions } = extractActions(reply); // eslint-disable-line prefer-const
 
