@@ -157,10 +157,11 @@ describe('jake.draft_message · server-owned drafting profile', () => {
   });
 
   it('every OTHER profile carries thinkingBudget null and keeps its previous request-body shape', () => {
-    // M2 J1 added jake.chat / jake.force_actions, which (like this action)
-    // legitimately pin thinkingBudget 0 — the null pin protects only the
-    // actions that predate the thinking seam.
-    const THINKING_PINNED = [ACTION, 'jake.chat', 'jake.force_actions'];
+    // M2 J1 added jake.chat / jake.force_actions, and M2 J3A added
+    // crm.lead_ideas, which (like this action) legitimately pin
+    // thinkingBudget 0 — the null pin protects only the actions that
+    // predate the thinking seam.
+    const THINKING_PINNED = [ACTION, 'jake.chat', 'jake.force_actions', 'crm.lead_ideas'];
     for (const action of ACTION_PROFILE_KEYS) {
       if (THINKING_PINNED.includes(action)) continue;
       const other = getActionProfile(action);

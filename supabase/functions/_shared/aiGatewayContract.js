@@ -86,6 +86,10 @@ export const GEMINI_TEXT_ACTION_TYPES = Object.freeze([
   'jake.force_actions',
   'studio.prompt_enhance',
   'crm.suggest_next_action',
+  // Outreach lead-ideas lane (M2 J3A) — gemini-first, executable, wired to the
+  // frontend generateLeadIdeas seam. Strict { niche, count } input contract
+  // (aiGatewayInput.js) + structured leads result contract (below).
+  'crm.lead_ideas',
 ]);
 
 // The subset that actually executes now = text actions the router routes to
@@ -305,6 +309,38 @@ export function toProviderMessages(payload) {
   return [{ role: 'user', text: prompt }];
 }
 
+// ---- crm.lead_ideas: pure user-message builder (M2 J3A) ----
+// Reproduces the legacy frontend lead-ideas user message EXACTLY (the system
+// instruction + schema are server-owned in the action profile, never here).
+// Strict + fail-closed: niche must be a trimmed non-empty string, count a
+// finite integer — anything else → null. No provider knowledge, no network,
+// no env, no frontend imports.
+export function buildLeadIdeasUserMessage(niche, count) {
+  const n = (typeof niche === 'string') ? niche.trim() : '';
+  if (!n) return null;
+  if (typeof count !== 'number' || !Number.isFinite(count) || !Number.isInteger(count)) return null;
+  return `תחום / אזור / סוג קהל לחיפוש לידים: "${n}".\nהחזר ${count} רעיונות ללידים מגוונים ורלוונטיים.`;
+}
+
+// ---- action-aware provider-message mapping (M2 J3A) ----
+// toProviderMessages(payload) keeps its public signature and byte-identical
+// behavior for every existing action. This wrapper adds the ONE action-specific
+// mapping the lead-ideas lane needs: a validated { niche, count } payload
+// becomes a single user message via buildLeadIdeasUserMessage. Every other
+// action — and any unknown/malformed actionType — delegates to the unchanged
+// toProviderMessages(payload), so pre-existing behavior cannot drift. Unknown
+// or malformed action-specific payload → null (fail closed). Never throws.
+export function toProviderMessagesForAction(actionType, payload) {
+  const action = normalizeActionType(actionType);
+  if (action === 'crm.lead_ideas') {
+    if (!isPlainObject(payload)) return null;
+    const text = buildLeadIdeasUserMessage(payload.niche, payload.count);
+    if (!text) return null;
+    return [{ role: 'user', text }];
+  }
+  return toProviderMessages(payload);
+}
+
 // ---- Gemini: normalized messages → REST body (pure, profile-owned config) ----
 // user → Gemini `user`, assistant → Gemini `model`. ALL execution authority —
 // system instruction, temperature, maxOutputTokens, output mode, responseMimeType,
@@ -442,9 +478,16 @@ export function buildProviderSuccessResponse(decision, text) {
 // still mandatory. Unknown contract → reject (fail closed).
 export const STRUCTURED_RESULT_CONTRACTS = Object.freeze({
   CRM_SUGGEST_NEXT_ACTION: 'crm.suggest_next_action',
+  CRM_LEAD_IDEAS: 'crm.lead_ideas',
 });
 
 const CRM_PRIORITIES = Object.freeze(['low', 'medium', 'high']);
+// The EXISTING eight-value lead-category vocabulary (verbatim from the legacy
+// frontend LEAD_SCHEMA in src/lib/gemini.js). The server-side result validator
+// and the action profile's responseSchema both enforce exactly this set.
+export const CRM_LEAD_CATEGORIES = Object.freeze([
+  'winery', 'food', 'art', 'beauty', 'hospitality', 'judaica', 'clinic', 'other',
+]);
 const UNSAFE_OBJECT_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
 
 // Validate + NORMALIZE a crm.suggest_next_action object into a fresh, safe
@@ -465,11 +508,45 @@ export function validateCrmSuggestNextAction(value) {
   return { suggestion, reason, priority };
 }
 
+// Validate + NORMALIZE a crm.lead_ideas result into a fresh, safe
+// { leads: [{ name, category, need }] } literal, or null on any contract
+// violation (fail closed). Rules: top level is a plain object with a `leads`
+// array; every item is a plain object whose name/need are non-empty strings
+// (normalized trimmed) and whose category is EXACTLY one of the eight
+// CRM_LEAD_CATEGORIES (no case repair). Extra item keys are dropped (never
+// forwarded); prototype-polluting own keys reject the whole result. An empty
+// leads array is valid (the legacy lane could return zero ideas — the caller
+// UI already handles it). Never throws.
+export function validateCrmLeadIdeas(value) {
+  if (!isPlainObject(value)) return null;
+  for (const k of UNSAFE_OBJECT_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(value, k)) return null;
+  }
+  if (!Array.isArray(value.leads)) return null;
+  const leads = [];
+  for (const item of value.leads) {
+    if (!isPlainObject(item)) return null;
+    for (const k of UNSAFE_OBJECT_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(item, k)) return null;
+    }
+    const name = (typeof item.name === 'string') ? item.name.trim() : '';
+    const need = (typeof item.need === 'string') ? item.need.trim() : '';
+    const category = item.category;
+    if (!name || !need) return null;
+    if (typeof category !== 'string' || !CRM_LEAD_CATEGORIES.includes(category)) return null;
+    leads.push({ name, category, need });
+  }
+  return { leads };
+}
+
 // Dispatch to the validator for a given result contract. Unknown contract →
 // null (fail closed). Never throws.
 export function validateStructuredResult(resultContract, value) {
   if (resultContract === STRUCTURED_RESULT_CONTRACTS.CRM_SUGGEST_NEXT_ACTION) {
     return validateCrmSuggestNextAction(value);
+  }
+  if (resultContract === STRUCTURED_RESULT_CONTRACTS.CRM_LEAD_IDEAS) {
+    return validateCrmLeadIdeas(value);
   }
   return null;
 }

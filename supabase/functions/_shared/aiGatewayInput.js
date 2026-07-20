@@ -39,6 +39,12 @@ export const AI_GATEWAY_INPUT_LIMITS = Object.freeze({
   MAX_MESSAGE_CHARS: 4000,
   MAX_COMBINED_MESSAGE_CHARS: 30000,
   MAX_CONTEXT_CHARS: 12000,
+  // Lead-ideas lane (M2 J3A) bounds — niche measured on TRIMMED content;
+  // count is a strict integer range. Over-limit input FAILS, never truncated,
+  // never coerced, never rounded.
+  MAX_LEAD_IDEAS_NICHE_CHARS: 500,
+  MIN_LEAD_IDEAS_COUNT: 1,
+  MAX_LEAD_IDEAS_COUNT: 10,
   // Defensive structural bounds applied to the WHOLE payload by the safe scanner.
   MAX_OBJECT_KEYS: 32,
   MAX_ARRAY_ITEMS: 64,
@@ -119,6 +125,30 @@ function promptOnlyProfile() {
   return { kind: 'prompt', allowedKeys: ['prompt'], fields: { prompt: PROMPT_FIELD } };
 }
 
+// Lead-ideas profile (M2 J3A, crm.lead_ideas): EXACTLY { niche, count }.
+// niche = required trimmed non-empty string ≤ MAX_LEAD_IDEAS_NICHE_CHARS;
+// count = required strict integer in [MIN, MAX] via the generic integer field
+// type below (typeof number + finite + integer; no string coercion, no
+// rounding). Uses the same field engine as every prompt profile — string and
+// multi-turn behavior stays byte-compatible.
+function leadIdeasProfile() {
+  return {
+    kind: 'fields',
+    allowedKeys: ['niche', 'count'],
+    fields: {
+      niche: {
+        type: 'string', required: true, trim: true, maxChars: AI_GATEWAY_INPUT_LIMITS.MAX_LEAD_IDEAS_NICHE_CHARS,
+      },
+      count: {
+        type: 'integer',
+        required: true,
+        min: AI_GATEWAY_INPUT_LIMITS.MIN_LEAD_IDEAS_COUNT,
+        max: AI_GATEWAY_INPUT_LIMITS.MAX_LEAD_IDEAS_COUNT,
+      },
+    },
+  };
+}
+
 // Multi-turn profile (C2): { messages: [{role,text}...], context?: { summary } }.
 // The message/context rules live in validateMultiTurnPayload — a dedicated
 // deterministic validator, NOT a permissive generic schema engine.
@@ -166,6 +196,9 @@ const PROFILES = deepFreeze({
   'jake.force_actions': singleUserTurnProfile(),
   'studio.prompt_enhance': promptOnlyProfile(),
   'crm.suggest_next_action': promptOnlyProfile(),
+  // Outreach lead-ideas lane (M2 J3A): strict { niche, count } — see
+  // leadIdeasProfile for the exact field rules.
+  'crm.lead_ideas': leadIdeasProfile(),
 });
 
 export const AI_GATEWAY_INPUT_PROFILE_KEYS = Object.freeze(Object.keys(PROFILES));
@@ -310,8 +343,18 @@ export function validateAiGatewayInput(actionType, payload) {
       if (v.length > spec.maxChars) return fail('field_too_long');
       out[name] = v;
       inputChars += v.length;
+    } else if (spec.type === 'integer') {
+      // Generic strict integer field (M2 J3A): the value must ALREADY be a
+      // finite integer number — no string coercion, no rounding, no repair.
+      // Content-free character accounting is text-only: integers contribute
+      // nothing to inputChars.
+      if (typeof raw !== 'number' || !Number.isFinite(raw)) return fail('field_not_number');
+      if (!Number.isInteger(raw)) return fail('field_not_integer');
+      if (typeof spec.min === 'number' && raw < spec.min) return fail('field_out_of_range');
+      if (typeof spec.max === 'number' && raw > spec.max) return fail('field_out_of_range');
+      out[name] = raw;
     } else {
-      // No non-string fields exist in this slice; reject rather than pass through.
+      // No other field types exist; reject rather than pass through.
       return fail('unsupported_field_type');
     }
   }

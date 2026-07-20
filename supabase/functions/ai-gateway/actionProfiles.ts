@@ -356,6 +356,70 @@ function crmSuggestNextActionProfile(): ActionProfile {
   };
 }
 
+// ===================================================================
+// Outreach lead-ideas lane (M2 J3A) — crm.lead_ideas.
+//
+// The SECOND structured (json) action. The system instruction and the
+// response schema below are VERBATIM copies of the legacy frontend lane
+// (src/lib/gemini.js: generateLeadIdeas `sys` + LEAD_SCHEMA) — moved
+// server-side so no browser key or instruction authority remains in the
+// client. The user message is built server-side by the pure
+// buildLeadIdeasUserMessage contract helper from the validated
+// { niche, count } payload.
+// ===================================================================
+export const CRM_LEAD_IDEAS = 'crm.lead_ideas';
+
+// VERBATIM copy of the legacy frontend system instruction (generateLeadIdeas).
+const CRM_LEAD_IDEAS_SYSTEM = `אתה אנליסט מכירות לסטודיו דיגיטלי (Art Value) שמוכר אתרים, מערכות CRM, מיתוג וקמפיינים.
+המשימה: לייצר רעיונות ללידים — עסקים פוטנציאליים שכדאי לפנות אליהם. עברית בלבד, קונקרטי ומעשי.
+לכל ליד: שם/סוג עסק ספציפי, קטגוריה מהרשימה, והצורך הדיגיטלי המרכזי שלו (מה הכי כדאי למכור לו).
+קטגוריות: winery=יקבים, food=מסעדות/קפה, art=גלריות/אמנים, beauty=יופי, hospitality=אירוח, judaica=תכשיטים/יודאיקה, clinic=קליניקות, other=אחר.`;
+
+// VERBATIM copy of the legacy frontend LEAD_SCHEMA (same eight-value category
+// enum, same required fields). Constrains generation only; the application-
+// layer validator (validateCrmLeadIdeas) remains mandatory and fail-closed.
+const CRM_LEAD_IDEAS_CATEGORIES = [
+  'winery', 'food', 'art', 'beauty', 'hospitality', 'judaica', 'clinic', 'other',
+];
+// deno-lint-ignore no-explicit-any
+const CRM_LEAD_IDEAS_SCHEMA: Record<string, any> = {
+  type: 'object',
+  properties: {
+    leads: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          category: { type: 'string', enum: CRM_LEAD_IDEAS_CATEGORIES },
+          need: { type: 'string' },
+        },
+        required: ['name', 'category', 'need'],
+      },
+    },
+  },
+  required: ['leads'],
+};
+
+// Generation config mirrors the legacy frontend lead-ideas cloud lane exactly:
+// temperature 0.9, maxOutputTokens 2048, responseMimeType application/json,
+// responseSchema LEAD_SCHEMA, AND thinkingConfig: { thinkingBudget: 0 } (the
+// legacy request body always sent it).
+function crmLeadIdeasProfile(): ActionProfile {
+  return {
+    outputMode: 'json',
+    systemInstruction: CRM_LEAD_IDEAS_SYSTEM,
+    temperature: 0.9,
+    maxOutputTokens: 2048,
+    responseMimeType: 'application/json',
+    thinkingBudget: 0,
+    responseSchema: CRM_LEAD_IDEAS_SCHEMA,
+    parsePolicy: 'json_strict',
+    resultContract: CRM_LEAD_IDEAS,
+    resultTransform: null,
+  };
+}
+
 // Registry keyed ONLY by validated actionType. Every currently
 // Gemini-executable text action has exactly one profile; no other action is
 // present (executable scope is NOT expanded here). Deeply frozen.
@@ -368,6 +432,7 @@ const PROFILES: Readonly<Record<string, ActionProfile>> = deepFreeze({
   'jake.force_actions': jakeForceActionsProfile(),
   'studio.prompt_enhance': textProfile(),
   'crm.suggest_next_action': crmSuggestNextActionProfile(),
+  'crm.lead_ideas': crmLeadIdeasProfile(),
 });
 
 // Fail-fast at module load: the registry MUST cover the full executable set.

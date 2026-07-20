@@ -58,6 +58,7 @@ const REQUIRED_CAPABILITIES_BY_ACTION: Readonly<Record<string, CapabilityRule>> 
   'text.crm_message': TEXT_ONLY,
   'studio.prompt_enhance': TEXT_ONLY,
   'crm.suggest_next_action': JSON_ONLY,
+  'crm.lead_ideas': JSON_ONLY,
   'text.multi_turn': TEXT_MULTI_TURN,
   'jake.draft_message': TEXT_MULTI_TURN,
   'jake.chat': TEXT_MULTI_TURN,

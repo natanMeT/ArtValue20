@@ -39,6 +39,8 @@ const EXPECTED_CAPABILITIES = {
   // M2 J1 — server-only Jake chat + force-actions lanes.
   'jake.chat': ['text', 'multi_turn'],
   'jake.force_actions': ['text', 'multi_turn'],
+  // M2 J3A — Outreach lead-ideas lane (second structured json action).
+  'crm.lead_ideas': ['json'],
 };
 
 // ---------------------------------------------------------------
