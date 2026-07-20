@@ -2,6 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Icon from '../ui/Icon.jsx';
 import { NAV_SECTIONS } from './sidebarNav.js';
+import { isSupabaseConfigured } from '../../lib/supabase.js';
 
 export default function Sidebar({ open, onClose }) {
   const navigate = useNavigate();
@@ -65,9 +66,11 @@ export default function Sidebar({ open, onClose }) {
               </>
             )}
           </NavLink>
+          {/* M2 J3C S1.1 — truthful data status: build-time constant, non-clickable,
+              no health check. Supabase mode → cloud data; otherwise the local demo. */}
           <div className="demo-pill">
             <span className="demo-dot" />
-            מצב הדגמה — דאטה מקומית
+            {isSupabaseConfigured ? 'נתונים בענן' : 'מצב הדגמה — דאטה מקומית'}
           </div>
         </div>
       </aside>
