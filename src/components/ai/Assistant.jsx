@@ -6,7 +6,8 @@ import Icon from '../ui/Icon.jsx';
 import warriorSit from '../../assets/warrior_sit.png';
 import warriorStand from '../../assets/warrior_stand.png';
 import warriorWalk from '../../assets/warrior_walk.png';
-import { chatJake, forceActionsJake, draftWithJake, jakeBrainLabel, jakeBrainPref, setJakeBrain, isGeminiConfigured } from '../../lib/gemini.js';
+import { chatJake, forceActionsJake, draftWithJake } from '../../lib/gemini.js';
+import { isSupabaseConfigured } from '../../lib/supabase.js';
 import { extractActions, executeActions, describeActions, detectBulkDelete, buildBulkDeleteGate } from '../../lib/jakeAgent.js';
 import { activePack } from '../../lib/jakePack.js';
 import { withBusinessBrain } from '../../lib/jakeBusinessContext.js';
@@ -273,7 +274,9 @@ function claimsActionText(text) {
 // A calm Hebrew fallback message — the client NEVER sees a raw technical error.
 function gentleError(e) {
   const msg = String(e?.message || '');
-  if (/Ollama|מקומי|המנוע|עולה אחרי/i.test(msg)) return '⚠️ המוח המקומי עדיין עולה (Ollama). תן/י לו ~30 שניות ונסה/י שוב — או עברו למוח הענן דרך כפתור המוח למעלה.';
+  // M2 J3C S1: the brain-selection button was removed, so this hint no longer
+  // points at it. Same trigger regex; calm retry copy only.
+  if (/Ollama|מקומי|המנוע|עולה אחרי/i.test(msg)) return '⚠️ המנוע המקומי עדיין עולה. תן/י לו ~30 שניות ונסה/י שוב.';
   return 'מצטער, לא הצלחתי לעבד את זה כרגע 🙏 נסה/י שוב בעוד רגע, או לנסח קצת אחרת.';
 }
 
@@ -396,7 +399,6 @@ export default function Assistant() {
   const [reminders, setReminders] = useState([]);
   const [listening, setListening] = useState(false);
   const [voiceOn, setVoiceOn] = useState(false);
-  const [brainTick, setBrainTick] = useState(0); // bump to re-read the brain badge after a switch
   const scrollRef = useRef(null);
   // Creative V2 orchestrator — built once; reads live CRM data via a ref. The
   // adapter inside wraps the FROZEN Creative Director V1 (injected at composition).
@@ -547,16 +549,6 @@ export default function Assistant() {
     setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', system: true, text: 'בוטל — חבילת ההפקה לא נשמרה.' } : mm)));
   };
   const RISK_HE = { low: 'נמוך', medium: 'בינוני', high: 'גבוה' };
-
-  // ---- brain switch: cycle auto (smartest) → cloud → local. Lets נתן keep the
-  // smartest brain by default but flip to the private/local brain in one click. ----
-  const cycleBrain = () => {
-    const order = ['auto', 'cloud', 'local'];
-    const nextPref = order[(order.indexOf(jakeBrainPref()) + 1) % order.length];
-    setJakeBrain(nextPref);
-    setBrainTick((t) => t + 1);
-    toast(`מוח: ${nextPref === 'auto' ? 'אוטומטי (החכם ביותר)' : nextPref === 'cloud' ? 'ענן' : 'מקומי'}`);
-  };
 
   // Bulk delete after a passed code gate: dispatch a DELETE for each picked id.
   const runBulkDelete = (idx, gate, ids) => {
@@ -1040,21 +1032,14 @@ export default function Assistant() {
                   <span className="ai-avatar"><img src={warriorStand} className="ai-avatar-img" alt="" /></span>
                   <div>
                     <div style={{ fontWeight: 800 }}>ג׳יק</div>
-                    {(() => {
-                      void brainTick; // re-read after a brain switch
-                      const b = jakeBrainLabel();
-                      return (
-                        <button
-                          className="ai-brain"
-                          onClick={cycleBrain}
-                          title="המוח של ג׳יק — לחץ להחלפה (אוטומטי / ענן / מקומי)"
-                          disabled={!isGeminiConfigured}
-                        >
-                          <span className={`ai-brain-dot ${b.cloud ? 'cloud' : ''}`} />
-                          {isGeminiConfigured ? b.label : 'מצב הדגמה'}
-                        </button>
-                      );
-                    })()}
+                    {/* Truthful AI status (M2 J3C S1): the released Jake lanes are served
+                        exclusively by the server-owned AI Gateway, so the old auto/cloud/local
+                        brain selector is obsolete. Non-clickable status only — no onClick, no
+                        localStorage write, no model/provider name. */}
+                    <span className="ai-brain" style={{ cursor: 'default' }}>
+                      <span className={`ai-brain-dot ${isSupabaseConfigured ? 'cloud' : ''}`} />
+                      {isSupabaseConfigured ? 'AI מאובטח' : 'מצב הדגמה'}
+                    </span>
                   </div>
                 </div>
                 <div className="row gap-1">

@@ -4,7 +4,8 @@ import { motion } from 'framer-motion';
 import { useStore } from '../store/store.jsx';
 import { SectionHeader } from '../components/ui/atoms.jsx';
 import Icon from '../components/ui/Icon.jsx';
-import { diagnoseQuote, isGeminiConfigured } from '../lib/gemini.js';
+import { diagnoseQuote } from '../lib/gemini.js';
+import { isSupabaseConfigured } from '../lib/supabase.js';
 
 const EMPTY = { clientName: '', field: '', audience: '', offer: '' };
 
@@ -72,7 +73,7 @@ export default function Diagnose() {
       <SectionHeader
         title={<span className="row gap-2" style={{ display: 'inline-flex', alignItems: 'center' }}><Icon name="spark" size={22} style={{ color: 'var(--lime-deep)' }} /> אבחון AI להצעות מחיר</span>}
         sub="הזן את פרטי הלקוח וההצעה שלך, וקבל ניתוח פסיכולוגי, מבנה שיחה והתנגדויות צפויות לקראת סגירה."
-        action={!isGeminiConfigured && <span className="badge badge-neutral"><Icon name="spark" size={12} /> מצב הדגמה · ללא מפתח Gemini</span>}
+        action={!isSupabaseConfigured && <span className="badge badge-neutral"><Icon name="spark" size={12} /> מצב הדגמה</span>}
       />
 
       <div className="diagnose-grid">

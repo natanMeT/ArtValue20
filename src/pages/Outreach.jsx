@@ -10,7 +10,8 @@ import { SectionHeader, EmptyState } from '../components/ui/atoms.jsx';
 import { CATS, buildMessage, needFor, OUTREACH_NEEDS_DEFAULT, OUTREACH_TO_GROWTH_CATEGORY } from '../data/outreach.js';
 import { leadsRouteForCategory } from '../data/growthCalendar.js';
 import { uuid } from '../lib/api.js';
-import { generateLeadIdeas, isGeminiConfigured } from '../lib/gemini.js';
+import { generateLeadIdeas } from '../lib/gemini.js';
+import { isSupabaseConfigured } from '../lib/supabase.js';
 
 const FILTERS = [
   { key: 'all', label: 'הכל' },
@@ -148,7 +149,7 @@ export default function Outreach() {
           </div>
           <p className="dim" style={{ fontSize: '0.84rem', marginBottom: 14 }}>
             הזן תחום, אזור או סוג קהל — וקבל רעיונות ללידים שכדאי לפנות אליהם, עם הצורך העסקי של כל אחד: מערכת CRM, דשבורד, אוטומציות, מערכת פולואפים או דף נחיתה.
-            {!isGeminiConfigured && ' (מצב הדגמה — ללא מפתח Gemini)'}
+            {!isSupabaseConfigured && ' (מצב הדגמה)'}
           </p>
           <div className="row gap-2 wrap">
             <input
