@@ -975,7 +975,12 @@ describe('guardrail · frozen files carry no gateway wiring', () => {
     expect(calls.length).toBe(5);
     expect(code.includes('actionProfiles')).toBe(false);
     // unauthorized legacy operations stay OFF the gateway (accidental-migration guard)
-    for (const fn of ['enhanceImagePrompt', 'runCreativeDirector']) {
+    // M2 J3C S2: enhanceImagePrompt was retired as verified dead code — it must
+    // now be ABSENT from code (the retirement note comment may still name it;
+    // strict comment-stripped guard also in deadCodeRetirement.test.js).
+    const strippedCode = code.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+    expect(strippedCode.includes('enhanceImagePrompt')).toBe(false);
+    for (const fn of ['runCreativeDirector']) {
       const start = code.indexOf(`export async function ${fn}(`);
       expect(start, `${fn} present`).toBeGreaterThan(-1);
       const body = code.slice(start, code.indexOf('\n}', start));

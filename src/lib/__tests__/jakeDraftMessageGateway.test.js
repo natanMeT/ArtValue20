@@ -332,7 +332,10 @@ describe('draftWithJake · frontend migration (source guards)', () => {
   });
 
   it('unrelated legacy exports remain intact in gemini.js', () => {
-    for (const fn of ['chatJake', 'forceActionsJake', 'generateLeadIdeas', 'enhanceImagePrompt', 'runCreativeDirector', 'analyzeBusiness']) {
+    // M2 J3C S2: enhanceImagePrompt left this list — it was retired as verified
+    // dead code (ImageStudio uses the studio.prompt_enhance Gateway action);
+    // its strict must-not-exist guard lives in deadCodeRetirement.test.js.
+    for (const fn of ['chatJake', 'forceActionsJake', 'generateLeadIdeas', 'runCreativeDirector', 'analyzeBusiness']) {
       expect(gemini.includes(`export async function ${fn}(`) || gemini.includes(`export function ${fn}(`), fn).toBe(true);
     }
     expect(gemini.includes('export const isGeminiConfigured')).toBe(true);

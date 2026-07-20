@@ -5,7 +5,6 @@
 // demo result so the feature works offline / before a key is added.
 // ===================================================================
 
-import { activePack, buildJakeSystem } from './jakePack.js';
 // Gateway-routed lanes in this file: draftWithJake → `jake.draft_message`
 // (Slice B), chatJake → `jake.chat` and forceActionsJake →
 // `jake.force_actions` (M2 J2), generateLeadIdeas → `crm.lead_ideas`
@@ -39,9 +38,6 @@ export const useLocalLLM = Boolean(LOCAL_LLM_URL);
 // the aya rollback (which would just see stray text). Empirically Ollama's qwen3
 // already defaults to non-thinking here — this makes it deterministic.
 const NO_THINK = /qwen3/i.test(LOCAL_LLM_MODEL) ? '\n\n/no_think' : '';
-// Same soft-switch, keyed to Jake's own model (so qwen3-as-Jake stays non-thinking
-// and emits clean action JSON, even when the engine model isn't qwen3).
-const JAKE_NO_THINK = /qwen3/i.test(JAKE_MODEL) ? '\n\n/no_think' : '';
 
 export const isGeminiConfigured = Boolean(API_KEY) || useLocalLLM;
 
@@ -838,75 +834,9 @@ export async function diagnoseQuote(input) {
   throw new Error(`שגיאה בהפקת האבחון (${code})`);
 }
 
-// ===================================================================
-// Conversational assistant (multi-turn chat, context-aware)
-// history: [{ role:'user'|'assistant', text }]
-// contextText: a compact snapshot of the CRM data
-// ===================================================================
-export async function chatWithLocalModel(history, contextText) {
-  if (!isGeminiConfigured) return demoChat(history);
-
-  // System prompt is assembled from the active BUSINESS PACK (jakePack.js) — swap
-  // the pack to retarget Jake to another business; the engine here stays unchanged.
-  const sys = buildJakeSystem(activePack, contextText, JAKE_NO_THINK);
-
-  // Local model path (OpenAI-style messages).
-  if (useLocalLLM) {
-    const messages = [{ role: 'system', content: sys }, ...history.map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.text }))];
-    return localChat(messages, { temperature: 0.7, maxTokens: 1600, model: JAKE_MODEL });
-  }
-
-  // Gemini requires contents to start with a 'user' turn.
-  const firstUser = history.findIndex((m) => m.role === 'user');
-  const trimmed = firstUser >= 0 ? history.slice(firstUser) : [];
-  const contents = trimmed.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.text }] }));
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
-  const body = {
-    systemInstruction: { parts: [{ text: sys }] },
-    contents,
-    generationConfig: { temperature: 0.7, maxOutputTokens: 1800, thinkingConfig: { thinkingBudget: 0 } },
-  };
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-goog-api-key': API_KEY }, body: JSON.stringify(body) });
-  if (!res.ok) {
-    let msg = `שגיאת Gemini (${res.status})`;
-    try { const e = await res.json(); msg = e?.error?.message || msg; } catch { /* ignore */ }
-    throw new Error(msg);
-  }
-  const json = await res.json();
-  const parts = json?.candidates?.[0]?.content?.parts || [];
-  const text = parts.map((p) => p.text).filter(Boolean).join('').trim();
-  if (!text) throw new Error('לא התקבלה תשובה מ-Gemini');
-  return text;
-}
-
-// ===================================================================
-// forceActions — second pass: when ג'יק claimed an action in prose but emitted
-// no executable block, ask the model for ONLY the actions JSON (low temp, tight
-// instruction). Converts "talked but didn't do" into a real action.
-// Returns raw model text (an ```actions block or []).
-// ===================================================================
-export async function forceActions(userText, contextText) {
-  if (!isGeminiConfigured) return '';
-  const sys = `אתה מנוע ביצוע פעולות עבור מערכת ${activePack.name}. תפקידך היחיד: להמיר את בקשת המשתמש לבלוק פעולות JSON.
-${activePack.actionsGuide}
-
-נתוני המערכת (השתמש בהם לזיהוי שמות/ערכים מדויקים):
-${contextText}
-
-החזר אך ורק בלוק \`\`\`actions עם מערך JSON שמבצע את בקשת המשתמש — בלי שום טקסט, הסבר או מילה אחרת לפניו או אחריו. אם הבקשה דורשת לפעול על כמה פריטים (למשל "כל הלקוחות עם שווי 0") — כלול פעולה לכל אחד מהם לפי הנתונים. אם אין פעולה מתאימה החזר: []${JAKE_NO_THINK}`;
-  const messages = [{ role: 'system', content: sys }, { role: 'user', content: userText }];
-  // NOTE: engine/network errors are allowed to PROPAGATE (localChat throws a clear
-  // Hebrew message) so the caller can distinguish "engine unreachable" from
-  // "model returned but didn't comply". Do not swallow them here.
-  if (useLocalLLM) return localChat(messages, { temperature: 0.1, maxTokens: 1400, model: JAKE_MODEL });
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
-  const body = { systemInstruction: { parts: [{ text: sys }] }, contents: [{ role: 'user', parts: [{ text: userText }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 1400, thinkingConfig: { thinkingBudget: 0 } } };
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-goog-api-key': API_KEY }, body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(`שגיאת מודל (${res.status})`);
-  const j = await res.json();
-  return (j?.candidates?.[0]?.content?.parts || []).map((p) => p.text).filter(Boolean).join('').trim();
-}
+// M2 J3C S2: the legacy pre-gateway Jake lanes (chatWithLocalModel, forceActions)
+// were retired here — the production lanes are chatJake → `jake.chat` and
+// forceActionsJake → `jake.force_actions` below (server-owned AI Gateway).
 
 // ===================================================================
 // JAKE BRAIN PREFERENCE + BADGE (legacy router, UI-only since M2 J2).
@@ -1115,75 +1045,9 @@ export async function generateLeadIdeas(niche, count = 6) {
   throw new Error(`שגיאה ביצירת רעיונות (${code})`);
 }
 
-// ===================================================================
-// Prompt enhancer — turn a short Hebrew idea into a rich English
-// image-generation "mega prompt". kind: 'generate' | 'edit' | 'inpaint'.
-// Returns a single prompt string.
-// ===================================================================
-export async function enhanceImagePrompt(idea, kind = 'generate') {
-  const text = (idea || '').trim();
-  if (!text) throw new Error('כתוב קודם בעברית מה אתה רוצה');
-  if (!isGeminiConfigured) return demoEnhance(text, kind);
-
-  const FAITHFUL = `You expand a short image description into a fuller prompt for an AI image generator.
-
-STAY 100% FAITHFUL — most important rule:
-- Keep EVERY element the user wrote: same subject, same colors, same background, same composition, same style.
-- Do NOT add objects, people, rooms, settings, moods or details the user did not mention.
-- Do NOT change anything. If they wrote "white background" keep a plain white background (do NOT turn it into a room). If they wrote "gold" keep it gold (never black-and-white). Never alter a stated color, count, or object.
-- You may ONLY add neutral technical detail that does not change the content: lighting quality, sharpness, and — for photos only — a camera/lens and realistic texture.
-
-ADAPT TO THE SUBJECT TYPE:
-- Photo of people / products / places: add natural lighting, a real camera + lens, photorealistic skin/material texture, subtle film grain.
-- Logo / icon / illustration / 3D render / graphic / text design: do NOT add camera, film, photo, skin, pores or grain words — keep it a clean crisp design in the style the user asked.
-
-OUTPUT: one comma-separated prompt, ENGLISH ONLY (translate any Hebrew to English). Return ONLY the prompt text — no quotes, no notes, no Hebrew.`;
-
-  const sys = kind === 'inpaint'
-    ? 'The user marked a region of a photo to replace. Output a CONCISE English description of ONLY what fills that region (object / background / garment) — exactly what the user asked, nothing added. One short comma-separated line. English only, return only the text.'
-    : kind === 'edit'
-      ? 'The user wants to edit an existing photo. Output ONE clear English editing instruction that changes ONLY what they asked and nothing else, ending with ", keep the person, colors and composition unchanged". Do not invent new elements. English only, return only the text.'
-      : FAITHFUL;
-
-  // Strip quotes/fences and force English if the model slipped into Hebrew.
-  const clean = (s) => (s || '').replace(/^```[a-z]*|```$/gi, '').replace(/^["']|["']$/g, '').trim();
-  const ensureEnglish = async (s) => {
-    if (!/[֐-׿]/.test(s)) return s;
-    const t = await localChat([{ role: 'system', content: 'Translate the text to English literally. Do NOT add, remove, expand or change anything — same meaning, same length, same details. Return ONLY the English translation.' }, { role: 'user', content: s }], { temperature: 0.1, maxTokens: 400 });
-    return clean(t);
-  };
-
-  if (useLocalLLM) {
-    let out = clean(await localChat([{ role: 'system', content: sys }, { role: 'user', content: text }], { temperature: 0.35, maxTokens: 400 }));
-    out = await ensureEnglish(out);
-    return out;
-  }
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
-  const body = {
-    systemInstruction: { parts: [{ text: sys }] },
-    contents: [{ role: 'user', parts: [{ text }] }],
-    generationConfig: { temperature: 0.4, maxOutputTokens: 600, thinkingConfig: { thinkingBudget: 0 } },
-  };
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-goog-api-key': API_KEY }, body: JSON.stringify(body) });
-  if (!res.ok) {
-    let msg = `שגיאת Gemini (${res.status})`;
-    try { const e = await res.json(); msg = e?.error?.message || msg; } catch { /* ignore */ }
-    throw new Error(msg);
-  }
-  const json = await res.json();
-  const parts = json?.candidates?.[0]?.content?.parts || [];
-  const out = parts.map((p) => p.text).filter(Boolean).join('').trim().replace(/^["']|["']$/g, '');
-  if (!out) throw new Error('לא התקבלה תשובה מ-Gemini');
-  return out;
-}
-
-function demoEnhance(text, kind) {
-  const base = kind === 'inpaint'
-    ? `${text}, photorealistic, matching lighting and perspective, seamless blend, high detail`
-    : `${text}, professional photography, cinematic lighting, highly detailed, sharp focus, balanced composition, premium color grading, 8k`;
-  return new Promise((resolve) => setTimeout(() => resolve(base), 500));
-}
+// M2 J3C S2: the legacy browser-side prompt enhancer (enhanceImagePrompt /
+// demoEnhance) was retired here — ImageStudio's prompt enhancement is served
+// by the authenticated Gateway action `studio.prompt_enhance`.
 
 function demoLeadIdeas(niche, count) {
   const base = [
