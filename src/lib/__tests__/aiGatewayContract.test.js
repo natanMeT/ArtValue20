@@ -505,14 +505,15 @@ describe('provider messages · normalized internal request (C2)', () => {
 });
 
 describe('gemini text · policy vocab', () => {
-  it('text whitelist is the explicit eleven, frozen, all real actions', () => {
+  it('text whitelist is the explicit twelve, frozen, all real actions', () => {
     // C2 added the infrastructure-only 'text.multi_turn'; Slice B added the
     // product-wired 'jake.draft_message' (Jake drafting lane); M2 J1 added the
     // server-only 'jake.chat' + 'jake.force_actions' (no frontend caller yet);
-    // M2 J3A added the product-wired 'crm.lead_ideas' (Outreach lead-ideas lane).
+    // M2 J3A added the product-wired 'crm.lead_ideas' (Outreach lead-ideas lane);
+    // M2 J3B added the product-wired 'crm.diagnose_quote' (Diagnose lane).
     expect(Object.isFrozen(GEMINI_TEXT_ACTION_TYPES)).toBe(true);
     expect([...GEMINI_TEXT_ACTION_TYPES].sort()).toEqual(
-      ['crm.lead_ideas', 'crm.suggest_next_action', 'jake.chat', 'jake.draft_message', 'jake.force_actions', 'studio.prompt_enhance', 'text.campaign', 'text.copy', 'text.crm_message', 'text.multi_turn', 'text.strategy'],
+      ['crm.diagnose_quote', 'crm.lead_ideas', 'crm.suggest_next_action', 'jake.chat', 'jake.draft_message', 'jake.force_actions', 'studio.prompt_enhance', 'text.campaign', 'text.copy', 'text.crm_message', 'text.multi_turn', 'text.strategy'],
     );
     for (const a of GEMINI_TEXT_ACTION_TYPES) expect(AI_ACTION_TYPES.includes(a), a).toBe(true);
   });
@@ -520,7 +521,7 @@ describe('gemini text · policy vocab', () => {
   it('executable subset = gemini-first text actions only, frozen', () => {
     expect(Object.isFrozen(GEMINI_EXECUTABLE_ACTION_TYPES)).toBe(true);
     expect([...GEMINI_EXECUTABLE_ACTION_TYPES].sort()).toEqual(
-      ['crm.lead_ideas', 'crm.suggest_next_action', 'jake.chat', 'jake.draft_message', 'jake.force_actions', 'studio.prompt_enhance', 'text.copy', 'text.crm_message', 'text.multi_turn'],
+      ['crm.diagnose_quote', 'crm.lead_ideas', 'crm.suggest_next_action', 'jake.chat', 'jake.draft_message', 'jake.force_actions', 'studio.prompt_enhance', 'text.copy', 'text.crm_message', 'text.multi_turn'],
     );
     for (const a of GEMINI_EXECUTABLE_ACTION_TYPES) expect(GEMINI_TEXT_ACTION_TYPES.includes(a), a).toBe(true);
     // anthropic-first text actions stay whitelisted-but-deferred
@@ -957,19 +958,21 @@ describe('guardrail · frozen files carry no gateway wiring', () => {
     }
   });
 
-  it('gemini.js: ONLY the four authorized lanes are gateway-routed — no other legacy operation migrated', () => {
+  it('gemini.js: ONLY the five authorized lanes are gateway-routed — no other legacy operation migrated', () => {
     const code = read('../gemini.js');
     // the single allowed gateway import
     expect(/import \{ callAiGateway \} from '\.\/aiGatewayClient\.js';/.test(code)).toBe(true);
-    // the four migrated lanes MUST use the gateway with their dedicated
-    // actions (Slice B: draft; M2 J2: chat + force_actions; M2 J3A: lead ideas)
+    // the five migrated lanes MUST use the gateway with their dedicated
+    // actions (Slice B: draft; M2 J2: chat + force_actions; M2 J3A: lead
+    // ideas; M2 J3B: quote diagnosis)
     expect(code.includes("callAiGateway('jake.draft_message'")).toBe(true);
     expect(code.includes("callAiGateway('jake.chat'")).toBe(true);
     expect(code.includes("callAiGateway('jake.force_actions'")).toBe(true);
     expect(code.includes("callAiGateway('crm.lead_ideas'")).toBe(true);
+    expect(code.includes("callAiGateway('crm.diagnose_quote'")).toBe(true);
     // and no OTHER gateway action / surface is wired from this file
     const calls = code.match(/callAiGateway\(/g) || [];
-    expect(calls.length).toBe(4);
+    expect(calls.length).toBe(5);
     expect(code.includes('actionProfiles')).toBe(false);
     // unauthorized legacy operations stay OFF the gateway (accidental-migration guard)
     for (const fn of ['enhanceImagePrompt', 'runCreativeDirector']) {

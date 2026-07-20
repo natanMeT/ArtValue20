@@ -420,6 +420,67 @@ function crmLeadIdeasProfile(): ActionProfile {
   };
 }
 
+// ===================================================================
+// Quote-diagnosis lane (M2 J3B) — crm.diagnose_quote.
+//
+// The THIRD structured (json) action. The system instruction and the
+// response schema below are VERBATIM copies of the legacy frontend lane
+// (src/lib/gemini.js: SYSTEM + RESPONSE_SCHEMA) — moved server-side so no
+// browser key or instruction authority remains in the client. The user
+// message is built server-side by the pure buildDiagnoseQuoteUserMessage
+// contract helper from the validated { clientName, field, audience, offer }
+// payload (byte-exact legacy buildPrompt text incl. 'לא צוין' defaults).
+// ===================================================================
+export const CRM_DIAGNOSE_QUOTE = 'crm.diagnose_quote';
+
+// VERBATIM copy of the legacy frontend system instruction (SYSTEM).
+const CRM_DIAGNOSE_QUOTE_SYSTEM = `אתה יועץ מכירות בכיר ופסיכולוג עסקי שמתמחה בסטודיו דיגיטלי (Art Value) שמוכר אתרים, מערכות CRM, מיתוג וקמפיינים.
+המטרה: לעזור לבעל הסטודיו לסגור עסקה. נתח את הלקוח לפי המידע, בנה אסטרטגיית שיחה, וצפה התנגדויות.
+כתוב בעברית בלבד, בגוף פונה ("תגיד ללקוח...", "שווה להדגיש..."), חד, מעשי וקצר. בלי קלישאות.`;
+
+// VERBATIM copy of the legacy frontend RESPONSE_SCHEMA (same required set,
+// same nested item shapes). Constrains generation only; the application-
+// layer validator (validateCrmDiagnoseQuote) remains mandatory + fail-closed.
+// deno-lint-ignore no-explicit-any
+const CRM_DIAGNOSE_QUOTE_SCHEMA: Record<string, any> = {
+  type: 'object',
+  properties: {
+    psychProfile: { type: 'string' },
+    personalityType: { type: 'string' },
+    conversationStructure: {
+      type: 'array',
+      items: { type: 'object', properties: { step: { type: 'string' }, detail: { type: 'string' } }, required: ['step', 'detail'] },
+    },
+    objections: {
+      type: 'array',
+      items: { type: 'object', properties: { objection: { type: 'string' }, response: { type: 'string' } }, required: ['objection', 'response'] },
+    },
+    valueAngles: { type: 'array', items: { type: 'string' } },
+    closingTip: { type: 'string' },
+  },
+  required: ['psychProfile', 'conversationStructure', 'objections', 'closingTip'],
+};
+
+// Generation config mirrors the legacy frontend diagnose cloud lane exactly:
+// temperature 0.75, maxOutputTokens 4096, responseMimeType application/json,
+// responseSchema RESPONSE_SCHEMA, AND thinkingConfig: { thinkingBudget: 0 }
+// (the legacy request body always sent it so flash-model thinking never
+// truncated the JSON output).
+function crmDiagnoseQuoteProfile(): ActionProfile {
+  return {
+    outputMode: 'json',
+    systemInstruction: CRM_DIAGNOSE_QUOTE_SYSTEM,
+    temperature: 0.75,
+    maxOutputTokens: 4096,
+    responseMimeType: 'application/json',
+    thinkingBudget: 0,
+    responseSchema: CRM_DIAGNOSE_QUOTE_SCHEMA,
+    parsePolicy: 'json_strict',
+    resultContract: CRM_DIAGNOSE_QUOTE,
+    resultTransform: null,
+  };
+}
+
 // Registry keyed ONLY by validated actionType. Every currently
 // Gemini-executable text action has exactly one profile; no other action is
 // present (executable scope is NOT expanded here). Deeply frozen.
@@ -433,6 +494,7 @@ const PROFILES: Readonly<Record<string, ActionProfile>> = deepFreeze({
   'studio.prompt_enhance': textProfile(),
   'crm.suggest_next_action': crmSuggestNextActionProfile(),
   'crm.lead_ideas': crmLeadIdeasProfile(),
+  'crm.diagnose_quote': crmDiagnoseQuoteProfile(),
 });
 
 // Fail-fast at module load: the registry MUST cover the full executable set.

@@ -460,7 +460,7 @@ describe('compatibility · existing actions and frontend untouched', () => {
     expect([...REQUIRED_CAPABILITY_ACTION_KEYS].sort()).toEqual([...GEMINI_EXECUTABLE_ACTION_TYPES].sort());
     expect([...AI_GATEWAY_INPUT_PROFILE_KEYS].sort()).toEqual([...GEMINI_EXECUTABLE_ACTION_TYPES].sort());
     expect([...GEMINI_EXECUTABLE_ACTION_TYPES].sort()).toEqual([
-      'crm.lead_ideas', 'crm.suggest_next_action', 'jake.chat', 'jake.draft_message',
+      'crm.diagnose_quote', 'crm.lead_ideas', 'crm.suggest_next_action', 'jake.chat', 'jake.draft_message',
       'jake.force_actions', 'studio.prompt_enhance', 'text.copy', 'text.crm_message', 'text.multi_turn',
     ]);
   });

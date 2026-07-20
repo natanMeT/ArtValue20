@@ -45,6 +45,9 @@ export const AI_GATEWAY_INPUT_LIMITS = Object.freeze({
   MAX_LEAD_IDEAS_NICHE_CHARS: 500,
   MIN_LEAD_IDEAS_COUNT: 1,
   MAX_LEAD_IDEAS_COUNT: 10,
+  // Quote-diagnosis lane (M2 J3B) bound — every field measured on TRIMMED
+  // content. Over-limit input FAILS deterministically, never truncated.
+  MAX_DIAGNOSE_QUOTE_FIELD_CHARS: 2000,
   // Defensive structural bounds applied to the WHOLE payload by the safe scanner.
   MAX_OBJECT_KEYS: 32,
   MAX_ARRAY_ITEMS: 64,
@@ -149,6 +152,31 @@ function leadIdeasProfile() {
   };
 }
 
+// Quote-diagnosis profile (M2 J3B, crm.diagnose_quote): EXACTLY
+// { clientName, field, audience, offer }. Every key is REQUIRED (a missing
+// key fails) and is a bounded trimmed string — but an INDIVIDUAL empty
+// string stays valid (`allowEmpty`), because the frozen Diagnose UI permits
+// partial input. The one combined minimum (mirroring the UI's own guard):
+// clientName and offer may not BOTH be empty after trimming — enforced via
+// `requireAnyNonEmpty` below. No coercion, no truncation, no repair.
+function diagnoseQuoteProfile() {
+  const field = {
+    type: 'string', required: true, trim: true, allowEmpty: true,
+    maxChars: AI_GATEWAY_INPUT_LIMITS.MAX_DIAGNOSE_QUOTE_FIELD_CHARS,
+  };
+  return {
+    kind: 'fields',
+    allowedKeys: ['clientName', 'field', 'audience', 'offer'],
+    fields: {
+      clientName: { ...field },
+      field: { ...field },
+      audience: { ...field },
+      offer: { ...field },
+    },
+    requireAnyNonEmpty: ['clientName', 'offer'],
+  };
+}
+
 // Multi-turn profile (C2): { messages: [{role,text}...], context?: { summary } }.
 // The message/context rules live in validateMultiTurnPayload — a dedicated
 // deterministic validator, NOT a permissive generic schema engine.
@@ -199,6 +227,9 @@ const PROFILES = deepFreeze({
   // Outreach lead-ideas lane (M2 J3A): strict { niche, count } — see
   // leadIdeasProfile for the exact field rules.
   'crm.lead_ideas': leadIdeasProfile(),
+  // Quote-diagnosis lane (M2 J3B): strict { clientName, field, audience,
+  // offer } — see diagnoseQuoteProfile for the exact field rules.
+  'crm.diagnose_quote': diagnoseQuoteProfile(),
 });
 
 export const AI_GATEWAY_INPUT_PROFILE_KEYS = Object.freeze(Object.keys(PROFILES));
@@ -339,7 +370,11 @@ export function validateAiGatewayInput(actionType, payload) {
     if (spec.type === 'string') {
       if (typeof raw !== 'string') return fail('field_not_string');
       const v = spec.trim ? raw.trim() : raw;
-      if (spec.required && v.length === 0) return fail('empty_field');
+      // `allowEmpty` (M2 J3B): the field must still be PRESENT and a string,
+      // but its trimmed value may be '' (the diagnose lane's partial-input
+      // rule). No pre-existing profile sets it, so behavior elsewhere is
+      // byte-identical.
+      if (spec.required && !spec.allowEmpty && v.length === 0) return fail('empty_field');
       if (v.length > spec.maxChars) return fail('field_too_long');
       out[name] = v;
       inputChars += v.length;
@@ -357,6 +392,16 @@ export function validateAiGatewayInput(actionType, payload) {
       // No other field types exist; reject rather than pass through.
       return fail('unsupported_field_type');
     }
+  }
+
+  // Combined minimum (M2 J3B): a profile may declare that at least ONE of a
+  // named field set must be non-empty after trimming (diagnose: clientName /
+  // offer). Checked on the NORMALIZED output; fails with a fixed slug.
+  if (Array.isArray(profile.requireAnyNonEmpty)) {
+    const anyFilled = profile.requireAnyNonEmpty.some(
+      (name) => typeof out[name] === 'string' && out[name].length > 0,
+    );
+    if (!anyFilled) return fail('all_fields_empty');
   }
 
   return { ok: true, actionType: action, payload: out, inputChars };

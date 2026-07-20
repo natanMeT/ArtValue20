@@ -41,6 +41,8 @@ const EXPECTED_CAPABILITIES = {
   'jake.force_actions': ['text', 'multi_turn'],
   // M2 J3A — Outreach lead-ideas lane (second structured json action).
   'crm.lead_ideas': ['json'],
+  // M2 J3B — Quote-diagnosis lane (third structured json action).
+  'crm.diagnose_quote': ['json'],
 };
 
 // ---------------------------------------------------------------
