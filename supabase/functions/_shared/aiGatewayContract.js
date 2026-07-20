@@ -90,6 +90,11 @@ export const GEMINI_TEXT_ACTION_TYPES = Object.freeze([
   // frontend generateLeadIdeas seam. Strict { niche, count } input contract
   // (aiGatewayInput.js) + structured leads result contract (below).
   'crm.lead_ideas',
+  // Quote-diagnosis lane (M2 J3B) — gemini-first, executable, wired to the
+  // frontend diagnoseQuote seam. Strict { clientName, field, audience, offer }
+  // input contract (aiGatewayInput.js) + structured diagnosis result contract
+  // (below).
+  'crm.diagnose_quote',
 ]);
 
 // The subset that actually executes now = text actions the router routes to
@@ -322,6 +327,33 @@ export function buildLeadIdeasUserMessage(niche, count) {
   return `תחום / אזור / סוג קהל לחיפוש לידים: "${n}".\nהחזר ${count} רעיונות ללידים מגוונים ורלוונטיים.`;
 }
 
+// ---- crm.diagnose_quote: pure user-message builder (M2 J3B) ----
+// Reproduces the legacy frontend diagnose user message (src/lib/gemini.js
+// buildPrompt) BYTE-EXACTLY, including the 'לא צוין' defaults for empty
+// fields (the system instruction + schema are server-owned in the action
+// profile, never here). Strict + fail-closed: every one of the four keys must
+// be a string (individual empties are valid — the frozen UI permits partial
+// input), and clientName/offer may not BOTH be empty after trimming
+// (mirroring the input contract). Anything else → null. No provider
+// knowledge, no network, no env, no frontend imports.
+export function buildDiagnoseQuoteUserMessage(payload) {
+  if (!isPlainObject(payload)) return null;
+  const s = (v) => (typeof v === 'string' ? v.trim() : null);
+  const clientName = s(payload.clientName);
+  const field = s(payload.field);
+  const audience = s(payload.audience);
+  const offer = s(payload.offer);
+  if (clientName === null || field === null || audience === null || offer === null) return null;
+  if (!clientName && !offer) return null;
+  return `נתוני הלקוח וההצעה:
+- שם / עסק הלקוח: ${clientName || 'לא צוין'}
+- מקצוע / תחום: ${field || 'לא צוין'}
+- קהל יעד מרכזי של הלקוח: ${audience || 'לא צוין'}
+- ההצעה שלי (מה אני רוצה למכור לו): ${offer || 'לא צוין'}
+
+החזר אבחון מלא: פרופיל פסיכולוגי של הלקוח, סוג האישיות, מבנה שיחת מכירה מומלץ (שלבים), התנגדויות צפויות עם מענה לכל אחת, זוויות ערך מרכזיות, וטיפ סגירה אחד חזק.`;
+}
+
 // ---- action-aware provider-message mapping (M2 J3A) ----
 // toProviderMessages(payload) keeps its public signature and byte-identical
 // behavior for every existing action. This wrapper adds the ONE action-specific
@@ -335,6 +367,15 @@ export function toProviderMessagesForAction(actionType, payload) {
   if (action === 'crm.lead_ideas') {
     if (!isPlainObject(payload)) return null;
     const text = buildLeadIdeasUserMessage(payload.niche, payload.count);
+    if (!text) return null;
+    return [{ role: 'user', text }];
+  }
+  // Quote-diagnosis lane (M2 J3B): a validated { clientName, field, audience,
+  // offer } payload becomes ONE user message via the pure byte-exact builder.
+  // Same fail-closed pattern as crm.lead_ideas; every other action delegates
+  // to the unchanged toProviderMessages below.
+  if (action === 'crm.diagnose_quote') {
+    const text = buildDiagnoseQuoteUserMessage(payload);
     if (!text) return null;
     return [{ role: 'user', text }];
   }
@@ -479,6 +520,7 @@ export function buildProviderSuccessResponse(decision, text) {
 export const STRUCTURED_RESULT_CONTRACTS = Object.freeze({
   CRM_SUGGEST_NEXT_ACTION: 'crm.suggest_next_action',
   CRM_LEAD_IDEAS: 'crm.lead_ideas',
+  CRM_DIAGNOSE_QUOTE: 'crm.diagnose_quote',
 });
 
 const CRM_PRIORITIES = Object.freeze(['low', 'medium', 'high']);
@@ -539,6 +581,72 @@ export function validateCrmLeadIdeas(value) {
   return { leads };
 }
 
+// Validate + NORMALIZE a crm.diagnose_quote result into a fresh, safe
+// diagnosis literal, or null on any contract violation (fail closed). The
+// strict result shape (mirrors the legacy frontend RESPONSE_SCHEMA):
+//   { psychProfile, personalityType?, conversationStructure: [{step,detail}],
+//     objections: [{objection,response}], valueAngles?: string[], closingTip }
+// Rules: psychProfile/closingTip are required trimmed non-empty strings;
+// conversationStructure/objections are required arrays whose items are plain
+// objects with the required trimmed non-empty string pair (extra item keys
+// are dropped, never forwarded); empty arrays stay valid (the legacy schema
+// set no minItems and the frozen UI renders them). Optional fields stay
+// COMPATIBLE: absent → omitted; personalityType present must be a string
+// (trimmed; empty → omitted, matching the UI's falsy guard); valueAngles
+// present must be an array of strings (trimmed; empty items dropped).
+// A wrong-typed optional field rejects the whole result (fail closed).
+// Harmless extra top-level keys are dropped; any prototype-polluting own key
+// anywhere rejects the whole result. Never throws.
+export function validateCrmDiagnoseQuote(value) {
+  if (!isPlainObject(value)) return null;
+  for (const k of UNSAFE_OBJECT_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(value, k)) return null;
+  }
+  const reqStr = (v) => ((typeof v === 'string' && v.trim()) ? v.trim() : null);
+  const psychProfile = reqStr(value.psychProfile);
+  const closingTip = reqStr(value.closingTip);
+  if (psychProfile === null || closingTip === null) return null;
+
+  // Required string-pair arrays — one shared fail-closed reader.
+  const pairArray = (arr, keyA, keyB) => {
+    if (!Array.isArray(arr)) return null;
+    const out = [];
+    for (const item of arr) {
+      if (!isPlainObject(item)) return null;
+      for (const k of UNSAFE_OBJECT_KEYS) {
+        if (Object.prototype.hasOwnProperty.call(item, k)) return null;
+      }
+      const a = reqStr(item[keyA]);
+      const b = reqStr(item[keyB]);
+      if (a === null || b === null) return null;
+      out.push({ [keyA]: a, [keyB]: b });
+    }
+    return out;
+  };
+  const conversationStructure = pairArray(value.conversationStructure, 'step', 'detail');
+  const objections = pairArray(value.objections, 'objection', 'response');
+  if (conversationStructure === null || objections === null) return null;
+
+  const result = { psychProfile, conversationStructure, objections, closingTip };
+
+  if (Object.prototype.hasOwnProperty.call(value, 'personalityType') && value.personalityType !== undefined) {
+    if (typeof value.personalityType !== 'string') return null;
+    const p = value.personalityType.trim();
+    if (p) result.personalityType = p;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, 'valueAngles') && value.valueAngles !== undefined) {
+    if (!Array.isArray(value.valueAngles)) return null;
+    const angles = [];
+    for (const v of value.valueAngles) {
+      if (typeof v !== 'string') return null;
+      const t = v.trim();
+      if (t) angles.push(t);
+    }
+    result.valueAngles = angles;
+  }
+  return result;
+}
+
 // Dispatch to the validator for a given result contract. Unknown contract →
 // null (fail closed). Never throws.
 export function validateStructuredResult(resultContract, value) {
@@ -547,6 +655,9 @@ export function validateStructuredResult(resultContract, value) {
   }
   if (resultContract === STRUCTURED_RESULT_CONTRACTS.CRM_LEAD_IDEAS) {
     return validateCrmLeadIdeas(value);
+  }
+  if (resultContract === STRUCTURED_RESULT_CONTRACTS.CRM_DIAGNOSE_QUOTE) {
+    return validateCrmDiagnoseQuote(value);
   }
   return null;
 }

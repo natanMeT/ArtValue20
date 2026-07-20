@@ -42,6 +42,10 @@ export const AI_ACTION_TYPES = Object.freeze([
   // by the Gateway with a server-owned system instruction + JSON schema.
   // Wired to the frontend generateLeadIdeas seam (Outreach.jsx).
   'crm.lead_ideas',
+  // Quote-diagnosis lane (M2 J3B): structured sales diagnosis served by the
+  // Gateway with a server-owned system instruction + JSON schema + user-message
+  // template. Wired to the frontend diagnoseQuote seam (Diagnose.jsx).
+  'crm.diagnose_quote',
   'image.poster',
   'image.variation',
   'image.product_presenter',
@@ -152,6 +156,7 @@ export const COST_TIER_BY_ACTION = Object.freeze({
   'studio.prompt_enhance': 'low',
   'crm.suggest_next_action': 'low',
   'crm.lead_ideas': 'low',
+  'crm.diagnose_quote': 'low',
   'text.strategy': 'medium',
   'text.campaign': 'medium',
   'image.poster': 'medium',
@@ -186,6 +191,7 @@ export const DEFAULT_PROVIDER_BY_ACTION = Object.freeze({
   'studio.prompt_enhance': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'crm.suggest_next_action': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'crm.lead_ideas': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
+  'crm.diagnose_quote': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'text.strategy': Object.freeze(['anthropic', 'gemini', 'openai', 'openrouter', 'ollama']),
   'text.campaign': Object.freeze(['anthropic', 'gemini', 'openai', 'openrouter', 'ollama']),
   'image.poster': Object.freeze(['openai', 'gemini', 'replicate', 'pollinations', 'comfyui']),

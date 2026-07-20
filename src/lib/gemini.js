@@ -8,9 +8,10 @@
 import { activePack, buildJakeSystem } from './jakePack.js';
 // Gateway-routed lanes in this file: draftWithJake → `jake.draft_message`
 // (Slice B), chatJake → `jake.chat` and forceActionsJake →
-// `jake.force_actions` (M2 J2), and generateLeadIdeas → `crm.lead_ideas`
-// (M2 J3A). These are the ONLY gateway-routed operations in this file.
-// Everything else stays on its legacy path.
+// `jake.force_actions` (M2 J2), generateLeadIdeas → `crm.lead_ideas`
+// (M2 J3A), and diagnoseQuote → `crm.diagnose_quote` (M2 J3B). These are
+// the ONLY gateway-routed operations in this file. Everything else stays
+// on its legacy path.
 import { callAiGateway } from './aiGatewayClient.js';
 import { resolveLocalEngineUrl } from './localEngines.js';
 
@@ -796,77 +797,45 @@ export async function toEnglishImagePrompt(text, opts = {}) {
   return ensureNoText(t);
 }
 
-const RESPONSE_SCHEMA = {
-  type: 'object',
-  properties: {
-    psychProfile: { type: 'string' },
-    personalityType: { type: 'string' },
-    conversationStructure: {
-      type: 'array',
-      items: { type: 'object', properties: { step: { type: 'string' }, detail: { type: 'string' } }, required: ['step', 'detail'] },
-    },
-    objections: {
-      type: 'array',
-      items: { type: 'object', properties: { objection: { type: 'string' }, response: { type: 'string' } }, required: ['objection', 'response'] },
-    },
-    valueAngles: { type: 'array', items: { type: 'string' } },
-    closingTip: { type: 'string' },
-  },
-  required: ['psychProfile', 'conversationStructure', 'objections', 'closingTip'],
-};
+// ===================================================================
+// AI Quote Diagnosis — deep sales diagnosis for a client + offer.
+// Returns the structured diagnosis object.
+//
+// M2 J3B: served EXCLUSIVELY by the AI Gateway action `crm.diagnose_quote`.
+// The system instruction + JSON schema + user-message template are
+// server-owned (action profile + pure contract builder); no browser Gemini
+// key is read, no direct Google/Ollama call is made, and a Gateway failure
+// NEVER falls back to a local/browser provider. The unconfigured
+// environment (no Supabase) keeps the calm demo diagnosis.
+// ===================================================================
 
-const SYSTEM = `אתה יועץ מכירות בכיר ופסיכולוג עסקי שמתמחה בסטודיו דיגיטלי (Art Value) שמוכר אתרים, מערכות CRM, מיתוג וקמפיינים.
-המטרה: לעזור לבעל הסטודיו לסגור עסקה. נתח את הלקוח לפי המידע, בנה אסטרטגיית שיחה, וצפה התנגדויות.
-כתוב בעברית בלבד, בגוף פונה ("תגיד ללקוח...", "שווה להדגיש..."), חד, מעשי וקצר. בלי קלישאות.`;
-
-function buildPrompt({ clientName, field, audience, offer }) {
-  return `נתוני הלקוח וההצעה:
-- שם / עסק הלקוח: ${clientName || 'לא צוין'}
-- מקצוע / תחום: ${field || 'לא צוין'}
-- קהל יעד מרכזי של הלקוח: ${audience || 'לא צוין'}
-- ההצעה שלי (מה אני רוצה למכור לו): ${offer || 'לא צוין'}
-
-החזר אבחון מלא: פרופיל פסיכולוגי של הלקוח, סוג האישיות, מבנה שיחת מכירה מומלץ (שלבים), התנגדויות צפויות עם מענה לכל אחת, זוויות ערך מרכזיות, וטיפ סגירה אחד חזק.`;
+// Map the legacy diagnoseQuote(input) interface to the Gateway's strict
+// payload: EXACTLY { clientName, field, audience, offer }. Values travel
+// BYTE-EXACT — no trimming, no defaulting, no coercion, no repair: input
+// the deployed crm.diagnose_quote contract considers invalid stays invalid
+// and is rejected server-side (invalid_payload). Only the four contract
+// fields are read from the input (UI-state keys never belong on the wire,
+// where unknown keys are rejected). Carries ONLY the diagnosis data and
+// no execution authority of any kind (the server action owns all of it).
+function buildDiagnoseQuoteGatewayPayload(input) {
+  const src = (input && typeof input === 'object') ? input : {};
+  return { clientName: src.clientName, field: src.field, audience: src.audience, offer: src.offer };
 }
 
 export async function diagnoseQuote(input) {
-  if (!isGeminiConfigured) return demoResult(input);
-
-  if (useLocalLLM) {
-    const messages = [
-      { role: 'system', content: `${SYSTEM}\n\nהחזר JSON תקין בלבד (ללא טקסט נוסף) במבנה: {"psychProfile":"","personalityType":"","conversationStructure":[{"step":"","detail":""}],"objections":[{"objection":"","response":""}],"valueAngles":[""],"closingTip":""}.` },
-      { role: 'user', content: buildPrompt(input) },
-    ];
-    return parseJsonLoose(await localChat(messages, { json: true, temperature: 0.7, maxTokens: 2048 }));
+  const res = await callAiGateway('crm.diagnose_quote', buildDiagnoseQuoteGatewayPayload(input));
+  if (res && res.ok) {
+    const json = (res.result && res.result.json && typeof res.result.json === 'object' && !Array.isArray(res.result.json))
+      ? res.result.json
+      : null;
+    if (!json) throw new Error('שגיאה בהפקת האבחון (empty_response)');
+    return json;
   }
-
-  // Key goes ONLY in the X-goog-api-key header (below) — never in the URL query
-  // string, which would leak it into history / Referer / proxy logs. Matches every
-  // other Gemini call site in this file.
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
-  const body = {
-    systemInstruction: { parts: [{ text: SYSTEM }] },
-    contents: [{ role: 'user', parts: [{ text: buildPrompt(input) }] }],
-    generationConfig: {
-      responseMimeType: 'application/json',
-      responseSchema: RESPONSE_SCHEMA,
-      temperature: 0.75,
-      maxOutputTokens: 4096,
-      // disable hidden "thinking" so the JSON output isn't truncated on flash models
-      thinkingConfig: { thinkingBudget: 0 },
-    },
-  };
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-goog-api-key': API_KEY }, body: JSON.stringify(body) });
-  if (!res.ok) {
-    let msg = `שגיאת Gemini (${res.status})`;
-    try { const e = await res.json(); msg = e?.error?.message || msg; } catch { /* ignore */ }
-    throw new Error(msg);
+  if (res && res.error && res.error.code === 'supabase_not_configured') {
+    return demoResult(input);
   }
-  const json = await res.json();
-  const parts = json?.candidates?.[0]?.content?.parts || [];
-  const text = parts.map((p) => p.text).filter(Boolean).join('').trim();
-  if (!text) throw new Error('לא התקבלה תשובה מ-Gemini (ייתכן שהבקשה נחסמה)');
-  return JSON.parse(text);
+  const code = (res && res.error && res.error.code) || 'no_brain';
+  throw new Error(`שגיאה בהפקת האבחון (${code})`);
 }
 
 // ===================================================================

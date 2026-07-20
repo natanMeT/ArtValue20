@@ -298,12 +298,14 @@ describe('J2 lanes · source guards (gemini.js)', () => {
     expect(gemini.includes('jakeLocalChat')).toBe(false);
   });
 
-  it('exactly four gateway-routed lanes: draft + chat + force_actions + lead ideas (draftWithJake unchanged)', () => {
+  it('exactly five gateway-routed lanes: draft + chat + force_actions + lead ideas + diagnose (draftWithJake unchanged)', () => {
     // M2 J3A added the authorized generateLeadIdeas → crm.lead_ideas lane;
+    // M2 J3B added the authorized diagnoseQuote → crm.diagnose_quote lane;
     // the three Jake lanes stay byte-identical.
-    expect((gemini.match(/callAiGateway\(/g) || []).length).toBe(4);
+    expect((gemini.match(/callAiGateway\(/g) || []).length).toBe(5);
     expect(gemini.includes("callAiGateway('jake.draft_message'")).toBe(true);
     expect(gemini.includes("callAiGateway('crm.lead_ideas'")).toBe(true);
+    expect(gemini.includes("callAiGateway('crm.diagnose_quote'")).toBe(true);
     const draft = fnBody('draftWithJake');
     expect(draft.includes("callAiGateway('jake.draft_message'")).toBe(true);
   });
