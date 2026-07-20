@@ -956,18 +956,21 @@ describe('guardrail · frozen files carry no gateway wiring', () => {
     }
   });
 
-  it('gemini.js: ONLY draftWithJake is gateway-routed — no other legacy operation migrated', () => {
+  it('gemini.js: ONLY the three Jake lanes are gateway-routed — no other legacy operation migrated', () => {
     const code = read('../gemini.js');
     // the single allowed gateway import
     expect(/import \{ callAiGateway \} from '\.\/aiGatewayClient\.js';/.test(code)).toBe(true);
-    // draftWithJake MUST use the gateway with the dedicated action
+    // the three migrated Jake lanes MUST use the gateway with their dedicated
+    // actions (Slice B: draft; M2 J2: chat + force_actions)
     expect(code.includes("callAiGateway('jake.draft_message'")).toBe(true);
+    expect(code.includes("callAiGateway('jake.chat'")).toBe(true);
+    expect(code.includes("callAiGateway('jake.force_actions'")).toBe(true);
     // and no OTHER gateway action / surface is wired from this file
     const calls = code.match(/callAiGateway\(/g) || [];
-    expect(calls.length).toBe(1);
+    expect(calls.length).toBe(3);
     expect(code.includes('actionProfiles')).toBe(false);
     // unauthorized legacy operations stay OFF the gateway (accidental-migration guard)
-    for (const fn of ['chatJake', 'forceActionsJake', 'generateLeadIdeas', 'enhanceImagePrompt', 'runCreativeDirector']) {
+    for (const fn of ['generateLeadIdeas', 'enhanceImagePrompt', 'runCreativeDirector']) {
       const start = code.indexOf(`export async function ${fn}(`);
       expect(start, `${fn} present`).toBeGreaterThan(-1);
       const body = code.slice(start, code.indexOf('\n}', start));

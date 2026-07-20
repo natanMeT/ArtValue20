@@ -6,9 +6,11 @@
 // ===================================================================
 
 import { activePack, buildJakeSystem } from './jakePack.js';
-// Jake drafting lane (Slice B): draftWithJake is served by the server-owned AI
-// Gateway action `jake.draft_message` — the ONLY operation in this file that is
-// gateway-routed. Everything else stays on its legacy path.
+// Jake production lanes are served by the server-owned AI Gateway actions:
+// draftWithJake → `jake.draft_message` (Slice B), chatJake → `jake.chat` and
+// forceActionsJake → `jake.force_actions` (M2 J2). These are the ONLY
+// gateway-routed operations in this file. Everything else stays on its
+// legacy path.
 import { callAiGateway } from './aiGatewayClient.js';
 import { resolveLocalEngineUrl } from './localEngines.js';
 
@@ -938,16 +940,13 @@ ${contextText}
 }
 
 // ===================================================================
-// JAKE BRAIN ROUTER — "the smartest brain always wins" (gen-2).
-// Unifies Art Value's Jake with the 6 cloud embeddings: a single seam that
-// prefers the strongest available brain and gracefully FALLS BACK to the other
-// (then to a calm message) so a client never sees a raw error. The Creative
-// Director engine's brain (DictaLM/aya, FROZEN) is untouched — this is Jake-only.
-//
-// Preference: 'auto' (default) | 'cloud' | 'local'. 'auto' = cloud Gemini first
-// (smartest), local Ollama as fallback. Override via VITE_JAKE_BRAIN, or live via
-// setJakeBrain() (localStorage) so the user can flip cloud↔local from the UI.
-// Jake's cloud model is isolated from the creative one (VITE_JAKE_CLOUD_MODEL).
+// JAKE BRAIN PREFERENCE + BADGE (legacy router, UI-only since M2 J2).
+// The production Jake lanes (chatJake / forceActionsJake / draftWithJake) are
+// served EXCLUSIVELY by the server-owned AI Gateway — no browser Gemini key,
+// no Ollama, no fallback loop. What remains here is the persisted brain
+// preference + the badge label the Assistant UI still renders; they no longer
+// influence which engine answers a production chat. The Creative Director
+// engine's brain (DictaLM/aya, FROZEN) is untouched — this is Jake-only.
 // ===================================================================
 const JAKE_BRAIN_KEY = 'artvalue_jake_brain';
 const JAKE_CLOUD_MODEL = import.meta.env.VITE_JAKE_CLOUD_MODEL || 'gemini-2.5-flash';
@@ -977,73 +976,98 @@ export function jakeBrainLabel() {
     : { brain: 'local', label: `${JAKE_MODEL} · מקומי`, cloud: false };
 }
 
-// Low-level cloud (Gemini) chat for Jake — its OWN model, separate from creative.
-async function jakeCloudChat(history, sys, { temperature = 0.7, maxTokens = 1800 } = {}) {
-  const firstUser = history.findIndex((m) => m.role === 'user');
-  const trimmed = firstUser >= 0 ? history.slice(firstUser) : [];
-  const contents = trimmed.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.text }] }));
-  if (!contents.length) throw new Error('EMPTY_HISTORY');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${JAKE_CLOUD_MODEL}:generateContent`;
-  const body = { systemInstruction: { parts: [{ text: sys }] }, contents, generationConfig: { temperature, maxOutputTokens: maxTokens, thinkingConfig: { thinkingBudget: 0 } } };
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-goog-api-key': API_KEY }, body: JSON.stringify(body) });
-  if (!res.ok) { let msg = `Gemini ${res.status}`; try { const e = await res.json(); msg = e?.error?.message || msg; } catch { /* ignore */ } throw new Error(msg); }
-  const j = await res.json();
-  const text = (j?.candidates?.[0]?.content?.parts || []).map((p) => p.text).filter(Boolean).join('').trim();
-  if (!text) throw new Error('EMPTY_RESPONSE');
-  return text;
-}
-// Low-level local (Ollama) chat for Jake.
-function jakeLocalChat(history, sys, { temperature = 0.7, maxTokens = 1600 } = {}) {
-  const messages = [{ role: 'system', content: sys }, ...history.map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.text }))];
-  return localChat(messages, { temperature, maxTokens, model: JAKE_MODEL });
+// No context vs context: the legacy lanes treat null/undefined/'' contextText
+// as "no context supplied"; anything else travels to the Gateway BYTE-EXACT in
+// context.summary (even a whitespace-only or non-string value — the strict
+// server contract, not the client, decides validity).
+function hasJakeContext(contextText) {
+  return contextText !== undefined && contextText !== null && contextText !== '';
 }
 
-// PUBLIC — multi-turn Jake chat with smartest-brain routing + graceful fallback.
-// Returns { text, brain }. Throws only if EVERY configured brain failed (the
-// caller shows a calm message — never the raw error).
+// Map the legacy chatJake (history, contextText) interface to the Gateway's
+// strict multi-turn payload: { messages: [{role,text}...], context?: {summary} }.
+// EXACT mapping (M2 J2 correction): each history entry contributes one wire
+// message whose `role` and `text` are copied VERBATIM — same count, same
+// order, same role values, same text bytes. No trimming, no dropping of empty
+// messages, no role coercion, no skipping assistant-first input, no repair of
+// any kind: input the deployed jake.chat contract considers invalid stays
+// invalid and is rejected server-side (invalid_payload). Only the two wire
+// fields are read from each entry (the lane's semantic boundary — UI-state
+// keys never belong on the wire, where unknown keys are rejected). Carries
+// ONLY conversation + context data — never provider/model/system/options.
+function buildJakeChatGatewayPayload(history, contextText) {
+  const list = Array.isArray(history) ? history : [];
+  const messages = list.map((m) => ({
+    role: m ? m.role : undefined,
+    text: m ? m.text : undefined,
+  }));
+  return hasJakeContext(contextText)
+    ? { messages, context: { summary: contextText } }
+    : { messages };
+}
+
+// PUBLIC — multi-turn Jake chat. Returns { text, brain }; throws on failure
+// (the caller shows a calm message — never the raw error).
+//
+// M2 J2: served EXCLUSIVELY by the AI Gateway action `jake.chat`, which owns
+// the FULL production chat authority server-side (persona + grounding rules +
+// action protocol + confirm discipline). No browser Gemini key is read, no
+// direct Google/Ollama call is made, and a Gateway failure NEVER falls back
+// to a local/browser provider. The unconfigured environment (no Supabase)
+// keeps the calm demo behavior, like before.
 export async function chatJake(history, contextText) {
-  if (!isGeminiConfigured) return { text: await demoChat(history), brain: 'demo' };
-  const sys = buildJakeSystem(activePack, contextText, JAKE_NO_THINK);
-  const order = jakeBrainOrder();
-  if (!order.length) return { text: await demoChat(history), brain: 'demo' };
-  let lastErr;
-  for (const b of order) {
-    try {
-      const text = b === 'cloud' ? await jakeCloudChat(history, sys) : await jakeLocalChat(history, sys);
-      return { text, brain: b };
-    } catch (e) { lastErr = e; } // eslint-disable-line no-await-in-loop
+  const res = await callAiGateway('jake.chat', buildJakeChatGatewayPayload(history, contextText));
+  if (res && res.ok) {
+    const text = (res.result && typeof res.result.text === 'string') ? res.result.text.trim() : '';
+    if (!text) throw new Error('EMPTY_RESPONSE');
+    return { text, brain: 'gateway' };
   }
-  throw lastErr || new Error('NO_BRAIN');
+  if (res && res.error && res.error.code === 'supabase_not_configured') {
+    return { text: await demoChat(history), brain: 'demo' };
+  }
+  throw new Error((res && res.error && res.error.code) || 'NO_BRAIN');
 }
 
-// PUBLIC — force ONLY an actions block (second pass), smart-routed with fallback.
+// Map the force-actions interface to the Gateway's strict single-turn payload:
+// EXACTLY one user message (the J1 contract), context as { summary } data only.
+// EXACT mapping (M2 J2 correction): userText becomes the single message text
+// VERBATIM — no trim, no normalization, no repair; invalid input is rejected
+// by the server contract, never made valid client-side.
+function buildJakeForceActionsPayload(userText, contextText) {
+  const payload = { messages: [{ role: 'user', text: userText }] };
+  if (hasJakeContext(contextText)) payload.context = { summary: contextText };
+  return payload;
+}
+
+// PUBLIC — force ONLY an actions block (second pass). Returns the raw result
+// text for the caller's extractActions, exactly as before.
+//
+// M2 J2: served EXCLUSIVELY by the AI Gateway action `jake.force_actions`.
+// The server normalizes the raw provider output to ONE canonical fenced
+// ```actions block or exactly "[]" — and it NEVER executes or interprets the
+// ops; parsing, KNOWN_OPS validation, the confirm card, and execution stay
+// entirely in the frontend flow. No browser provider call, no fallback. The
+// unconfigured environment keeps the legacy calm no-op ('' → no actions).
 export async function forceActionsJake(userText, contextText) {
-  if (!isGeminiConfigured) return '';
-  const sys = `אתה מנוע ביצוע פעולות עבור מערכת ${activePack.name}. תפקידך היחיד: להמיר את בקשת המשתמש לבלוק פעולות JSON.
-${activePack.actionsGuide}
-
-נתוני המערכת (השתמש בהם לזיהוי שמות/ערכים מדויקים):
-${contextText}
-
-החזר אך ורק בלוק \`\`\`actions עם מערך JSON שמבצע את בקשת המשתמש — בלי שום טקסט, הסבר או מילה אחרת. אם אין פעולה מתאימה החזר: []${JAKE_NO_THINK}`;
-  const order = jakeBrainOrder();
-  let lastErr;
-  for (const b of order) {
-    try {
-      return b === 'cloud'
-        ? await jakeCloudChat([{ role: 'user', text: userText }], sys, { temperature: 0.1, maxTokens: 1400 })
-        : await jakeLocalChat([{ role: 'user', text: userText }], sys, { temperature: 0.1, maxTokens: 1400 });
-    } catch (e) { lastErr = e; } // eslint-disable-line no-await-in-loop
+  const res = await callAiGateway('jake.force_actions', buildJakeForceActionsPayload(userText, contextText));
+  if (res && res.ok) {
+    const text = (res.result && typeof res.result.text === 'string') ? res.result.text.trim() : '';
+    if (!text) throw new Error('EMPTY_RESPONSE');
+    return text;
   }
-  throw lastErr || new Error('NO_BRAIN');
+  if (res && res.error && res.error.code === 'supabase_not_configured') return '';
+  throw new Error((res && res.error && res.error.code) || 'NO_BRAIN');
 }
 
 // Map the legacy (history, contextText) drafting interface to the Gateway's
 // strict multi-turn payload: { messages: [{role,text}...], context?: {summary} }.
-// Mirrors the legacy cloud path's own shaping (jakeCloudChat): empty texts are
-// skipped, non-assistant roles coerce to 'user', and the window opens on the
-// first user turn. Carries ONLY conversation + context data — never provider/
-// model/system/options (the server profile owns all instruction authority).
+// Mirrors the retired legacy cloud path's own shaping: empty texts are
+// skipped, non-assistant roles coerce to 'user', and the window opens on
+// the first user turn. This shaping is the MERGED Slice B
+// contract of the drafting lane ONLY — the J2 chat/force lanes deliberately
+// do NOT share it (they map byte-exact; see buildJakeChatGatewayPayload).
+// Carries ONLY conversation + context data — never provider/model/system/
+// options (the server profile owns all instruction authority).
 function buildJakeDraftGatewayPayload(history, contextText) {
   const list = Array.isArray(history) ? history : [];
   const messages = [];
