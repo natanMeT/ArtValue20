@@ -32,7 +32,7 @@ describe('chatJake · gateway migration (behavior)', () => {
     expect(chatJake.length).toBe(2);
   });
 
-  it('success: ONE call to jake.chat with the exact mapped payload; returns the legacy { text, brain } shape', async () => {
+  it('success: ONE call to jake.chat with the BYTE-EXACT mapped payload; returns the legacy { text, brain } shape', async () => {
     callAiGateway.mockResolvedValue({ ok: true, result: { text: '  יש לך 12 לקוחות פעילים.  ' } });
     const out = await chatJake(
       [
@@ -44,40 +44,70 @@ describe('chatJake · gateway migration (behavior)', () => {
     );
     expect(out).toEqual({ text: 'יש לך 12 לקוחות פעילים.', brain: 'gateway' });
     expect(callAiGateway).toHaveBeenCalledTimes(1);
+    // message text + context bytes travel EXACTLY as supplied — whitespace
+    // included (the server contract owns normalization, never the client)
     expect(callAiGateway).toHaveBeenCalledWith('jake.chat', {
       messages: [
-        { role: 'user', text: 'כמה לקוחות יש לי?' },
+        { role: 'user', text: ' כמה לקוחות יש לי? ' },
         { role: 'assistant', text: 'יש לך 12.' },
         { role: 'user', text: 'ומה עם לידים?' },
       ],
-      context: { summary: 'לקוחות: 12. לידים: 3.' },
+      context: { summary: '  לקוחות: 12. לידים: 3.  ' },
     });
   });
 
-  it('history mapping preserves roles/order/text, drops empties, opens on first user turn — never reorders', async () => {
+  it('EXACT history mapping: same count, same order, same role values, same text bytes — nothing dropped, coerced, or skipped', async () => {
     callAiGateway.mockResolvedValue({ ok: true, result: { text: 'x' } });
-    await chatJake([
-      { role: 'assistant', text: 'ברוך הבא' },  // leading assistant → trimmed (J1 contract: user-first)
-      { role: 'user', text: '' },                // empty → dropped
-      { role: 'user', text: 'א' },
+    const history = [
+      { role: 'assistant', text: 'ברוך הבא' }, // assistant-first → NOT skipped
+      { role: 'user', text: '' },               // empty → NOT dropped
+      { role: 'weird', text: 'שאלה' },          // unknown role → NOT coerced
+      { role: 'user', text: '  מרווח  ' },      // whitespace → NOT trimmed
       { role: 'assistant', text: 'ב' },
-      { role: 'user', text: 'ג' },
-    ], '');
+    ];
+    await chatJake(history, '');
     const [, payload] = callAiGateway.mock.calls[0];
     expect(payload.messages).toEqual([
-      { role: 'user', text: 'א' },
+      { role: 'assistant', text: 'ברוך הבא' },
+      { role: 'user', text: '' },
+      { role: 'weird', text: 'שאלה' },
+      { role: 'user', text: '  מרווח  ' },
       { role: 'assistant', text: 'ב' },
-      { role: 'user', text: 'ג' },
     ]);
+    expect(payload.messages.length).toBe(history.length);
     expect('context' in payload).toBe(false);
   });
 
-  it('never mutates the caller history or context', async () => {
+  it('invalid history REMAINS invalid: the real deployed jake.chat validator rejects the mapped payloads (client never repairs)', async () => {
+    callAiGateway.mockResolvedValue({ ok: false, error: { code: 'invalid_payload', message: 'x' } });
+    const INVALID_HISTORIES = [
+      [{ role: 'assistant', text: 'שלום' }, { role: 'user', text: 'היי' }], // assistant-first
+      [{ role: 'user', text: '' }],                                          // empty text
+      [{ role: 'weird', text: 'שאלה' }],                                     // unknown role
+      [],                                                                     // empty history
+      [{ role: 'user', text: 'א'.repeat(4001) }],                            // over-limit (never truncated)
+    ];
+    for (const history of INVALID_HISTORIES) {
+      callAiGateway.mockClear();
+      await expect(chatJake(history, ''), JSON.stringify(history).slice(0, 60)).rejects.toThrow('invalid_payload');
+      const [action, payload] = callAiGateway.mock.calls[0];
+      // round-trip proof: the REAL J1 validator rejects exactly what we sent
+      expect(validateAiGatewayInput(action, payload).ok).toBe(false);
+    }
+  });
+
+  it('never mutates the caller history/messages/context — proven with frozen inputs', async () => {
     callAiGateway.mockResolvedValue({ ok: true, result: { text: 'x' } });
-    const history = [{ role: 'user', text: 'שלום' }, { role: 'assistant', text: 'היי' }, { role: 'user', text: 'מה שלומך' }];
+    const history = Object.freeze([
+      Object.freeze({ role: 'user', text: ' שלום ' }),
+      Object.freeze({ role: 'assistant', text: 'היי' }),
+      Object.freeze({ role: 'user', text: '' }),
+    ]);
     const before = JSON.stringify(history);
-    await chatJake(history, 'קונטקסט');
+    await chatJake(history, 'קונטקסט'); // frozen input: any mutation would throw in strict mode
     expect(JSON.stringify(history)).toBe(before);
+    const [, payload] = callAiGateway.mock.calls[0];
+    expect(payload.messages[0]).not.toBe(history[0]); // fresh wire objects, caller objects untouched
   });
 
   it('the mapped payload VALIDATES against the deployed jake.chat input contract (round-trip proof)', async () => {
@@ -138,13 +168,14 @@ describe('forceActionsJake · gateway migration (behavior)', () => {
     expect(forceActionsJake.length).toBe(2);
   });
 
-  it('sends EXACTLY one user message (the J1 single-turn contract) with context as { summary } data', async () => {
+  it('sends EXACTLY one user message with userText BYTE-PRESERVED and context as { summary } data', async () => {
     callAiGateway.mockResolvedValue({ ok: true, result: { text: '[]' } });
     await forceActionsJake(' תוסיף את דני כהן כליד ', '  לקוחות: דני לוי [active]  ');
     expect(callAiGateway).toHaveBeenCalledTimes(1);
+    // no trim, no normalization — the exact caller bytes travel to the server
     expect(callAiGateway).toHaveBeenCalledWith('jake.force_actions', {
-      messages: [{ role: 'user', text: 'תוסיף את דני כהן כליד' }],
-      context: { summary: 'לקוחות: דני לוי [active]' },
+      messages: [{ role: 'user', text: ' תוסיף את דני כהן כליד ' }],
+      context: { summary: '  לקוחות: דני לוי [active]  ' },
     });
     const [action, payload] = callAiGateway.mock.calls[0];
     expect(payload.messages.length).toBe(1);
@@ -152,6 +183,17 @@ describe('forceActionsJake · gateway migration (behavior)', () => {
     const r = validateAiGatewayInput(action, payload);
     expect(r.ok).toBe(true);
     expect(r.actionType).toBe('jake.force_actions');
+  });
+
+  it('invalid userText REMAINS invalid: empty/whitespace-only/over-limit reach the real validator unrepaired', async () => {
+    callAiGateway.mockResolvedValue({ ok: false, error: { code: 'invalid_payload', message: 'x' } });
+    for (const bad of ['', '   ', 'א'.repeat(4001)]) {
+      callAiGateway.mockClear();
+      await expect(forceActionsJake(bad, 'ctx'), JSON.stringify(bad.slice(0, 10))).rejects.toThrow('invalid_payload');
+      const [action, payload] = callAiGateway.mock.calls[0];
+      expect(payload.messages[0].text).toBe(bad); // byte-exact passthrough of the invalid value
+      expect(validateAiGatewayInput(action, payload).ok).toBe(false);
+    }
   });
 
   it('canonical fenced actions text passes through VERBATIM and parses in extractActions exactly as before', async () => {
@@ -305,6 +347,35 @@ describe('J2 · draftWithJake keeps its Slice B contract', () => {
     expect(callAiGateway).toHaveBeenCalledWith('jake.draft_message', {
       messages: [{ role: 'user', text: 'נסח הודעה' }],
       context: { summary: 'ctx' },
+    });
+  });
+
+  it('draft mapping is BYTE-COMPATIBLE with pre-J2 Slice B shaping (trim/drop/coerce/shift) — and the chat lane deliberately does NOT share it', async () => {
+    const noisy = [
+      { role: 'assistant', text: 'ברוך הבא' }, // draft: trimmed away · chat: kept
+      { role: 'user', text: '' },               // draft: dropped · chat: kept
+      { role: 'weird', text: ' שאלה ' },        // draft: →user+trim · chat: kept verbatim
+      { role: 'assistant', text: 'תשובה' },
+    ];
+    callAiGateway.mockResolvedValue({ ok: true, result: { text: 'x' } });
+    await draftWithJake(noisy, '  ctx  ');
+    const [, draftPayload] = callAiGateway.mock.calls[0];
+    // the EXACT pre-J2 Slice B result (pinned also in jakeDraftMessageGateway.test.js)
+    expect(draftPayload).toEqual({
+      messages: [{ role: 'user', text: 'שאלה' }, { role: 'assistant', text: 'תשובה' }],
+      context: { summary: 'ctx' },
+    });
+    callAiGateway.mockClear();
+    await chatJake(noisy, '  ctx  ').catch(() => {}); // chat may reject — mapping is what we assert
+    const [, chatPayload] = callAiGateway.mock.calls[0];
+    expect(chatPayload).toEqual({
+      messages: [
+        { role: 'assistant', text: 'ברוך הבא' },
+        { role: 'user', text: '' },
+        { role: 'weird', text: ' שאלה ' },
+        { role: 'assistant', text: 'תשובה' },
+      ],
+      context: { summary: '  ctx  ' },
     });
   });
 });

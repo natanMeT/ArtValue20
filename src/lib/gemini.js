@@ -976,23 +976,34 @@ export function jakeBrainLabel() {
     : { brain: 'local', label: `${JAKE_MODEL} · מקומי`, cloud: false };
 }
 
-// Map the legacy (history, contextText) Jake interface to the Gateway's
+// No context vs context: the legacy lanes treat null/undefined/'' contextText
+// as "no context supplied"; anything else travels to the Gateway BYTE-EXACT in
+// context.summary (even a whitespace-only or non-string value — the strict
+// server contract, not the client, decides validity).
+function hasJakeContext(contextText) {
+  return contextText !== undefined && contextText !== null && contextText !== '';
+}
+
+// Map the legacy chatJake (history, contextText) interface to the Gateway's
 // strict multi-turn payload: { messages: [{role,text}...], context?: {summary} }.
-// Mirrors the retired legacy cloud path's own shaping: empty texts are
-// skipped, non-assistant roles coerce to 'user', and the window opens on the
-// first user turn. Carries ONLY conversation + context data — never provider/
-// model/system/options (the server profile owns all instruction authority).
-function buildJakeGatewayPayload(history, contextText) {
+// EXACT mapping (M2 J2 correction): each history entry contributes one wire
+// message whose `role` and `text` are copied VERBATIM — same count, same
+// order, same role values, same text bytes. No trimming, no dropping of empty
+// messages, no role coercion, no skipping assistant-first input, no repair of
+// any kind: input the deployed jake.chat contract considers invalid stays
+// invalid and is rejected server-side (invalid_payload). Only the two wire
+// fields are read from each entry (the lane's semantic boundary — UI-state
+// keys never belong on the wire, where unknown keys are rejected). Carries
+// ONLY conversation + context data — never provider/model/system/options.
+function buildJakeChatGatewayPayload(history, contextText) {
   const list = Array.isArray(history) ? history : [];
-  const messages = [];
-  for (const m of list) {
-    const text = (m && typeof m.text === 'string') ? m.text.trim() : '';
-    if (!text) continue;
-    messages.push({ role: m.role === 'assistant' ? 'assistant' : 'user', text });
-  }
-  while (messages.length && messages[0].role !== 'user') messages.shift();
-  const summary = (typeof contextText === 'string') ? contextText.trim() : '';
-  return summary ? { messages, context: { summary } } : { messages };
+  const messages = list.map((m) => ({
+    role: m ? m.role : undefined,
+    text: m ? m.text : undefined,
+  }));
+  return hasJakeContext(contextText)
+    ? { messages, context: { summary: contextText } }
+    : { messages };
 }
 
 // PUBLIC — multi-turn Jake chat. Returns { text, brain }; throws on failure
@@ -1005,7 +1016,7 @@ function buildJakeGatewayPayload(history, contextText) {
 // to a local/browser provider. The unconfigured environment (no Supabase)
 // keeps the calm demo behavior, like before.
 export async function chatJake(history, contextText) {
-  const res = await callAiGateway('jake.chat', buildJakeGatewayPayload(history, contextText));
+  const res = await callAiGateway('jake.chat', buildJakeChatGatewayPayload(history, contextText));
   if (res && res.ok) {
     const text = (res.result && typeof res.result.text === 'string') ? res.result.text.trim() : '';
     if (!text) throw new Error('EMPTY_RESPONSE');
@@ -1019,11 +1030,12 @@ export async function chatJake(history, contextText) {
 
 // Map the force-actions interface to the Gateway's strict single-turn payload:
 // EXACTLY one user message (the J1 contract), context as { summary } data only.
+// EXACT mapping (M2 J2 correction): userText becomes the single message text
+// VERBATIM — no trim, no normalization, no repair; invalid input is rejected
+// by the server contract, never made valid client-side.
 function buildJakeForceActionsPayload(userText, contextText) {
-  const text = (typeof userText === 'string') ? userText.trim() : '';
-  const summary = (typeof contextText === 'string') ? contextText.trim() : '';
-  const payload = { messages: [{ role: 'user', text }] };
-  if (summary) payload.context = { summary };
+  const payload = { messages: [{ role: 'user', text: userText }] };
+  if (hasJakeContext(contextText)) payload.context = { summary: contextText };
   return payload;
 }
 
@@ -1047,6 +1059,28 @@ export async function forceActionsJake(userText, contextText) {
   throw new Error((res && res.error && res.error.code) || 'NO_BRAIN');
 }
 
+// Map the legacy (history, contextText) drafting interface to the Gateway's
+// strict multi-turn payload: { messages: [{role,text}...], context?: {summary} }.
+// Mirrors the retired legacy cloud path's own shaping: empty texts are
+// skipped, non-assistant roles coerce to 'user', and the window opens on
+// the first user turn. This shaping is the MERGED Slice B
+// contract of the drafting lane ONLY — the J2 chat/force lanes deliberately
+// do NOT share it (they map byte-exact; see buildJakeChatGatewayPayload).
+// Carries ONLY conversation + context data — never provider/model/system/
+// options (the server profile owns all instruction authority).
+function buildJakeDraftGatewayPayload(history, contextText) {
+  const list = Array.isArray(history) ? history : [];
+  const messages = [];
+  for (const m of list) {
+    const text = (m && typeof m.text === 'string') ? m.text.trim() : '';
+    if (!text) continue;
+    messages.push({ role: m.role === 'assistant' ? 'assistant' : 'user', text });
+  }
+  while (messages.length && messages[0].role !== 'user') messages.shift();
+  const summary = (typeof contextText === 'string') ? contextText.trim() : '';
+  return summary ? { messages, context: { summary } } : { messages };
+}
+
 // PUBLIC — drafting lane: write a letter / WhatsApp / email / reply from real
 // data. Prose ONLY (no actions block). Returns { text, brain }; throws on
 // failure (the caller shows a calm message — never the raw error).
@@ -1056,7 +1090,7 @@ export async function forceActionsJake(userText, contextText) {
 // failure NEVER falls back to the legacy Gemini/Ollama path. The unconfigured
 // environment (no Supabase) keeps the calm demo behavior, like before.
 export async function draftWithJake(history, contextText) {
-  const res = await callAiGateway('jake.draft_message', buildJakeGatewayPayload(history, contextText));
+  const res = await callAiGateway('jake.draft_message', buildJakeDraftGatewayPayload(history, contextText));
   if (res && res.ok) {
     const text = (res.result && typeof res.result.text === 'string') ? res.result.text.trim() : '';
     if (!text) throw new Error('EMPTY_RESPONSE');
