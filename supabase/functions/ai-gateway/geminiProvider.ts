@@ -14,7 +14,7 @@
 // ===================================================================
 
 import {
-  toProviderMessages,
+  toProviderMessagesForAction,
   buildGeminiMessagesRequest,
   parseGeminiTextResponse,
   parseStructuredResult,
@@ -57,10 +57,14 @@ export async function runGeminiText(
   }
 
   // The adapter consumes ONLY normalized provider messages (never a raw browser
-  // payload): the validated payload — prompt-only or multi-turn — is mapped to
+  // payload): the validated payload — prompt-only, multi-turn, or an action-
+  // specific shape (crm.lead_ideas → the pure contract builder) — is mapped to
   // provider-independent [{ role, text }] first, then to the Gemini body with the
-  // SERVER-OWNED profile. user → user, assistant → model.
-  const messages = toProviderMessages(
+  // SERVER-OWNED profile. user → user, assistant → model. The action-aware
+  // mapping lives entirely in the pure contract (toProviderMessagesForAction);
+  // no business branching happens here.
+  const messages = toProviderMessagesForAction(
+    decision ? decision.actionType : undefined,
     decision && decision.request ? decision.request.payload : undefined,
   );
   const built = messages

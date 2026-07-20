@@ -38,6 +38,10 @@ export const AI_ACTION_TYPES = Object.freeze([
   'jake.force_actions',
   'studio.prompt_enhance',
   'crm.suggest_next_action',
+  // Outreach lead-ideas lane (M2 J3A): structured lead-idea generation served
+  // by the Gateway with a server-owned system instruction + JSON schema.
+  // Wired to the frontend generateLeadIdeas seam (Outreach.jsx).
+  'crm.lead_ideas',
   'image.poster',
   'image.variation',
   'image.product_presenter',
@@ -147,6 +151,7 @@ export const COST_TIER_BY_ACTION = Object.freeze({
   'jake.force_actions': 'low',
   'studio.prompt_enhance': 'low',
   'crm.suggest_next_action': 'low',
+  'crm.lead_ideas': 'low',
   'text.strategy': 'medium',
   'text.campaign': 'medium',
   'image.poster': 'medium',
@@ -180,6 +185,7 @@ export const DEFAULT_PROVIDER_BY_ACTION = Object.freeze({
   'jake.force_actions': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'studio.prompt_enhance': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'crm.suggest_next_action': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
+  'crm.lead_ideas': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'text.strategy': Object.freeze(['anthropic', 'gemini', 'openai', 'openrouter', 'ollama']),
   'text.campaign': Object.freeze(['anthropic', 'gemini', 'openai', 'openrouter', 'ollama']),
   'image.poster': Object.freeze(['openai', 'gemini', 'replicate', 'pollinations', 'comfyui']),

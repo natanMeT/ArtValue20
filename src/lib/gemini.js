@@ -6,11 +6,11 @@
 // ===================================================================
 
 import { activePack, buildJakeSystem } from './jakePack.js';
-// Jake production lanes are served by the server-owned AI Gateway actions:
-// draftWithJake → `jake.draft_message` (Slice B), chatJake → `jake.chat` and
-// forceActionsJake → `jake.force_actions` (M2 J2). These are the ONLY
-// gateway-routed operations in this file. Everything else stays on its
-// legacy path.
+// Gateway-routed lanes in this file: draftWithJake → `jake.draft_message`
+// (Slice B), chatJake → `jake.chat` and forceActionsJake →
+// `jake.force_actions` (M2 J2), and generateLeadIdeas → `crm.lead_ideas`
+// (M2 J3A). These are the ONLY gateway-routed operations in this file.
+// Everything else stays on its legacy path.
 import { callAiGateway } from './aiGatewayClient.js';
 import { resolveLocalEngineUrl } from './localEngines.js';
 
@@ -1105,63 +1105,45 @@ export async function draftWithJake(history, contextText) {
 // ===================================================================
 // Lead research — generate fresh lead ideas for a niche/area.
 // Returns [{ name, category, need }].
+//
+// M2 J3A: served EXCLUSIVELY by the AI Gateway action `crm.lead_ideas`.
+// The system instruction + JSON schema are server-owned (action profile);
+// no browser Gemini key is read, no direct Google/Ollama call is made,
+// and a Gateway failure NEVER falls back to a local/browser provider.
+// The unconfigured environment (no Supabase) keeps the calm demo list.
 // ===================================================================
-const LEAD_CATEGORIES = ['winery', 'food', 'art', 'beauty', 'hospitality', 'judaica', 'clinic', 'other'];
-const LEAD_SCHEMA = {
-  type: 'object',
-  properties: {
-    leads: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' },
-          category: { type: 'string', enum: LEAD_CATEGORIES },
-          need: { type: 'string' },
-        },
-        required: ['name', 'category', 'need'],
-      },
-    },
-  },
-  required: ['leads'],
-};
+
+// Legacy default niche — EXPLICITLY APPROVED compatibility mapping (M2 J3A):
+// the frozen Outreach.jsx may call generateLeadIdeas('', 6), and the legacy
+// prompt resolved a falsy niche to this exact value. The CLIENT adapter
+// resolves a missing/blank niche to it; the Gateway itself still rejects a
+// direct blank niche payload.
+const LEAD_IDEAS_DEFAULT_NICHE = 'עסקי בוטיק בישראל';
+
+// Map the legacy (niche, count) interface to the Gateway's strict payload:
+// { niche: string, count: integer }. Besides the approved blank-niche
+// default above, values travel VERBATIM — no trimming, no clamping, no
+// count coercion: input the deployed crm.lead_ideas contract considers
+// invalid stays invalid and is rejected server-side (invalid_payload).
+function buildLeadIdeasGatewayPayload(niche, count) {
+  const resolved = (typeof niche === 'string' && niche.trim()) ? niche : LEAD_IDEAS_DEFAULT_NICHE;
+  return { niche: resolved, count };
+}
 
 export async function generateLeadIdeas(niche, count = 6) {
-  if (!isGeminiConfigured) return demoLeadIdeas(niche, count);
-  const sys = `אתה אנליסט מכירות לסטודיו דיגיטלי (Art Value) שמוכר אתרים, מערכות CRM, מיתוג וקמפיינים.
-המשימה: לייצר רעיונות ללידים — עסקים פוטנציאליים שכדאי לפנות אליהם. עברית בלבד, קונקרטי ומעשי.
-לכל ליד: שם/סוג עסק ספציפי, קטגוריה מהרשימה, והצורך הדיגיטלי המרכזי שלו (מה הכי כדאי למכור לו).
-קטגוריות: winery=יקבים, food=מסעדות/קפה, art=גלריות/אמנים, beauty=יופי, hospitality=אירוח, judaica=תכשיטים/יודאיקה, clinic=קליניקות, other=אחר.`;
-  const prompt = `תחום / אזור / סוג קהל לחיפוש לידים: "${niche || 'עסקי בוטיק בישראל'}".
-החזר ${count} רעיונות ללידים מגוונים ורלוונטיים.`;
-
-  if (useLocalLLM) {
-    const messages = [
-      { role: 'system', content: `${sys}\n\nהחזר JSON בלבד: {"leads":[{"name":"","category":"","need":""}]}. category חייב להיות אחד מ: ${LEAD_CATEGORIES.join(', ')}.` },
-      { role: 'user', content: prompt },
-    ];
-    const parsed = parseJsonLoose(await localChat(messages, { json: true, temperature: 0.9, maxTokens: 1600 }));
-    return (parsed.leads || []).filter((l) => l.name);
+  const res = await callAiGateway('crm.lead_ideas', buildLeadIdeasGatewayPayload(niche, count));
+  if (res && res.ok) {
+    const leads = (res.result && res.result.json && Array.isArray(res.result.json.leads))
+      ? res.result.json.leads
+      : null;
+    if (!leads) throw new Error('שגיאה ביצירת רעיונות (empty_response)');
+    return leads;
   }
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
-  const body = {
-    systemInstruction: { parts: [{ text: sys }] },
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: { responseMimeType: 'application/json', responseSchema: LEAD_SCHEMA, temperature: 0.9, maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } },
-  };
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-goog-api-key': API_KEY }, body: JSON.stringify(body) });
-  if (!res.ok) {
-    let msg = `שגיאת Gemini (${res.status})`;
-    try { const e = await res.json(); msg = e?.error?.message || msg; } catch { /* ignore */ }
-    throw new Error(msg);
+  if (res && res.error && res.error.code === 'supabase_not_configured') {
+    return demoLeadIdeas(niche, count);
   }
-  const json = await res.json();
-  const parts = json?.candidates?.[0]?.content?.parts || [];
-  const text = parts.map((p) => p.text).filter(Boolean).join('').trim();
-  if (!text) throw new Error('לא התקבלה תשובה מ-Gemini');
-  const parsed = JSON.parse(text);
-  return (parsed.leads || []).filter((l) => l.name);
+  const code = (res && res.error && res.error.code) || 'no_brain';
+  throw new Error(`שגיאה ביצירת רעיונות (${code})`);
 }
 
 // ===================================================================
