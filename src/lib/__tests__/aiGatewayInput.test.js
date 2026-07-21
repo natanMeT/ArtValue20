@@ -11,7 +11,7 @@ import {
 } from '../aiGatewayInput.js';
 // GEMINI_EXECUTABLE_ACTION_TYPES comes through the contract shim; used to prove
 // the input registry never drifts from the executable action set.
-import { GEMINI_EXECUTABLE_ACTION_TYPES } from '../aiGatewayContract.js';
+import { GEMINI_EXECUTABLE_ACTION_TYPES, GEMINI_IMAGE_EXECUTABLE_ACTION_TYPES } from '../aiGatewayContract.js';
 
 const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 
@@ -26,8 +26,10 @@ describe('input contract · profile registry', () => {
   });
 
   it('the profile-key set equals the gemini-executable action set (never drifts)', () => {
+    // M2 J3C S4.1: the input registry covers the TEXT executable set PLUS the
+    // image-executable set (studio.generate_image) — nothing else.
     expect([...AI_GATEWAY_INPUT_PROFILE_KEYS].sort())
-      .toEqual([...GEMINI_EXECUTABLE_ACTION_TYPES].sort());
+      .toEqual([...GEMINI_EXECUTABLE_ACTION_TYPES, ...GEMINI_IMAGE_EXECUTABLE_ACTION_TYPES].sort());
   });
 
   it('the profile-key list and the limits are frozen', () => {
@@ -164,8 +166,9 @@ describe('input contract · multi-turn profile (text.multi_turn, C2)', () => {
 
   it('text.multi_turn has a profile and the registry still equals the executable set', () => {
     expect(hasAiGatewayInputProfile(MT)).toBe(true);
+    // M2 J3C S4.1: text executable set + the image-executable set.
     expect([...AI_GATEWAY_INPUT_PROFILE_KEYS].sort())
-      .toEqual([...GEMINI_EXECUTABLE_ACTION_TYPES].sort());
+      .toEqual([...GEMINI_EXECUTABLE_ACTION_TYPES, ...GEMINI_IMAGE_EXECUTABLE_ACTION_TYPES].sort());
   });
 
   it('valid multi-turn payload normalizes to fresh trimmed messages + correct inputChars', () => {

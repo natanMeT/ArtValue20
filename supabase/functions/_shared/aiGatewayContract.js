@@ -38,7 +38,9 @@ export {
   hasAiGatewayInputProfile,
   AI_GATEWAY_INPUT_LIMITS,
   AI_GATEWAY_INPUT_PROFILE_KEYS,
+  AI_GATEWAY_IMAGE_ASPECT_RATIOS,
 } from './aiGatewayInput.js';
+import { AI_GATEWAY_IMAGE_ASPECT_RATIOS as IMAGE_ASPECT_RATIOS } from './aiGatewayInput.js';
 
 // ---- frozen vocabularies ----
 export const AI_GATEWAY_EXECUTION_STATUS = Object.freeze({
@@ -114,6 +116,29 @@ export function isGeminiExecutableAction(actionType) {
   const a = normalizeActionType(actionType);
   return a !== null && GEMINI_EXECUTABLE_ACTION_TYPES.includes(a);
 }
+
+// ---- Gemini IMAGE execution policy (M2 J3C S4.1; the shell enforces it) ----
+// A deliberately separate vocabulary from the text policy above: image
+// actions never enter GEMINI_TEXT_ACTION_TYPES / GEMINI_EXECUTABLE_ACTION_TYPES,
+// so every existing text pin, profile-coverage rule, and capability map stays
+// byte-identical. The executable subset is derived from the router exactly
+// like the text one, so it can never drift from the routing table.
+export const GEMINI_IMAGE_ACTION_TYPES = Object.freeze([
+  'studio.generate_image',
+]);
+
+export const GEMINI_IMAGE_EXECUTABLE_ACTION_TYPES = Object.freeze(
+  GEMINI_IMAGE_ACTION_TYPES.filter((a) => selectProvider(a)[0] === 'gemini'),
+);
+
+export function isGeminiImageExecutableAction(actionType) {
+  const a = normalizeActionType(actionType);
+  return a !== null && GEMINI_IMAGE_EXECUTABLE_ACTION_TYPES.includes(a);
+}
+
+// Hard output cap: the DECODED image may never exceed 8 MiB (fail closed as
+// invalid_provider_response before any byte reaches the client).
+export const GEMINI_IMAGE_MAX_DECODED_BYTES = 8 * 1024 * 1024;
 
 // Sensible fixed defaults for slice 1 (mirrors the frontend text path intent).
 const GEMINI_TEXT_DEFAULTS = Object.freeze({ temperature: 0.7, maxOutputTokens: 1024 });
@@ -443,6 +468,156 @@ export function buildGeminiMessagesRequest(messages, profile) {
   }
 
   return { ok: true, body };
+}
+
+// ---- Gemini image (Interactions API): pure request-body builder ----
+// Takes the VALIDATED image payload ({ prompt, aspectRatio }) and the
+// SERVER-OWNED image action profile and returns the Interactions API body
+// WITHOUT the model (the provider adapter owns endpoint/model/key/fetch —
+// house pattern). All output authority — response type, MIME, image size —
+// comes from the profile; the caller controls ONLY prompt + aspectRatio,
+// and aspectRatio must be an exact member of the frozen vocabulary.
+export function buildGeminiImageInteractionRequest(payload, profile) {
+  const safe = normalizeGatewayPayload(payload);
+  const prompt = typeof safe.prompt === 'string' ? safe.prompt.trim() : '';
+  const aspectRatio = safe.aspectRatio;
+  if (!prompt || typeof aspectRatio !== 'string' || !IMAGE_ASPECT_RATIOS.includes(aspectRatio)) {
+    return {
+      ok: false,
+      error: {
+        code: AI_GATEWAY_ERROR_CODES.INVALID_PAYLOAD,
+        message: 'payload.prompt (non-empty string) and payload.aspectRatio (supported ratio) are required.',
+      },
+    };
+  }
+  const prof = isPlainObject(profile) ? profile : {};
+  const mimeType = (typeof prof.imageMimeType === 'string' && prof.imageMimeType) ? prof.imageMimeType : 'image/png';
+  const imageSize = (typeof prof.imageSize === 'string' && prof.imageSize) ? prof.imageSize : '1K';
+  return {
+    ok: true,
+    body: {
+      input: [{ type: 'text', text: prompt }],
+      response_format: {
+        type: 'image',
+        mime_type: mimeType,
+        aspect_ratio: aspectRatio,
+        image_size: imageSize,
+      },
+    },
+  };
+}
+
+// ---- Gemini image: strict base64/PNG validation helpers (pure) ----
+const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+// Exact decoded byte count of a canonical base64 string, or null when the
+// string is not valid canonical base64 (wrong charset, bad length, misplaced
+// padding). Never decodes — arithmetic only.
+export function decodedBase64Bytes(b64) {
+  if (typeof b64 !== 'string' || b64.length === 0) return null;
+  if (b64.length % 4 !== 0) return null;
+  if (!BASE64_RE.test(b64)) return null;
+  const padIndex = b64.indexOf('=');
+  if (padIndex !== -1 && padIndex < b64.length - 2) return null; // '=' only at the end
+  const padding = b64.endsWith('==') ? 2 : (b64.endsWith('=') ? 1 : 0);
+  return (b64.length / 4) * 3 - padding;
+}
+
+// Read one image block ({ data, mime_type|mimeType }) → { mimeType, base64 }
+// or null. Strict: expected MIME exactly, non-empty valid base64, decoded
+// size within the cap, no prototype-polluting own keys.
+function readImageBlock(block, expectedMimeType, maxDecodedBytes) {
+  if (!isPlainObject(block)) return null;
+  for (const k of UNSAFE_OBJECT_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(block, k)) return null;
+  }
+  const mime = (typeof block.mime_type === 'string' && block.mime_type)
+    || (typeof block.mimeType === 'string' && block.mimeType)
+    || null;
+  if (mime !== expectedMimeType) return null;
+  const data = block.data;
+  if (typeof data !== 'string') return null;
+  const bytes = decodedBase64Bytes(data);
+  if (bytes === null || bytes <= 0 || bytes > maxDecodedBytes) return null;
+  return { mimeType: mime, base64: data, decodedBytes: bytes };
+}
+
+// ---- Gemini image (Interactions API): strict response parser (pure) ----
+// Accepts the raw Interactions response JSON and returns EXACTLY ONE
+// validated image ({ mimeType, base64, decodedBytes }) or null (fail closed).
+// Sources, in order of authority:
+//   - interaction steps: every `model_output` step's content blocks of
+//     type 'image' (text blocks are ignored; they never substitute an image).
+//     ZERO image blocks or MORE THAN ONE image block → null.
+//   - top-level `output_image` convenience object — consulted ONLY when no
+//     steps are present (some transports surface just the convenience view;
+//     when steps exist, output_image is a duplicate view and is ignored).
+// Any malformed step/block structure, wrong MIME, invalid/empty base64,
+// oversized image, or unsafe key → null. Never throws.
+export function parseGeminiImageInteractionResponse(json, options = {}) {
+  try {
+    if (!isPlainObject(json)) return null;
+    for (const k of UNSAFE_OBJECT_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(json, k)) return null;
+    }
+    const opts = isPlainObject(options) ? options : {};
+    const expectedMimeType = (typeof opts.expectedMimeType === 'string' && opts.expectedMimeType)
+      ? opts.expectedMimeType
+      : 'image/png';
+    const maxDecodedBytes = (typeof opts.maxDecodedBytes === 'number'
+      && Number.isFinite(opts.maxDecodedBytes) && opts.maxDecodedBytes > 0)
+      ? opts.maxDecodedBytes
+      : GEMINI_IMAGE_MAX_DECODED_BYTES;
+
+    const steps = Array.isArray(json.steps) ? json.steps : null;
+    if (steps) {
+      const images = [];
+      for (const step of steps) {
+        if (!isPlainObject(step)) return null;
+        for (const k of UNSAFE_OBJECT_KEYS) {
+          if (Object.prototype.hasOwnProperty.call(step, k)) return null;
+        }
+        if (step.type !== 'model_output') continue;
+        const content = Array.isArray(step.content) ? step.content : [];
+        for (const block of content) {
+          if (!isPlainObject(block)) return null;
+          if (block.type !== 'image') continue; // interleaved text is ignored
+          images.push(block);
+          if (images.length > 1) return null; // exactly one image, fail closed
+        }
+      }
+      if (images.length !== 1) return null; // zero images (incl. text-only) → fail closed
+      return readImageBlock(images[0], expectedMimeType, maxDecodedBytes);
+    }
+
+    const oi = json.output_image;
+    if (oi === undefined || oi === null) return null;
+    return readImageBlock(oi, expectedMimeType, maxDecodedBytes);
+  } catch {
+    return null;
+  }
+}
+
+// Image success — result carries ONLY the validated { mimeType, base64 }
+// pair (never the raw provider response, steps, or any provider metadata).
+export function buildProviderImageSuccessResponse(decision, image) {
+  const img = isPlainObject(image) ? image : {};
+  return {
+    ok: true,
+    actionType: decision.actionType,
+    request: decision.request,
+    routing: decision.routing,
+    provider: 'gemini',
+    execution: { status: AI_GATEWAY_EXECUTION_STATUS.COMPLETED },
+    result: {
+      image: {
+        mimeType: typeof img.mimeType === 'string' ? img.mimeType : 'image/png',
+        base64: typeof img.base64 === 'string' ? img.base64 : '',
+      },
+    },
+    // Reached only AFTER the budget guard approved + reserved this request.
+    usage: { logging: 'active', budgetCheck: 'approved' },
+  };
 }
 
 // ---- Gemini text: pure response parser → text | null ----

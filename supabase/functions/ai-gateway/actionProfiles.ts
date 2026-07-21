@@ -18,9 +18,9 @@
 // NO user content. Provider/model choice remains owned by the router.
 // ===================================================================
 
-import { GEMINI_EXECUTABLE_ACTION_TYPES } from '../_shared/aiGatewayContract.js';
+import { GEMINI_EXECUTABLE_ACTION_TYPES, GEMINI_IMAGE_EXECUTABLE_ACTION_TYPES } from '../_shared/aiGatewayContract.js';
 
-export type OutputMode = 'text' | 'json';
+export type OutputMode = 'text' | 'json' | 'image';
 export type ParsePolicy = 'text' | 'json_strict';
 // Narrow, SERVER-OWNED post-processing of the raw provider TEXT before it is
 // placed into the success response. 'actions_block' = normalize to a single
@@ -46,6 +46,12 @@ export interface ActionProfile {
   // SERVER-OWNED deterministic output correction (see ResultTransform above).
   // Never accepted from the frontend or the payload.
   resultTransform: ResultTransform;
+  // IMAGE-lane ownership (M2 J3C S4.1) — present ONLY on outputMode:'image'
+  // profiles. The server owns the response MIME type and the image size; a
+  // caller can never supply either. Absent (undefined) on every text/json
+  // profile, so all existing profiles remain byte-identical.
+  imageMimeType?: string;
+  imageSize?: string;
 }
 
 // Recursively freeze a profile (and its nested responseSchema) so nothing —
@@ -481,6 +487,30 @@ function crmDiagnoseQuoteProfile(): ActionProfile {
   };
 }
 
+// ImageStudio image-generation lane (M2 J3C S4.1). SERVER-OWNED output
+// authority: exactly one 1K image/png per request on the pinned image model
+// (the model id itself lives in the image adapter — provider files own
+// endpoint/model/key). The text-oriented fields are inert placeholders — the
+// image request builder reads ONLY outputMode/imageMimeType/imageSize; no
+// system instruction, temperature, or token budget ever reaches the
+// Interactions request.
+function studioGenerateImageProfile(): ActionProfile {
+  return {
+    outputMode: 'image',
+    systemInstruction: null,
+    temperature: 0,
+    maxOutputTokens: 1,
+    responseMimeType: null,
+    thinkingBudget: null,
+    responseSchema: null,
+    parsePolicy: 'text',
+    resultContract: null,
+    resultTransform: null,
+    imageMimeType: 'image/png',
+    imageSize: '1K',
+  };
+}
+
 // Registry keyed ONLY by validated actionType. Every currently
 // Gemini-executable text action has exactly one profile; no other action is
 // present (executable scope is NOT expanded here). Deeply frozen.
@@ -492,6 +522,8 @@ const PROFILES: Readonly<Record<string, ActionProfile>> = deepFreeze({
   'jake.chat': jakeChatProfile(),
   'jake.force_actions': jakeForceActionsProfile(),
   'studio.prompt_enhance': textProfile(),
+  // ImageStudio image-generation lane (M2 J3C S4.1) — image profile.
+  'studio.generate_image': studioGenerateImageProfile(),
   'crm.suggest_next_action': crmSuggestNextActionProfile(),
   'crm.lead_ideas': crmLeadIdeasProfile(),
   'crm.diagnose_quote': crmDiagnoseQuoteProfile(),
@@ -502,6 +534,12 @@ const PROFILES: Readonly<Record<string, ActionProfile>> = deepFreeze({
 for (const action of GEMINI_EXECUTABLE_ACTION_TYPES) {
   if (!Object.prototype.hasOwnProperty.call(PROFILES, action)) {
     throw new Error(`actionProfiles: missing profile for executable action "${action}"`);
+  }
+}
+// Same fail-fast rule for the image-executable set (M2 J3C S4.1).
+for (const action of GEMINI_IMAGE_EXECUTABLE_ACTION_TYPES) {
+  if (!Object.prototype.hasOwnProperty.call(PROFILES, action)) {
+    throw new Error(`actionProfiles: missing profile for executable image action "${action}"`);
   }
 }
 

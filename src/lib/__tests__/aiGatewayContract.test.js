@@ -10,6 +10,7 @@ import {
   buildAiGatewayResponse,
   GEMINI_TEXT_ACTION_TYPES,
   GEMINI_EXECUTABLE_ACTION_TYPES,
+  GEMINI_IMAGE_EXECUTABLE_ACTION_TYPES,
   isGeminiTextAction,
   isGeminiExecutableAction,
   buildGeminiTextRequest,
@@ -1044,7 +1045,11 @@ describe('action profiles · server-only registry (source guardrails)', () => {
 
 describe('action profiles · frozen registry + exhaustive executable coverage', () => {
   it('registry keys are EXACTLY the gemini-executable set (no non-executable enabled)', () => {
-    expect([...ACTION_PROFILE_KEYS].sort()).toEqual([...GEMINI_EXECUTABLE_ACTION_TYPES].sort());
+    // M2 J3C S4.1: the registry covers the TEXT executable set PLUS the
+    // image-executable set (studio.generate_image) — no other action gains a
+    // profile (deferred/non-executable actions stay null).
+    expect([...ACTION_PROFILE_KEYS].sort())
+      .toEqual([...GEMINI_EXECUTABLE_ACTION_TYPES, ...GEMINI_IMAGE_EXECUTABLE_ACTION_TYPES].sort());
     for (const a of ['text.strategy', 'text.campaign', 'image.poster', 'vision.analyze_reference', 'video.short_ad']) {
       expect(getActionProfile(a), a).toBe(null);
       expect(hasActionProfile(a), a).toBe(false);

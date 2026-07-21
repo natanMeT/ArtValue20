@@ -44,8 +44,10 @@ import {
   validateAiGatewayInput,
   AI_GATEWAY_ERROR_CODES,
 } from '../_shared/aiGatewayContract.js';
+import { isGeminiImageExecutableAction } from '../_shared/aiGatewayContract.js';
 import { createExecutionRegistry } from '../_shared/aiExecutionRegistry.js';
 import { geminiAdapter, requiredGatewayCapabilities } from './geminiAdapter.ts';
+import { runGeminiImage, isGatewayImageAction, GEMINI_IMAGE_MODEL } from './geminiImageAdapter.ts';
 import { getActionProfile } from './actionProfiles.ts';
 import { getBudgetPolicy, resolveEstimatedCostUsd } from './budgetPolicy.ts';
 import { reserveAiBudget } from './budgetGuard.ts';
@@ -292,6 +294,85 @@ serve?.(async (req: Request): Promise<Response> => {
       httpStatus: status,
       provider: 'gemini',
       errorCode: out?.error?.code ?? null,
+      resultChars,
+    });
+    return json(out, status);
+  }
+
+  // ---- IMAGE lane (M2 J3C S4.1): studio.generate_image only ----
+  // Mirrors the text branch's lifecycle EXACTLY — profile → strict input
+  // validation → budget reservation → ONE provider attempt — but invokes the
+  // dedicated image adapter directly (the text execution registry stays
+  // text-only; its capability vocabulary is untouched). No fallback, no
+  // retry, no second provider; every rejection is content-free.
+  if (isGeminiImageExecutableAction(decision.actionType) && decision.routing.selectedProvider === 'gemini') {
+    const profile = getActionProfile(decision.actionType);
+    if (!isGatewayImageAction(decision.actionType, profile)) {
+      // Missing/drifted profile is a server misconfiguration — fail closed.
+      await recordUsage({ decision, promptChars, userId, status: 'provider_error', httpStatus: 502, provider: 'gemini', model: GEMINI_IMAGE_MODEL, errorCode: 'provider_error' });
+      return json(buildProviderErrorResponse(decision), 502);
+    }
+
+    // Strict per-action input validation (BEFORE budget + provider): the
+    // ORIGINAL raw payload must be EXACTLY { prompt, aspectRatio } — authority
+    // and unknown keys are REJECTED here, never silently removed.
+    const rawPayload = (body !== null && typeof body === 'object' && !Array.isArray(body))
+      ? (body as { payload?: unknown }).payload
+      : undefined;
+    const input = validateAiGatewayInput(decision.actionType, rawPayload);
+    if (!input.ok) {
+      await recordUsage({ decision, promptChars: null, userId, status: 'invalid_payload', httpStatus: 400, provider: 'gemini', model: GEMINI_IMAGE_MODEL, errorCode: AI_GATEWAY_ERROR_CODES.INVALID_PAYLOAD });
+      return json(buildInvalidPayloadResponse(decision, { code: AI_GATEWAY_ERROR_CODES.INVALID_PAYLOAD, message: 'Invalid payload.' }), 400);
+    }
+    decision.request.payload = input.payload; // provider consumes ONLY the normalized payload
+    const inputChars = input.inputChars;
+
+    // Budget guard: reserve BEFORE the provider call — same fail-closed order
+    // as the text lane. The per-image reservation comes ONLY from the server
+    // routing decision (router-pinned $0.07 for this action).
+    const policy = getBudgetPolicy();
+    const estimatedCostUsd = resolveEstimatedCostUsd(decision);
+    if (estimatedCostUsd === null) {
+      await recordUsage({ decision, promptChars: inputChars, userId, status: 'budget_guard_unavailable', httpStatus: 503, provider: 'gemini', model: GEMINI_IMAGE_MODEL, errorCode: 'budget_guard_unavailable' });
+      return json(buildBudgetGuardUnavailableResponse(decision), 503);
+    }
+    const guard = await reserveAiBudget({
+      supabaseAdmin: ctx.supabaseAdmin,
+      userId,
+      requestId,
+      actionType: decision.actionType,
+      estimatedCostUsd,
+      policy,
+    });
+    if (guard.status === 'rate_limited') {
+      await recordUsage({ decision, promptChars: inputChars, userId, status: 'rate_limited', httpStatus: 429, provider: 'gemini', model: GEMINI_IMAGE_MODEL, errorCode: 'rate_limited' });
+      const retry = (typeof guard.retryAfterSeconds === 'number' && guard.retryAfterSeconds > 0)
+        ? { 'Retry-After': String(guard.retryAfterSeconds) }
+        : undefined;
+      return json(buildRateLimitedResponse(decision), 429, retry);
+    }
+    if (guard.status === 'budget_exceeded') {
+      await recordUsage({ decision, promptChars: inputChars, userId, status: 'budget_exceeded', httpStatus: 429, provider: 'gemini', model: GEMINI_IMAGE_MODEL, errorCode: 'budget_exceeded' });
+      return json(buildBudgetExceededResponse(decision), 429);
+    }
+    if (guard.status !== 'approved') {
+      await recordUsage({ decision, promptChars: inputChars, userId, status: 'budget_guard_unavailable', httpStatus: 503, provider: 'gemini', model: GEMINI_IMAGE_MODEL, errorCode: 'budget_guard_unavailable' });
+      return json(buildBudgetGuardUnavailableResponse(decision), 503);
+    }
+
+    // Approved + reserved → EXACTLY ONE image provider attempt.
+    const { status, body: out, resultChars } = await runGeminiImage(decision, profile);
+    await recordUsage({
+      decision,
+      promptChars: inputChars,
+      userId,
+      // deno-lint-ignore no-explicit-any
+      status: (out as any)?.execution?.status ?? 'provider_error',
+      httpStatus: status,
+      provider: 'gemini',
+      model: GEMINI_IMAGE_MODEL,
+      // deno-lint-ignore no-explicit-any
+      errorCode: (out as any)?.error?.code ?? null,
       resultChars,
     });
     return json(out, status);

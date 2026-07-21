@@ -10,6 +10,7 @@ import {
 import {
   isGeminiExecutableAction,
   GEMINI_EXECUTABLE_ACTION_TYPES,
+  GEMINI_IMAGE_EXECUTABLE_ACTION_TYPES,
   buildAiGatewayDecision,
   validateAiGatewayInput,
   hasAiGatewayInputProfile,
@@ -456,13 +457,18 @@ describe('compatibility · existing actions and frontend untouched', () => {
   });
 
   it('the profile registry covers EXACTLY the executable set (jake.chat/jake.force_actions included, nothing else new)', () => {
-    expect([...ACTION_PROFILE_KEYS].sort()).toEqual([...GEMINI_EXECUTABLE_ACTION_TYPES].sort());
+    // M2 J3C S4.1: the profile + input registries now ALSO cover the image-
+    // executable set (studio.generate_image); the TEXT executable vocabulary
+    // and the text capability map remain exactly as pinned before.
+    const fullExecutable = [...GEMINI_EXECUTABLE_ACTION_TYPES, ...GEMINI_IMAGE_EXECUTABLE_ACTION_TYPES].sort();
+    expect([...ACTION_PROFILE_KEYS].sort()).toEqual(fullExecutable);
     expect([...REQUIRED_CAPABILITY_ACTION_KEYS].sort()).toEqual([...GEMINI_EXECUTABLE_ACTION_TYPES].sort());
-    expect([...AI_GATEWAY_INPUT_PROFILE_KEYS].sort()).toEqual([...GEMINI_EXECUTABLE_ACTION_TYPES].sort());
+    expect([...AI_GATEWAY_INPUT_PROFILE_KEYS].sort()).toEqual(fullExecutable);
     expect([...GEMINI_EXECUTABLE_ACTION_TYPES].sort()).toEqual([
       'crm.diagnose_quote', 'crm.lead_ideas', 'crm.suggest_next_action', 'jake.chat', 'jake.draft_message',
       'jake.force_actions', 'studio.prompt_enhance', 'text.copy', 'text.crm_message', 'text.multi_turn',
     ]);
+    expect([...GEMINI_IMAGE_EXECUTABLE_ACTION_TYPES]).toEqual(['studio.generate_image']);
   });
 
   it('gemini.js is the ONLY frontend production file referencing the two actions (J2: the migrated lanes)', () => {
