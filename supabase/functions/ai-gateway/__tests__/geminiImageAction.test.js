@@ -48,6 +48,11 @@ import {
   GEMINI_IMAGE_DIAGNOSTIC_CODES,
   classifyGeminiImageHttpStatus,
   classifyGeminiImageThrown,
+  GEMINI_IMAGE_ERROR_BODY_MAX_BYTES,
+  GEMINI_IMAGE_ERROR_BODY_MAX_READS,
+  isJsonMediaType,
+  readGeminiImageErrorBodyBounded,
+  classifyGeminiImage400Body,
 } from '../geminiImageAdapter.ts';
 
 const ACTION = 'studio.generate_image';
@@ -459,9 +464,11 @@ describe('S4.1 · shell wiring + source purity', () => {
 // 7) S4.1a — content-free upstream diagnostics (allowlist + purity)
 // ---------------------------------------------------------------
 describe('S4.1a · diagnostic allowlist + classifiers (pure)', () => {
-  it('the allowlist is EXACTLY the approved closed set (frozen)', () => {
+  it('the allowlist is EXACTLY the approved closed set (frozen; S4.1b adds ONLY the two Google 400 statuses)', () => {
     expect([...GEMINI_IMAGE_DIAGNOSTIC_CODES]).toEqual([
-      'provider_http_400', 'provider_http_401', 'provider_http_403',
+      'provider_http_400',
+      'provider_google_invalid_argument', 'provider_google_failed_precondition',
+      'provider_http_401', 'provider_http_403',
       'provider_http_404', 'provider_http_408', 'provider_http_409',
       'provider_http_429', 'provider_http_5xx', 'provider_http_other',
       'provider_timeout', 'provider_transport_error',
@@ -646,5 +653,329 @@ describe('S4.1a · usage persistence seat (existing error_code field only)', () 
     });
     expect(rec.error_code).toBe(null);
     expect(rec.result_chars).toBe(B64.length);
+  });
+});
+
+// ---------------------------------------------------------------
+// 8) S4.1b — bounded Google 400 status refinement
+// ---------------------------------------------------------------
+const enc = (s) => new TextEncoder().encode(s);
+// Fully instrumented mock stream: tracks every read + cancel call.
+const chunkedStream = (chunks) => {
+  let i = 0;
+  const cancel = vi.fn(async () => {});
+  const read = vi.fn(async () => (i < chunks.length ? { done: false, value: chunks[i++] } : { done: true, value: undefined }));
+  return { stream: { getReader: () => ({ read, cancel }) }, read, cancel };
+};
+// Mock Headers: case-insensitive get() like the real fetch Headers object.
+const mockHeaders = (map = {}) => ({
+  get: (name) => {
+    const k = String(name).toLowerCase();
+    for (const [key, val] of Object.entries(map)) {
+      if (key.toLowerCase() === k) return val;
+    }
+    return null;
+  },
+});
+const jsonHeaders = (extra = {}) => mockHeaders({ 'content-type': 'application/json; charset=utf-8', ...extra });
+const google400 = (obj) => JSON.stringify(obj);
+
+describe('S4.1b · classifyGeminiImage400Body (pure, fail-closed to provider_http_400)', () => {
+  it('maps EXACTLY the two documented case-sensitive Google statuses', () => {
+    expect(classifyGeminiImage400Body(google400({ error: { status: 'INVALID_ARGUMENT' } })))
+      .toBe('provider_google_invalid_argument');
+    expect(classifyGeminiImage400Body(google400({ error: { status: 'FAILED_PRECONDITION', message: 'x' } })))
+      .toBe('provider_google_failed_precondition');
+  });
+
+  it('falls back to provider_http_400 for every other shape', () => {
+    const cases = [
+      null,                                                     // unreadable/oversized stream result
+      '',                                                       // empty body
+      'not json at all',                                        // non-JSON body
+      '<html>400</html>',                                       // HTML error page
+      '{"error":',                                              // malformed JSON
+      google400({}),                                            // missing error
+      google400({ error: {} }),                                 // missing status
+      google400({ error: { status: 'PERMISSION_DENIED' } }),    // unknown status
+      google400({ error: { status: 'invalid_argument' } }),     // wrong case
+      google400({ error: { status: 'INVALID_ARGUMENT ' } }),    // trailing space ≠ exact
+      google400({ error: { status: ['INVALID_ARGUMENT'] } }),   // non-string status
+      google400({ error: ['INVALID_ARGUMENT'] }),               // error not an object
+      google400([{ error: { status: 'INVALID_ARGUMENT' } }]),   // top-level array
+      google400('INVALID_ARGUMENT'),                            // top-level string
+      42,                                                       // non-string input
+      undefined,
+    ];
+    for (const c of cases) {
+      expect(classifyGeminiImage400Body(c), JSON.stringify(c ?? null)).toBe('provider_http_400');
+    }
+  });
+});
+
+describe('S4.1b · bounded error-body reader (16 KiB cap, never throws, never unbounded)', () => {
+  it('reads a small multi-chunk JSON body to completion', async () => {
+    const { stream } = chunkedStream([enc('{"error":{"sta'), enc('tus":"INVALID_ARGUMENT"}}')]);
+    const text = await readGeminiImageErrorBodyBounded({ headers: jsonHeaders(), body: stream });
+    expect(text).toBe('{"error":{"status":"INVALID_ARGUMENT"}}');
+    expect(GEMINI_IMAGE_ERROR_BODY_MAX_BYTES).toBe(16 * 1024);
+  });
+
+  it('accepts exactly-at-cap content; over-cap → cancel EXACTLY once + null, and NEVER reads past the violating chunk', async () => {
+    const pad = 'a'.repeat(GEMINI_IMAGE_ERROR_BODY_MAX_BYTES - 2);
+    const atCap = await readGeminiImageErrorBodyBounded({ headers: jsonHeaders(), body: chunkedStream([enc('"' + pad + '"')]).stream });
+    expect(atCap).toBe('"' + pad + '"');
+
+    const eightK = enc('x'.repeat(8 * 1024));
+    const { stream, read, cancel } = chunkedStream([eightK, eightK, eightK, eightK]);
+    const over = await readGeminiImageErrorBodyBounded({ headers: jsonHeaders(), body: stream });
+    expect(over).toBe(null);
+    expect(cancel).toHaveBeenCalledTimes(1);   // oversized stream is cancelled exactly once
+    expect(read).toHaveBeenCalledTimes(3);     // stops at the violating chunk — never drains the rest
+  });
+
+  it('missing stream / read failure / invalid UTF-8 → cancel where a reader exists, then null; never throws, never logs', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      expect(await readGeminiImageErrorBodyBounded({ headers: jsonHeaders(), body: null })).toBe(null);
+      expect(await readGeminiImageErrorBodyBounded({ headers: jsonHeaders() })).toBe(null);
+      expect(await readGeminiImageErrorBodyBounded({ headers: jsonHeaders(), body: {} })).toBe(null);
+      const readCancel = vi.fn(async () => {});
+      const failingRead = { getReader: () => ({ read: async () => { throw new Error('boom'); }, cancel: readCancel }) };
+      expect(await readGeminiImageErrorBodyBounded({ headers: jsonHeaders(), body: failingRead })).toBe(null);
+      expect(readCancel).toHaveBeenCalledTimes(1);   // read failure cancels
+      const bad = chunkedStream([new Uint8Array([0xff, 0xfe, 0xfd])]);
+      expect(await readGeminiImageErrorBodyBounded({ headers: jsonHeaders(), body: bad.stream })).toBe(null);
+      expect(bad.cancel).toHaveBeenCalledTimes(1);   // invalid UTF-8 cancels
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(logSpy).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+  });
+
+  it('cancel failure never throws: over-cap on a stream whose cancel() rejects still returns null quietly', async () => {
+    const throwingCancel = vi.fn(async () => { throw new Error('cancel failed'); });
+    const big = enc('x'.repeat(GEMINI_IMAGE_ERROR_BODY_MAX_BYTES + 1));
+    let sent = false;
+    const stream = { getReader: () => ({ read: async () => (sent ? { done: true } : (sent = true, { done: false, value: big })), cancel: throwingCancel }) };
+    expect(await readGeminiImageErrorBodyBounded({ headers: jsonHeaders(), body: stream })).toBe(null);
+    expect(throwingCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('JSON Content-Type gate: non-JSON / missing Content-Type → null with ZERO reads (body never trusted)', async () => {
+    for (const ct of ['text/html', 'text/plain', 'application/octet-stream', 'application/jsonx', 'application/+json', 'json', '', null]) {
+      const { stream, read } = chunkedStream([enc(google400({ error: { status: 'INVALID_ARGUMENT' } }))]);
+      const headers = ct === null ? mockHeaders({}) : mockHeaders({ 'content-type': ct });
+      expect(await readGeminiImageErrorBodyBounded({ headers, body: stream }), String(ct)).toBe(null);
+      expect(read, String(ct)).not.toHaveBeenCalled();
+    }
+    // no headers object at all → same rejection, zero reads
+    const bare = chunkedStream([enc('{}')]);
+    expect(await readGeminiImageErrorBodyBounded({ body: bare.stream })).toBe(null);
+    expect(bare.read).not.toHaveBeenCalled();
+  });
+
+  it('isJsonMediaType: application/json + application/*+json with params, case-insensitive; everything else rejected', () => {
+    for (const ok of ['application/json', 'application/json; charset=utf-8', 'Application/JSON',
+      'APPLICATION/PROBLEM+JSON', 'application/problem+json', 'application/vnd.google+json; v=1']) {
+      expect(isJsonMediaType(ok), ok).toBe(true);
+    }
+    for (const bad of ['text/html', 'TEXT/HTML; charset=utf-8', 'text/plain', 'application/octet-stream',
+      'application/jsonx', 'application/+json', 'application/', 'json', 'text/json', '', ';;', null, undefined, 42]) {
+      expect(isJsonMediaType(bad), String(bad)).toBe(false);
+    }
+  });
+
+  it('read-count cap: zero-length and one-byte chunk floods stop at EXACTLY the cap and cancel once', async () => {
+    expect(GEMINI_IMAGE_ERROR_BODY_MAX_READS).toBe(256);
+    const flood = (chunk) => {
+      const cancel = vi.fn(async () => {});
+      const read = vi.fn(async () => ({ done: false, value: chunk }));
+      return { stream: { getReader: () => ({ read, cancel }) }, read, cancel };
+    };
+    const zero = flood(new Uint8Array(0));
+    expect(await readGeminiImageErrorBodyBounded({ headers: jsonHeaders(), body: zero.stream })).toBe(null);
+    expect(zero.read).toHaveBeenCalledTimes(GEMINI_IMAGE_ERROR_BODY_MAX_READS); // every read counts, incl. zero-length
+    expect(zero.cancel).toHaveBeenCalledTimes(1);
+    const oneByte = flood(new Uint8Array([0x61]));
+    expect(await readGeminiImageErrorBodyBounded({ headers: jsonHeaders(), body: oneByte.stream })).toBe(null);
+    expect(oneByte.read).toHaveBeenCalledTimes(GEMINI_IMAGE_ERROR_BODY_MAX_READS); // read cap fires before the byte cap
+    expect(oneByte.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('Content-Length early guard: valid over-cap length → ZERO reads; at-cap or invalid lengths still read under the live byte cap', async () => {
+    const overDeclared = chunkedStream([enc('{}')]);
+    expect(await readGeminiImageErrorBodyBounded({
+      headers: jsonHeaders({ 'content-length': String(GEMINI_IMAGE_ERROR_BODY_MAX_BYTES + 1) }),
+      body: overDeclared.stream,
+    })).toBe(null);
+    expect(overDeclared.read).not.toHaveBeenCalled(); // rejected before the first read
+
+    const atDeclared = chunkedStream([enc('{"a":1}')]);
+    expect(await readGeminiImageErrorBodyBounded({
+      headers: jsonHeaders({ 'content-length': String(GEMINI_IMAGE_ERROR_BODY_MAX_BYTES) }),
+      body: atDeclared.stream,
+    })).toBe('{"a":1}');
+
+    // lying/absent/garbage Content-Length is never trusted as the limit —
+    // the live byte cap still cancels an actually-oversized stream
+    for (const cl of ['abc', '-5', '0', null]) {
+      const big = chunkedStream([enc('x'.repeat(GEMINI_IMAGE_ERROR_BODY_MAX_BYTES + 1))]);
+      const headers = cl === null ? jsonHeaders() : jsonHeaders({ 'content-length': cl });
+      expect(await readGeminiImageErrorBodyBounded({ headers, body: big.stream }), String(cl)).toBe(null);
+      expect(big.cancel, String(cl)).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('source pins: error path never uses unbounded res.text()/res.json(); success json stays the ONE json call; one fetch', () => {
+    const code = adapterSrc.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+    expect(code.includes('.text(')).toBe(false);                 // no unbounded text read anywhere
+    expect(code.match(/res\.json\(/g).length).toBe(1);           // only the 2xx success-path parse
+    expect(code.match(/fetch\(/g).length).toBe(1);               // still exactly one provider attempt site
+    expect(code.match(/readGeminiImageErrorBodyBounded\(res\)/g).length).toBe(1);
+    // the bounded read is gated on status 400 ONLY
+    expect(code.includes('res.status === 400')).toBe(true);
+  });
+});
+
+describe('S4.1b · adapter 400 refinement (mocked fetch) — internal only, generic public 502', () => {
+  const KEY = 'test-key-never-real';
+  const CANARY = 'CANARY-41b-GOOGLE-BODY-DO-NOT-LEAK';
+  beforeEach(() => {
+    vi.stubGlobal('Deno', { env: { get: (k) => (k === 'GEMINI_API_KEY' ? KEY : undefined) } });
+    vi.stubGlobal('fetch', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+  const mock400 = (bodyObj, headers = jsonHeaders()) => ({ ok: false, status: 400, headers, body: chunkedStream([enc(JSON.stringify(bodyObj))]).stream });
+
+  it('400 + INVALID_ARGUMENT (canary in message+details) → internal provider_google_invalid_argument; client stays generic; nothing leaks', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      fetch.mockResolvedValue(mock400({ error: { status: 'INVALID_ARGUMENT', message: CANARY, details: [{ reason: CANARY }] } }));
+      const r = await runGeminiImage(decisionFor(), profile);
+      expect(r.status).toBe(502);
+      expect(r.body.error.code).toBe('provider_error');
+      expect(r.diagnosticCode).toBe('provider_google_invalid_argument');
+      const serialized = JSON.stringify(r);
+      expect(serialized.includes(CANARY)).toBe(false);
+      expect(serialized.includes(KEY)).toBe(false);
+      expect(serialized.includes('INVALID_ARGUMENT')).toBe(false); // raw Google status string never rides along
+      const rec = buildUsageRecord({
+        requestId: 'r', userId: '123e4567-e89b-12d3-a456-426614174000', decision: decisionFor(),
+        provider: 'gemini', model: GEMINI_IMAGE_MODEL, status: 'provider_error', httpStatus: 502,
+        errorCode: r.diagnosticCode, promptChars: 5, resultChars: null,
+      });
+      expect(rec.error_code).toBe('provider_google_invalid_argument');
+      expect(JSON.stringify(rec).includes(CANARY)).toBe(false);
+      for (const call of errorSpy.mock.calls) {
+        const line = call.map(String).join(' ');
+        expect(line.includes(CANARY)).toBe(false);
+        expect(line.includes(KEY)).toBe(false);
+        expect(line.includes('INVALID_ARGUMENT')).toBe(false);
+      }
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('400 + FAILED_PRECONDITION → provider_google_failed_precondition with the same generic client body', async () => {
+    fetch.mockResolvedValue(mock400({ error: { status: 'FAILED_PRECONDITION', message: 'billing precondition' } }));
+    const r = await runGeminiImage(decisionFor(), profile);
+    expect(r.status).toBe(502);
+    expect(r.body.error.code).toBe('provider_error');
+    expect(r.diagnosticCode).toBe('provider_google_failed_precondition');
+    expect(JSON.stringify(r.body).includes('FAILED_PRECONDITION')).toBe(false);
+    expect(JSON.stringify(r.body).includes('billing')).toBe(false);
+  });
+
+  it('400 fallbacks through the live adapter: unknown status, malformed JSON, empty, no stream, read failure, oversized → provider_http_400', async () => {
+    const shapes = [
+      mock400({ error: { status: 'PERMISSION_DENIED' } }),
+      { ok: false, status: 400, headers: jsonHeaders(), body: chunkedStream([enc('{"error":')]).stream },
+      { ok: false, status: 400, headers: jsonHeaders(), body: chunkedStream([]).stream },
+      { ok: false, status: 400, headers: jsonHeaders(), body: null },
+      { ok: false, status: 400, headers: jsonHeaders() },
+      { ok: false, status: 400 }, // no headers at all → Content-Type gate rejects
+      { ok: false, status: 400, headers: jsonHeaders(), body: { getReader: () => ({ read: async () => { throw new Error('x'); }, cancel: async () => {} }) } },
+      { ok: false, status: 400, headers: jsonHeaders(), body: chunkedStream([enc('x'.repeat(GEMINI_IMAGE_ERROR_BODY_MAX_BYTES + 1))]).stream },
+    ];
+    for (const shape of shapes) {
+      fetch.mockReset();
+      fetch.mockResolvedValue(shape);
+      const r = await runGeminiImage(decisionFor(), profile);
+      expect(r.status).toBe(502);
+      expect(r.body.error.code).toBe('provider_error');
+      expect(r.diagnosticCode).toBe('provider_http_400');
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('400 + valid Google JSON body but non-JSON/missing Content-Type → provider_http_400 and the body stream is NEVER read', async () => {
+    const bodyObj = { error: { status: 'INVALID_ARGUMENT' } };
+    const untrusted = [
+      mockHeaders({ 'content-type': 'text/html' }),
+      mockHeaders({}), // missing Content-Type
+    ];
+    for (const headers of untrusted) {
+      fetch.mockReset();
+      const { stream, read } = chunkedStream([enc(JSON.stringify(bodyObj))]);
+      fetch.mockResolvedValue({ ok: false, status: 400, headers, body: stream });
+      const r = await runGeminiImage(decisionFor(), profile);
+      expect(r.status).toBe(502);
+      expect(r.body.error.code).toBe('provider_error');
+      expect(r.diagnosticCode).toBe('provider_http_400');
+      expect(read).not.toHaveBeenCalled(); // never trusted, never consumed
+    }
+  });
+
+  it('400 + application/problem+json and mixed-case media types are accepted for the bounded refinement', async () => {
+    for (const ct of ['application/problem+json', 'Application/JSON; charset=UTF-8']) {
+      fetch.mockReset();
+      fetch.mockResolvedValue(mock400({ error: { status: 'FAILED_PRECONDITION' } }, mockHeaders({ 'Content-Type': ct })));
+      const r = await runGeminiImage(decisionFor(), profile);
+      expect(r.diagnosticCode, ct).toBe('provider_google_failed_precondition');
+      expect(r.body.error.code, ct).toBe('provider_error');
+    }
+  });
+
+  it('non-400 statuses NEVER read the body and keep the exact S4.1a classification', async () => {
+    const cases = [
+      [401, 'provider_http_401'], [403, 'provider_http_403'], [404, 'provider_http_404'],
+      [408, 'provider_http_408'], [409, 'provider_http_409'], [429, 'provider_http_429'],
+      [500, 'provider_http_5xx'], [502, 'provider_http_5xx'], [503, 'provider_http_5xx'],
+      [418, 'provider_http_other'],
+    ];
+    for (const [status, expected] of cases) {
+      fetch.mockReset();
+      const { stream, read } = chunkedStream([enc(JSON.stringify({ error: { status: 'FAILED_PRECONDITION' } }))]);
+      fetch.mockResolvedValue({ ok: false, status, body: stream });
+      const r = await runGeminiImage(decisionFor(), profile);
+      expect(r.status, status).toBe(502);
+      expect(r.diagnosticCode, status).toBe(expected);
+      expect(read).not.toHaveBeenCalled(); // the body stream of a non-400 is never consumed
+    }
+  });
+
+  it('the two new diagnostics are allowlist members and the request body remains byte-frozen', async () => {
+    expect(GEMINI_IMAGE_DIAGNOSTIC_CODES.includes('provider_google_invalid_argument')).toBe(true);
+    expect(GEMINI_IMAGE_DIAGNOSTIC_CODES.includes('provider_google_failed_precondition')).toBe(true);
+    fetch.mockResolvedValue(mock400({ error: { status: 'INVALID_ARGUMENT' } }));
+    const d = decisionFor();
+    d.request.payload = validateAiGatewayInput(ACTION, validPayload()).payload;
+    await runGeminiImage(d, profile);
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/interactions');
+    expect(init.headers).toEqual({ 'Content-Type': 'application/json', 'x-goog-api-key': KEY });
+    expect(JSON.parse(init.body)).toEqual({
+      model: 'gemini-3.1-flash-image',
+      input: 'משרד מודרני עם תאורה טבעית',
+      response_format: { type: 'image', mime_type: 'image/png', aspect_ratio: '1:1', image_size: '1K' },
+    });
   });
 });

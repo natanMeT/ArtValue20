@@ -63,6 +63,8 @@ export function isGeminiImageConfigured(): boolean {
 // NEVER placed in the client response body.
 export const GEMINI_IMAGE_DIAGNOSTIC_CODES = Object.freeze([
   'provider_http_400',
+  'provider_google_invalid_argument',
+  'provider_google_failed_precondition',
   'provider_http_401',
   'provider_http_403',
   'provider_http_404',
@@ -104,6 +106,113 @@ export function classifyGeminiImageThrown(e: unknown): GeminiImageDiagnosticCode
   return (name === 'TimeoutError' || name === 'AbortError')
     ? 'provider_timeout'
     : 'provider_transport_error';
+}
+
+// ---- bounded HTTP-400 body refinement (M2 J3C S4.1b) ----
+// Google's troubleshooting guide distinguishes two materially different 400
+// statuses: INVALID_ARGUMENT (malformed/unsupported request) vs
+// FAILED_PRECONDITION (billing/project/region precondition). ONLY for an
+// upstream 400 we read a strictly bounded body into ephemeral memory, take
+// the structured `error.status` path, and map the two exact values; anything
+// else falls back to provider_http_400. The body text never leaves this
+// module — never logged, never persisted, never returned.
+export const GEMINI_IMAGE_ERROR_BODY_MAX_BYTES = 16 * 1024;
+// Hard cap on read() calls: the byte cap alone would not bound recursion on a
+// stream that keeps yielding zero-length chunks. Every read counts.
+export const GEMINI_IMAGE_ERROR_BODY_MAX_READS = 256;
+
+// JSON-compatible media type: application/json or application/*+json, with
+// optional parameters, case-insensitive. Anything else (missing, malformed,
+// text/html, text/plain, application/octet-stream, …) is NOT trusted —
+// the body of a non-JSON 400 is never read.
+export function isJsonMediaType(contentType: unknown): boolean {
+  if (typeof contentType !== 'string') return false;
+  const media = contentType.split(';')[0].trim().toLowerCase();
+  if (media === 'application/json') return true;
+  if (!media.startsWith('application/')) return false;
+  const subtype = media.slice('application/'.length);
+  return subtype.endsWith('+json') && subtype.length > '+json'.length;
+}
+
+// Reads at most GEMINI_IMAGE_ERROR_BODY_MAX_BYTES across at most
+// GEMINI_IMAGE_ERROR_BODY_MAX_READS read() calls (chunk-recursive — both caps
+// bound recursion). Gates: JSON Content-Type required BEFORE any read; a
+// valid Content-Length above the byte cap rejects with ZERO reads (early
+// guard only — the live byte cap stays authoritative). Over-cap bytes,
+// over-cap reads, read failure, or invalid UTF-8 → cancel the stream exactly
+// once (cancel failure swallowed) + null; the violating chunk is never
+// decoded or appended. Never throws, never logs. Deliberately NOT
+// res.text()/res.json(): those are unbounded and must never run on an
+// upstream error body.
+export async function readGeminiImageErrorBodyBounded(res: {
+  headers?: { get?: (name: string) => string | null } | null;
+  body?: { getReader?: () => { read: () => Promise<{ done: boolean; value?: Uint8Array }>; cancel?: () => Promise<unknown> } } | null;
+}): Promise<string | null> {
+  try {
+    const headers = res ? res.headers : null;
+    const header = (name: string): string | null => (
+      (headers && typeof headers.get === 'function') ? headers.get(name) : null
+    );
+    if (!isJsonMediaType(header('content-type'))) return null;
+    const declaredLength = header('content-length');
+    if (typeof declaredLength === 'string' && /^\d+$/.test(declaredLength.trim())
+      && Number(declaredLength.trim()) > GEMINI_IMAGE_ERROR_BODY_MAX_BYTES) {
+      return null; // early reject — zero reads
+    }
+    const stream = res ? res.body : null;
+    if (!stream || typeof stream.getReader !== 'function') return null;
+    const reader = stream.getReader();
+    let cancelled = false;
+    const cancelOnce = async (): Promise<void> => {
+      if (cancelled) return;
+      cancelled = true;
+      try { await reader.cancel?.(); } catch { /* cancel failure never propagates */ }
+    };
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    const pump = async (reads: number, received: number, text: string): Promise<string | null> => {
+      if (reads >= GEMINI_IMAGE_ERROR_BODY_MAX_READS) {
+        await cancelOnce();
+        return null;
+      }
+      const { done, value } = await reader.read();
+      if (done) return text + decoder.decode();
+      const size = value ? value.byteLength : 0;
+      if (received + size > GEMINI_IMAGE_ERROR_BODY_MAX_BYTES) {
+        await cancelOnce();
+        return null;
+      }
+      return pump(reads + 1, received + size, text + decoder.decode(value, { stream: true }));
+    };
+    try {
+      return await pump(0, 0, '');
+    } catch {
+      // read failure or decoder (invalid UTF-8) failure — release the stream
+      await cancelOnce();
+      return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+// Maps a bounded 400 body to the two allowlisted Google statuses. EXACT
+// case-sensitive matches on the structured `error.status` path only; every
+// other shape (null body, malformed JSON, non-object, missing/unknown/
+// wrong-case status) falls back to provider_http_400. Never throws.
+export function classifyGeminiImage400Body(bodyText: string | null): GeminiImageDiagnosticCode {
+  try {
+    if (typeof bodyText !== 'string' || !bodyText) return 'provider_http_400';
+    const json: unknown = JSON.parse(bodyText);
+    if (json === null || typeof json !== 'object' || Array.isArray(json)) return 'provider_http_400';
+    const err = (json as { error?: unknown }).error;
+    if (err === null || typeof err !== 'object' || Array.isArray(err)) return 'provider_http_400';
+    const status = (err as { status?: unknown }).status;
+    if (status === 'INVALID_ARGUMENT') return 'provider_google_invalid_argument';
+    if (status === 'FAILED_PRECONDITION') return 'provider_google_failed_precondition';
+    return 'provider_http_400';
+  } catch {
+    return 'provider_http_400';
+  }
 }
 
 // Runs ONE Gemini image generation for an already-validated gateway decision
@@ -153,10 +262,16 @@ export async function runGeminiImage(
       signal: AbortSignal.timeout(GEMINI_IMAGE_TIMEOUT_MS),
     });
     if (!res.ok) {
-      // Status code ONLY — the raw provider error body is never read into a
-      // log or response (stricter than the text lane, per the S4.1 contract).
+      // Status code ONLY in the log — the raw provider error body is never
+      // logged and never enters the response. S4.1b: ONLY for a 400 we read a
+      // strictly bounded body to refine the INTERNAL diagnostic (allowlisted
+      // mapping; ephemeral text discarded here); every other status keeps the
+      // S4.1a status-arithmetic classification with NO body read.
       console.error('[ai-gateway] gemini image upstream error', JSON.stringify({ provider: 'gemini', model: GEMINI_IMAGE_MODEL, status: res.status }));
-      return { status: 502, body: buildProviderErrorResponse(decision), resultChars: null, diagnosticCode: classifyGeminiImageHttpStatus(res.status) };
+      const diagnosticCode = res.status === 400
+        ? classifyGeminiImage400Body(await readGeminiImageErrorBodyBounded(res))
+        : classifyGeminiImageHttpStatus(res.status);
+      return { status: 502, body: buildProviderErrorResponse(decision), resultChars: null, diagnosticCode };
     }
     const json = await res.json().catch(() => null);
     if (json === null) {
