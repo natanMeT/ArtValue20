@@ -947,9 +947,10 @@ describe('guardrail · frozen files carry no gateway wiring', () => {
   it('no do-not-touch file references the AI gateway (no wiring crept in)', () => {
     // gemini.js left this list in Slice B (jake.draft_message): its ONE
     // authorized gateway operation is draftWithJake, guarded precisely below.
+    // geminiImage.js left this list in M2 J3C S4.2: its ONE authorized gateway
+    // operation is studio.generate_image (generateImage), guarded precisely below.
     const frozen = [
       '../../components/ai/Assistant.jsx',
-      '../geminiImage.js',
       '../jakePack.js',
       '../jakeAgent.js',
     ];
@@ -957,6 +958,21 @@ describe('guardrail · frozen files carry no gateway wiring', () => {
       const code = read(rel);
       expect(code.includes('aiGateway'), rel).toBe(false);
     }
+  });
+
+  it('geminiImage.js: ONLY studio.generate_image is gateway-routed — no other operation migrated', () => {
+    const code = read('../geminiImage.js');
+    // the single allowed gateway import
+    expect(/import \{ callAiGateway \} from '\.\/aiGatewayClient\.js';/.test(code)).toBe(true);
+    // the ONE migrated lane: hosted text→image (M2 J3C S4.2)
+    expect(code.includes("callAiGateway('studio.generate_image'")).toBe(true);
+    // and no OTHER gateway action / surface is wired from this file
+    const calls = code.match(/callAiGateway\(/g) || [];
+    expect(calls.length).toBe(1);
+    // the retired direct-browser-Gemini image path is gone (no accidental revival)
+    expect(code.includes('generativelanguage')).toBe(false);
+    expect(code.includes('X-goog-api-key')).toBe(false);
+    expect(code.includes('VITE_GEMINI_API_KEY')).toBe(false);
   });
 
   it('gemini.js: ONLY the five authorized lanes are gateway-routed — no other legacy operation migrated', () => {

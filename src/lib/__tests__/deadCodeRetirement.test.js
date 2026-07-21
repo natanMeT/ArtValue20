@@ -10,9 +10,10 @@
 // JAKE_NO_THINK constant in gemini.js.
 //
 // This suite pins: the symbols are gone, no non-test source references them,
-// the active replacements and Gateway lanes are intact, the generateImage
-// provider order is unchanged, and Creative V1 survives byte-for-byte in the
-// sections these deletions touched nothing near.
+// the active replacements and Gateway lanes are intact, the generateImage engine
+// policy holds (local precedence + hosted Gateway; browser Gemini retired in
+// S4.2), and Creative V1 survives byte-for-byte in the sections these deletions
+// touched nothing near.
 // ===================================================================
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -109,18 +110,24 @@ describe('S2 · active replacements and Gateway lanes are intact', () => {
     expect(imageStudio.includes('enhanceImagePrompt')).toBe(false);
   });
 
-  it('generateImage keeps its exact provider order: ComfyUI → local SD → Pollinations → Gemini → error', () => {
+  // M2 J3C S4.2 superseded the retired order (…→ Pollinations → browser Gemini):
+  // the hosted tail is now a single protected AI-Gateway attempt, and the direct
+  // browser-Gemini branch is gone. Local engines keep their exact precedence.
+  it('generateImage engine policy: ComfyUI → local SD → single Gateway attempt; no browser Gemini', () => {
     const start = geminiImage.indexOf('export async function generateImage(');
     expect(start).toBeGreaterThan(-1);
     const body = geminiImage.slice(start);
     const iComfy = body.indexOf('if (COMFY_URL)');
     const iLocal = body.indexOf('if (LOCAL_URL)');
-    const iPolli = body.indexOf('if (POLLI_TOKEN) return pollinations(text);');
-    const iGemini = body.indexOf('if (API_KEY)');
+    const iGateway = body.indexOf('generateImageViaGateway(text, opts)');
     expect(iComfy).toBeGreaterThan(-1);
     expect(iLocal).toBeGreaterThan(iComfy);
-    expect(iPolli).toBeGreaterThan(iLocal);
-    expect(iGemini).toBeGreaterThan(iPolli);
+    expect(iGateway).toBeGreaterThan(iLocal);
+    // the retired direct-browser-Gemini branch and its vectors are gone
+    expect(body.includes('if (API_KEY)')).toBe(false);
+    expect(geminiImage.includes('generativelanguage')).toBe(false);
+    expect(geminiImage.includes('X-goog-api-key')).toBe(false);
+    expect(geminiImage.includes('VITE_GEMINI_API_KEY')).toBe(false);
   });
 
   it('Creative V1 core and image-side survivors are untouched', () => {
