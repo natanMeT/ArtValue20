@@ -9,6 +9,7 @@ import warriorWalk from '../../assets/warrior_walk.png';
 import { chatJake, forceActionsJake, draftWithJake } from '../../lib/gemini.js';
 import { isSupabaseConfigured } from '../../lib/supabase.js';
 import { extractActions, executeActions, describeActions, detectBulkDelete, buildBulkDeleteGate } from '../../lib/jakeAgent.js';
+import { partitionJakeActions } from '../../lib/betaCapabilities.js';
 import { activePack } from '../../lib/jakePack.js';
 import { withBusinessBrain } from '../../lib/jakeBusinessContext.js';
 import { selectJakeChatHistory } from '../../lib/jakeChatHistory.js';
@@ -801,6 +802,14 @@ export default function Assistant() {
     // bulk destructive ops). Code gate (123456) → granular checkbox picker. No model.
     const bulkEntity = detectBulkDelete(text, activePack.entities);
     if (bulkEntity) {
+      // Beta containment: bulk-deleting a Memory-Only entity (inventory/tasks/
+      // projects) can't durably persist in cloud mode — don't show a code gate
+      // that implies it will. Durable entities (clients/leads/quotes/tx) proceed.
+      const bulkPart = partitionJakeActions([{ op: 'delete_all', entity: bulkEntity }], { isCloudBeta: isSupabaseConfigured });
+      if (bulkPart.blocked.length) {
+        setMessages((m) => [...m, { role: 'assistant', system: true, text: bulkPart.message }]);
+        return;
+      }
       const gate = buildBulkDeleteGate(bulkEntity, data, activePack.entities);
       if (!gate || !gate.items.length) {
         setMessages((m) => [...m, { role: 'assistant', system: true, text: `אין ${gate ? gate.entityLabel : 'פריטים'} למחיקה — הרשימה ריקה.` }]);
@@ -909,17 +918,29 @@ export default function Assistant() {
         } catch { /* it was just talk — leave as prose */ }
       }
 
-      if (actions.length) {
+      // Beta false-success containment (S0A): split durable actions (allowed to
+      // propose→confirm→execute) from Memory-Only / unknown ones. Blocked actions
+      // never reach a confirmation card, never execute, and never yield a fake ✓.
+      const { allowed: allowedActions, blocked, message: betaMsg } = partitionJakeActions(actions, { isCloudBeta: isSupabaseConfigured });
+
+      if (allowedActions.length) {
         // It's a PROPOSAL (executes only on approval) — strip any premature "done"
         // checkmark a weaker model may have added, so the prose never contradicts the card.
         const proposal = (clean || '').replace(/\s*[✓✅]\s*/g, ' ').trim();
         if (proposal) { setMessages((m) => [...m, { role: 'assistant', text: proposal }]); speak(proposal); }
-        const items = describeActions(actions, data);
-        setMessages((m) => [...m, { role: 'assistant', preview: { actions, items } }]);
-      } else {
+        const items = describeActions(allowedActions, data);
+        setMessages((m) => [...m, { role: 'assistant', preview: { actions: allowedActions, items } }]);
+      } else if (!blocked.length) {
+        // Pure prose / info answer — no actions at all.
         const body = clean || reply;
         setMessages((m) => [...m, { role: 'assistant', text: body }]);
         speak(body);
+      }
+      // Beta-unavailable / unknown mutation(s): calm message; nothing executed,
+      // no fake activity, no success/completed claim, no confirmation card.
+      if (blocked.length) {
+        setMessages((m) => [...m, { role: 'assistant', system: true, text: betaMsg }]);
+        speak(betaMsg);
       }
 
       // Studio handoff card (deterministic, model-free): appended AFTER the

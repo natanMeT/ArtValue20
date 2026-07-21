@@ -331,7 +331,10 @@ describe('J2 · Assistant confirmation flow integration (source, untouched)', ()
   it('the propose → confirm → execute pipeline is unchanged: extractActions → preview card, no auto-execution', () => {
     expect(assistant.includes('extractActions(reply)')).toBe(true);
     expect(assistant.includes('extractActions(forced)')).toBe(true);
-    expect(assistant.includes('preview: { actions, items }')).toBe(true);
+    // S0A: the preview card is still built from the parsed actions with no auto-
+    // execution — now from the durable (allowed) subset after beta containment.
+    expect(assistant.includes('preview: { actions: allowedActions, items }')).toBe(true);
+    expect(assistant.includes('partitionJakeActions(actions, { isCloudBeta: isSupabaseConfigured })')).toBe(true);
   });
 
   it('Assistant still has NO gateway wiring of its own (the seam stays in gemini.js)', () => {

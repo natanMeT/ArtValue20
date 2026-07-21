@@ -46,6 +46,8 @@ describe('S1.1 · sidebar footer status keys on the Supabase transport', () => {
     }
     // the only import added by this slice is the boolean flag — no supabase client use
     expect(/\bsupabase\.(from|auth|functions|storage)/.test(sidebar)).toBe(false);
-    expect((sidebar.match(/isSupabaseConfigured/g) || []).length).toBe(2); // import + one render read
+    // import + footer-pill render read + S0A beta-nav gate (visibleNavSections(isSupabaseConfigured)).
+    // All three are pure build-time constant reads — still no network/health check.
+    expect((sidebar.match(/isSupabaseConfigured/g) || []).length).toBe(3);
   });
 });

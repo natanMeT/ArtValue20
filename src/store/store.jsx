@@ -3,6 +3,7 @@ import { buildSeed, uid } from '../data/seed.js';
 import { OUTREACH_EXTRA, OUTREACH_SEED_VERSION } from '../data/outreach.js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase.js';
 import * as api from '../lib/api.js';
+import { isMemoryOnlyDispatch } from '../lib/betaCapabilities.js';
 
 const DATA_KEY = 'artvalue_data';
 const THEME_KEY = 'artvalue_theme';
@@ -358,6 +359,11 @@ export function StoreProvider({ children }) {
         setData((d) => reducer(d, action));
         return;
       }
+      // Beta false-success containment (S0A): Memory-Only entity mutations are
+      // NOT durably persisted in cloud mode (no persist()/fetchAll route). Block
+      // before mutating so nothing changes and no caller can claim a save. Local
+      // mode is unaffected (handled above — localStorage is durable there).
+      if (isMemoryOnlyDispatch(action.type)) return;
       const act = withId(action);
       setData((d) => reducer(d, act)); // optimistic
       const userId = session?.user?.id;

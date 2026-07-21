@@ -6,8 +6,10 @@ import { StaggerGroup, Reveal } from '../components/ui/motion.jsx';
 import Icon from '../components/ui/Icon.jsx';
 import ProjectModal from '../components/forms/ProjectModal.jsx';
 import { SectionHeader } from '../components/ui/atoms.jsx';
+import BetaUnavailable from '../components/ui/BetaUnavailable.jsx';
 import { TEMPLATES, serviceLabel } from '../data/studio.js';
 import { uid } from '../data/seed.js';
+import { isSupabaseConfigured } from '../lib/supabase.js';
 
 export default function Templates() {
   const { data, dispatch, toast } = useStore();
@@ -27,6 +29,12 @@ export default function Templates() {
     setPreset(null);
     navigate(`/projects/${id}`);
   };
+
+  // Beta false-success containment (S0A): templates create Memory-Only projects
+  // and tasks — unavailable in cloud mode until durable persistence exists.
+  if (isSupabaseConfigured) {
+    return <BetaUnavailable title="תבניות" sub="תבניות מוכנות לפתיחת פרויקטים ומשימות אוטומטיות" />;
+  }
 
   return (
     <div>
