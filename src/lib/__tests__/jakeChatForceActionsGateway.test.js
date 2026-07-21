@@ -334,7 +334,10 @@ describe('J2 · Assistant confirmation flow integration (source, untouched)', ()
     // S0A: the preview card is still built from the parsed actions with no auto-
     // execution — now from the durable (allowed) subset after beta containment.
     expect(assistant.includes('preview: { actions: allowedActions, items }')).toBe(true);
-    expect(assistant.includes('partitionJakeActions(actions, { isCloudBeta: isSupabaseConfigured })')).toBe(true);
+    expect(assistant.includes('partitionJakeActions(actions, { isCloudBeta: isSupabaseConfigured, clients: data.clients })')).toBe(true);
+    // S0A finding 4 — mixed batch: model prose is suppressed when any action is
+    // blocked, so a "הוספתי לקוח ומשימה" claim can't survive a blocked task.
+    expect(assistant.includes('if (!blocked.length) {')).toBe(true);
   });
 
   it('Assistant still has NO gateway wiring of its own (the seam stays in gemini.js)', () => {

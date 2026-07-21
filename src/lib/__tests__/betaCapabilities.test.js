@@ -10,6 +10,7 @@ import {
   JAKE_ACTION,
   classifyJakeAction,
   partitionJakeActions,
+  triggersAutoIncome,
   betaBlockedMessage,
   BETA_HIDDEN_MODULES,
   BETA_MESSAGES,
@@ -73,8 +74,14 @@ describe('Jake op classification — every registry op is classified', () => {
   });
 
   it('durable CRM ops classify durable', () => {
-    ['add_client', 'update_client', 'delete_client', 'add_quote', 'mark_paid', 'add_income', 'move_pipeline', 'add_lead', 'delete_tx']
+    ['add_client', 'update_client', 'delete_client', 'add_quote', 'add_income', 'add_expense', 'move_pipeline', 'add_lead', 'delete_tx']
       .forEach((op) => expect(classifyJakeAction({ op })).toBe(JAKE_ACTION.DURABLE));
+  });
+
+  it('mark_paid classifies beta-unavailable (auto-income is memory-only, not persisted)', () => {
+    expect(classifyJakeAction({ op: 'mark_paid', client: 'דני' })).toBe(JAKE_ACTION.BETA_UNAVAILABLE);
+    expect(JAKE_DURABLE_OPS.has('mark_paid')).toBe(false);
+    expect(JAKE_BETA_UNAVAILABLE_OPS.has('mark_paid')).toBe(true);
   });
 
   it('memory-only ops classify beta-unavailable', () => {
@@ -88,13 +95,61 @@ describe('Jake op classification — every registry op is classified', () => {
     expect(classifyJakeAction(null)).toBe(JAKE_ACTION.UNKNOWN);
   });
 
-  it('delete_all is entity-scoped', () => {
+  it('delete_all is entity-scoped and fails closed on missing/empty/unknown target', () => {
     expect(classifyJakeAction({ op: 'delete_all', entity: 'clients' })).toBe(JAKE_ACTION.DURABLE);
     expect(classifyJakeAction({ op: 'delete_all', entity: 'transactions' })).toBe(JAKE_ACTION.DURABLE);
     expect(classifyJakeAction({ op: 'delete_all', entity: 'inventory' })).toBe(JAKE_ACTION.BETA_UNAVAILABLE);
     expect(classifyJakeAction({ op: 'delete_all', entity: 'tasks' })).toBe(JAKE_ACTION.BETA_UNAVAILABLE);
     expect(classifyJakeAction({ op: 'delete_all', entity: 'projects' })).toBe(JAKE_ACTION.BETA_UNAVAILABLE);
     expect(classifyJakeAction({ op: 'delete_all', entity: 'nonsense' })).toBe(JAKE_ACTION.UNKNOWN);
+    // finding 5: missing / empty entity must NOT default to inventory — fail closed.
+    expect(classifyJakeAction({ op: 'delete_all' })).toBe(JAKE_ACTION.UNKNOWN);
+    expect(classifyJakeAction({ op: 'delete_all', entity: '' })).toBe(JAKE_ACTION.UNKNOWN);
+  });
+});
+
+describe('auto-income synthesis containment (finding 3)', () => {
+  it('add_client → completed_paid + value triggers auto-income (memory-only)', () => {
+    expect(triggersAutoIncome({ op: 'add_client', name: 'דני', status: 'completed_paid', value: 3000 })).toBe(true);
+    expect(triggersAutoIncome({ op: 'add_client', name: 'דני', status: 'שולם', value: 3000 })).toBe(true);
+    // lead / no value → no synthesis
+    expect(triggersAutoIncome({ op: 'add_client', name: 'דני', status: 'lead', value: 3000 })).toBe(false);
+    expect(triggersAutoIncome({ op: 'add_client', name: 'דני', status: 'completed_paid', value: 0 })).toBe(false);
+  });
+
+  it('update_client that lands a client in completed_paid + value triggers synthesis', () => {
+    const clients = [{ id: 'c1', name: 'דני כהן', status: 'active', value: 3000 }];
+    expect(triggersAutoIncome({ op: 'update_client', client: 'דני כהן', status: 'completed_paid' }, clients)).toBe(true);
+    // changing a value on an already-paid client also updates the memory auto-tx
+    const paid = [{ id: 'c1', name: 'דני כהן', status: 'completed_paid', value: 3000 }];
+    expect(triggersAutoIncome({ op: 'update_client', client: 'דני כהן', value: 5000 }, paid)).toBe(true);
+    // moving AWAY from paid does not synthesise income → durable status change
+    expect(triggersAutoIncome({ op: 'update_client', client: 'דני כהן', status: 'active' }, paid)).toBe(false);
+  });
+
+  it('plain durable CRM ops do not trigger synthesis', () => {
+    expect(triggersAutoIncome({ op: 'add_income', amount: 500 })).toBe(false);
+    expect(triggersAutoIncome({ op: 'update_client', client: 'x', phone: '050' }, [])).toBe(false);
+  });
+
+  it('cloud mode: mark_paid and paid-client payloads are blocked; direct income stays allowed', () => {
+    const clients = [{ id: 'c1', name: 'דני כהן', status: 'active', value: 3000 }];
+    const r = partitionJakeActions([
+      { op: 'mark_paid', client: 'דני כהן' },
+      { op: 'add_client', name: 'רון', status: 'completed_paid', value: 1000 },
+      { op: 'update_client', client: 'דני כהן', status: 'completed_paid' },
+      { op: 'add_income', amount: 800 },
+      { op: 'add_client', name: 'ליד חדש', status: 'lead' },
+    ], { isCloudBeta: true, clients });
+    const allowedOps = r.allowed.map((a) => a.op);
+    expect(allowedOps).toContain('add_income');
+    expect(allowedOps).toContain('add_client'); // the plain lead add
+    expect(r.allowed.find((a) => a.op === 'add_client' && a.status === 'completed_paid')).toBeUndefined();
+    const blockedOps = r.blocked.map((a) => a.op);
+    expect(blockedOps).toContain('mark_paid');
+    expect(r.blocked.filter((a) => a.op === 'add_client').length).toBe(1); // paid one
+    expect(r.blocked.filter((a) => a.op === 'update_client').length).toBe(1);
+    expect(r.message).toMatch(/תשלום|הכנסה/);
   });
 });
 
@@ -137,6 +192,15 @@ describe('partitionJakeActions', () => {
     expect(r.message).toContain('מלאי');
     expect(r.message).toContain('פרויקטים');
   });
+
+  it('mixed durable + blocked batch (finding 4): durable allowed, blocked reported, message present', () => {
+    const durable = { op: 'add_client', name: 'דני', status: 'lead' };
+    const blocked = { op: 'add_task', title: 'לשלוח סקיצה' };
+    const r = partitionJakeActions([durable, blocked], { isCloudBeta: true });
+    expect(r.allowed).toEqual([durable]); // client proceeds to the confirm card
+    expect(r.blocked).toEqual([blocked]); // task never reaches a card / execution
+    expect(r.message).toContain('משימות');
+  });
 });
 
 describe('beta messages + modules', () => {
@@ -146,8 +210,8 @@ describe('beta messages + modules', () => {
     expect(msg).toMatch(/בטא/);
   });
 
-  it('hidden modules are exactly projects/inventory/templates', () => {
-    expect([...BETA_HIDDEN_MODULES].sort()).toEqual(['inventory', 'projects', 'templates']);
+  it('hidden modules are exactly activity/inventory/projects/templates', () => {
+    expect([...BETA_HIDDEN_MODULES].sort()).toEqual(['activity', 'inventory', 'projects', 'templates']);
   });
 
   it('tasks beta copy is present and calm (no error jargon)', () => {

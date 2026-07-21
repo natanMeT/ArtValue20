@@ -77,8 +77,12 @@ export default function Tasks() {
     else { dispatch({ type: 'ADD_TASK', payload: task }); toast('משימה נוספה'); }
     setEditing(null);
   };
-  const setStatus = (task, status) => { dispatch({ type: 'UPDATE_TASK', payload: { id: task.id, status } }); toast(`סטטוס: ${labelOf(TASK_STATUS, status)}`); };
-  const remove = () => { if (toDelete) { dispatch({ type: 'DELETE_TASK', id: toDelete.id }); toast('המשימה נמחקה', 'error'); setToDelete(null); } };
+  // Every task mutation entry point is contained in cloud beta mode — status
+  // change, "mark complete", edit and delete — so nothing mutates and no status/
+  // deletion toast can falsely claim success. Rows (if present via stale/hot-
+  // reload state) render read-only: mutation controls are disabled or hidden.
+  const setStatus = (task, status) => { if (betaBlocked) { toast(BETA_MESSAGES.tasks, 'error'); return; } dispatch({ type: 'UPDATE_TASK', payload: { id: task.id, status } }); toast(`סטטוס: ${labelOf(TASK_STATUS, status)}`); };
+  const remove = () => { if (betaBlocked) { setToDelete(null); toast(BETA_MESSAGES.tasks, 'error'); return; } if (toDelete) { dispatch({ type: 'DELETE_TASK', id: toDelete.id }); toast('המשימה נמחקה', 'error'); setToDelete(null); } };
 
   return (
     <div>
@@ -127,7 +131,7 @@ export default function Tasks() {
                     <td className="muted">{clientName(t.clientId)}</td>
                     <td className="muted">{projName(t.projectId)}</td>
                     <td>
-                      <select className="select mini-select" value={t.status} onChange={(e) => setStatus(t, e.target.value)}>
+                      <select className="select mini-select" value={t.status} disabled={betaBlocked} onChange={(e) => setStatus(t, e.target.value)}>
                         {TASK_STATUS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                       </select>
                     </td>
@@ -135,9 +139,9 @@ export default function Tasks() {
                     <td className="muted" style={{ whiteSpace: 'nowrap' }}>{t.deadline ? formatDate(t.deadline) : '—'}</td>
                     <td>
                       <div className="row gap-2" style={{ justifyContent: 'flex-end' }}>
-                        {t.status !== 'done' && <button className="icon-action" onClick={() => setStatus(t, 'done')} title="סמן כהושלם" aria-label="הושלם"><Icon name="check" size={15} /></button>}
-                        <button className="icon-action" onClick={() => setEditing(t)} aria-label="עריכה"><Icon name="edit" size={15} /></button>
-                        <button className="icon-action del" onClick={() => setToDelete(t)} aria-label="מחיקה"><Icon name="trash" size={15} /></button>
+                        {!betaBlocked && t.status !== 'done' && <button className="icon-action" onClick={() => setStatus(t, 'done')} title="סמן כהושלם" aria-label="הושלם"><Icon name="check" size={15} /></button>}
+                        {!betaBlocked && <button className="icon-action" onClick={() => setEditing(t)} aria-label="עריכה"><Icon name="edit" size={15} /></button>}
+                        {!betaBlocked && <button className="icon-action del" onClick={() => setToDelete(t)} aria-label="מחיקה"><Icon name="trash" size={15} /></button>}
                       </div>
                     </td>
                   </tr>

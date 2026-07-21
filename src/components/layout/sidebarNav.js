@@ -21,7 +21,7 @@ export const NAV_SECTIONS = [
       { to: '/quotes', label: 'הצעות מחיר', icon: 'doc' },
       { to: '/finance', label: 'פיננסים', icon: 'wallet' },
       { to: '/inventory', label: 'מלאי', icon: 'dashboard', betaHidden: true },
-      { to: '/activity', label: 'יומן פעילות', icon: 'clock' },
+      { to: '/activity', label: 'יומן פעילות', icon: 'clock', betaHidden: true },
     ],
   },
   {

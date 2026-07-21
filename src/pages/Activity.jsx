@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../store/store.jsx';
 import { SectionHeader, EmptyState } from '../components/ui/atoms.jsx';
+import BetaUnavailable from '../components/ui/BetaUnavailable.jsx';
 import { StaggerGroup, Reveal } from '../components/ui/motion.jsx';
 import Icon from '../components/ui/Icon.jsx';
+import { isSupabaseConfigured } from '../lib/supabase.js';
 
 // Visual map for each audit-log event kind.
 const KIND = {
@@ -23,6 +25,14 @@ const SEG = [{ k: 'all', l: 'הכל' }, { k: 'client', l: 'לקוחות' }, { k:
 export default function Activity() {
   const { data } = useStore();
   const [filter, setFilter] = useState('all');
+
+  // Beta false-success containment (S0A): the activity log is reducer-generated,
+  // memory-only and absent from fetchAll() — it disappears on refresh in cloud
+  // mode. Don't present it as durable history that "ג׳יק זוכר". Render a calm
+  // unavailable state; the implementation is untouched for local/demo mode.
+  if (isSupabaseConfigured) {
+    return <BetaUnavailable title="יומן פעילות" sub="היסטוריית השינויים במערכת" />;
+  }
   const all = data.activity || [];
   const items = useMemo(() => (filter === 'all' ? all : all.filter((a) => (a.kind || '').startsWith(filter))), [all, filter]);
 

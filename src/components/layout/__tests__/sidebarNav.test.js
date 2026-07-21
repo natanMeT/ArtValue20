@@ -116,7 +116,7 @@ describe('sidebarNav — retired studios (R4.1)', () => {
 });
 
 describe('sidebarNav — beta false-success containment (S0A)', () => {
-  const BETA_HIDDEN = ['/projects', '/inventory', '/templates'];
+  const BETA_HIDDEN = ['/projects', '/inventory', '/templates', '/activity'];
 
   it('the Memory-Only modules carry a betaHidden flag in the data', () => {
     for (const to of BETA_HIDDEN) {
@@ -142,7 +142,7 @@ describe('sidebarNav — beta false-success containment (S0A)', () => {
 
   it('cloud beta mode keeps every durable module visible (clients, tasks, quotes, finance, outreach)', () => {
     const tos = visibleNavSections(true).flatMap((s) => s.items.map((i) => i.to));
-    ['/', '/clients', '/tasks', '/pipeline', '/quotes', '/finance', '/activity', '/outreach', '/diagnose', '/studio', '/assets']
+    ['/', '/clients', '/tasks', '/pipeline', '/quotes', '/finance', '/outreach', '/diagnose', '/studio', '/assets']
       .forEach((to) => expect(tos.includes(to), `${to} should stay visible`).toBe(true));
   });
 

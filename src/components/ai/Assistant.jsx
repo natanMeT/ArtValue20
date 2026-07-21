@@ -805,7 +805,7 @@ export default function Assistant() {
       // Beta containment: bulk-deleting a Memory-Only entity (inventory/tasks/
       // projects) can't durably persist in cloud mode — don't show a code gate
       // that implies it will. Durable entities (clients/leads/quotes/tx) proceed.
-      const bulkPart = partitionJakeActions([{ op: 'delete_all', entity: bulkEntity }], { isCloudBeta: isSupabaseConfigured });
+      const bulkPart = partitionJakeActions([{ op: 'delete_all', entity: bulkEntity }], { isCloudBeta: isSupabaseConfigured, clients: data.clients });
       if (bulkPart.blocked.length) {
         setMessages((m) => [...m, { role: 'assistant', system: true, text: bulkPart.message }]);
         return;
@@ -919,15 +919,22 @@ export default function Assistant() {
       }
 
       // Beta false-success containment (S0A): split durable actions (allowed to
-      // propose→confirm→execute) from Memory-Only / unknown ones. Blocked actions
-      // never reach a confirmation card, never execute, and never yield a fake ✓.
-      const { allowed: allowedActions, blocked, message: betaMsg } = partitionJakeActions(actions, { isCloudBeta: isSupabaseConfigured });
+      // propose→confirm→execute) from Memory-Only / unknown / non-durable-income
+      // ones. Blocked actions never reach a confirmation card, never execute, and
+      // never yield a fake ✓.
+      const { allowed: allowedActions, blocked, message: betaMsg } = partitionJakeActions(actions, { isCloudBeta: isSupabaseConfigured, clients: data.clients });
 
       if (allowedActions.length) {
-        // It's a PROPOSAL (executes only on approval) — strip any premature "done"
-        // checkmark a weaker model may have added, so the prose never contradicts the card.
-        const proposal = (clean || '').replace(/\s*[✓✅]\s*/g, ' ').trim();
-        if (proposal) { setMessages((m) => [...m, { role: 'assistant', text: proposal }]); speak(proposal); }
+        // MIXED-BATCH SAFETY: when the same reply also contains blocked actions,
+        // suppress the model's free prose entirely — it may claim the blocked
+        // action completed ("הוספתי לקוח ומשימה"). The deterministic confirm card
+        // (describeActions) only ever describes the ALLOWED durable actions, so it
+        // cannot claim a blocked one. With no blocked actions, keep the normal
+        // lead-in prose (stripped of any premature ✓).
+        if (!blocked.length) {
+          const proposal = (clean || '').replace(/\s*[✓✅]\s*/g, ' ').trim();
+          if (proposal) { setMessages((m) => [...m, { role: 'assistant', text: proposal }]); speak(proposal); }
+        }
         const items = describeActions(allowedActions, data);
         setMessages((m) => [...m, { role: 'assistant', preview: { actions: allowedActions, items } }]);
       } else if (!blocked.length) {
