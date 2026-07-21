@@ -28,6 +28,7 @@ import {
   isGeminiExecutableAction,
   GEMINI_TEXT_ACTION_TYPES,
   GEMINI_IMAGE_MAX_DECODED_BYTES,
+  GEMINI_IMAGE_MIME_TYPE,
   AI_GATEWAY_IMAGE_ASPECT_RATIOS,
   AI_GATEWAY_INPUT_LIMITS,
   validateAiGatewayInput,
@@ -63,7 +64,7 @@ const indexSrc = read('../index.ts');
 // A tiny VALID canonical base64 payload (decodes to 6 bytes) — no real image.
 const B64 = 'AAAAAAAA';
 const okInteraction = () => ({
-  steps: [{ type: 'model_output', content: [{ type: 'image', mime_type: 'image/png', data: B64 }] }],
+  steps: [{ type: 'model_output', content: [{ type: 'image', mime_type: 'image/jpeg', data: B64 }] }],
 });
 const validPayload = () => ({ prompt: 'משרד מודרני עם תאורה טבעית', aspectRatio: '1:1' });
 const decisionFor = (payload = validPayload()) => buildAiGatewayDecision({ actionType: ACTION, payload });
@@ -103,10 +104,14 @@ describe('S4.1 · vocabulary + routing + cost', () => {
     expect(estimateCost('image.product_lock', 'openai').estimatedCost).toBe(0.1);
   });
 
-  it('server-owned profile: image output, PNG, 1K — and the adapter drift guard accepts exactly it', () => {
+  it('server-owned profile (frozen) + S4.1c contract-pinned wire MIME — and the adapter drift guard accepts exactly it', () => {
     expect(profile).not.toBe(null);
     expect(profile.outputMode).toBe('image');
+    // the FROZEN profile still carries the legacy png field, but it is dormant:
+    // the raw REST wire MIME is the contract-pinned image/jpeg constant
+    // (official Interactions REST reference — ai.google.dev/api/interactions-api)
     expect(profile.imageMimeType).toBe('image/png');
+    expect(GEMINI_IMAGE_MIME_TYPE).toBe('image/jpeg');
     expect(profile.imageSize).toBe('1K');
     expect(Object.isFrozen(profile)).toBe(true);
     expect(isGatewayImageAction(ACTION, profile)).toBe(true);
@@ -182,8 +187,11 @@ describe('S4.1 · Interactions request builder (pure)', () => {
     expect(r.ok).toBe(true);
     expect(r.body).toEqual({
       input: 'משרד מודרני עם תאורה טבעית',
-      response_format: { type: 'image', mime_type: 'image/png', aspect_ratio: '1:1', image_size: '1K' },
+      response_format: { type: 'image', mime_type: 'image/jpeg', aspect_ratio: '1:1', image_size: '1K' },
     });
+    // S4.1c: png never appears in the built request — the wire MIME is the
+    // contract-pinned jpeg regardless of the frozen profile's legacy field
+    expect(JSON.stringify(r.body).includes('image/png')).toBe(false);
     // S4.1a: `input` is the official text-only shape — the trimmed prompt
     // STRING itself, never a content-block array or object.
     expect(typeof r.body.input).toBe('string');
@@ -219,40 +227,45 @@ describe('S4.1 · response parser (fail-closed)', () => {
     }
   });
 
-  it('accepts exactly one valid image/png block from steps (interleaved text tolerated)', () => {
+  it('accepts exactly one valid image/jpeg block from steps (interleaved text tolerated)', () => {
     const withText = {
       steps: [{
         type: 'model_output',
         content: [
           { type: 'text', text: 'here you go' },
-          { type: 'image', mime_type: 'image/png', data: B64 },
+          { type: 'image', mime_type: 'image/jpeg', data: B64 },
         ],
       }],
     };
     const img = parseGeminiImageInteractionResponse(withText);
-    expect(img).toEqual({ mimeType: 'image/png', base64: B64, decodedBytes: 6 });
+    expect(img).toEqual({ mimeType: 'image/jpeg', base64: B64, decodedBytes: 6 });
   });
 
   it('accepts the output_image convenience shape when no steps exist (mimeType variant too)', () => {
-    expect(parseGeminiImageInteractionResponse({ output_image: { mime_type: 'image/png', data: B64 } }))
-      .toEqual({ mimeType: 'image/png', base64: B64, decodedBytes: 6 });
-    expect(parseGeminiImageInteractionResponse({ output_image: { mimeType: 'image/png', data: B64 } }))
-      .toEqual({ mimeType: 'image/png', base64: B64, decodedBytes: 6 });
+    expect(parseGeminiImageInteractionResponse({ output_image: { mime_type: 'image/jpeg', data: B64 } }))
+      .toEqual({ mimeType: 'image/jpeg', base64: B64, decodedBytes: 6 });
+    expect(parseGeminiImageInteractionResponse({ output_image: { mimeType: 'image/jpeg', data: B64 } }))
+      .toEqual({ mimeType: 'image/jpeg', base64: B64, decodedBytes: 6 });
   });
 
-  it('rejects: wrong MIME, invalid base64, empty image, multiple images, text-only, oversized, unsafe keys, junk', () => {
+  it('rejects: wrong MIME (png/webp/missing), invalid base64, empty image, multiple images, text-only, oversized, unsafe keys, junk', () => {
     const block = (over = {}) => ({
-      steps: [{ type: 'model_output', content: [{ type: 'image', mime_type: 'image/png', data: B64, ...over }] }],
+      steps: [{ type: 'model_output', content: [{ type: 'image', mime_type: 'image/jpeg', data: B64, ...over }] }],
     });
-    expect(parseGeminiImageInteractionResponse(block({ mime_type: 'image/jpeg' }))).toBe(null);
+    // S4.1c: exactly image/jpeg — png, webp, and a missing MIME all fail closed
+    expect(parseGeminiImageInteractionResponse(block({ mime_type: 'image/png' }))).toBe(null);
+    expect(parseGeminiImageInteractionResponse(block({ mime_type: 'image/webp' }))).toBe(null);
+    expect(parseGeminiImageInteractionResponse(block({ mime_type: 'image/jpg' }))).toBe(null);
+    expect(parseGeminiImageInteractionResponse(block({ mime_type: undefined }))).toBe(null);
+    expect(parseGeminiImageInteractionResponse({ output_image: { mime_type: 'image/png', data: B64 } })).toBe(null);
     expect(parseGeminiImageInteractionResponse(block({ data: 'not base64!!' }))).toBe(null);
     expect(parseGeminiImageInteractionResponse(block({ data: '' }))).toBe(null);
     expect(parseGeminiImageInteractionResponse({
       steps: [{
         type: 'model_output',
         content: [
-          { type: 'image', mime_type: 'image/png', data: B64 },
-          { type: 'image', mime_type: 'image/png', data: B64 },
+          { type: 'image', mime_type: 'image/jpeg', data: B64 },
+          { type: 'image', mime_type: 'image/jpeg', data: B64 },
         ],
       }],
     })).toBe(null);
@@ -274,12 +287,35 @@ describe('S4.1 · response parser (fail-closed)', () => {
 
   it('success envelope carries ONLY { image: { mimeType, base64 } } in result', () => {
     const d = decisionFor();
-    const out = buildProviderImageSuccessResponse(d, { mimeType: 'image/png', base64: B64, decodedBytes: 6 });
+    const out = buildProviderImageSuccessResponse(d, { mimeType: 'image/jpeg', base64: B64, decodedBytes: 6 });
     expect(out.ok).toBe(true);
     expect(out.provider).toBe('gemini');
     expect(out.execution).toEqual({ status: 'completed' });
-    expect(out.result).toEqual({ image: { mimeType: 'image/png', base64: B64 } });
+    expect(out.result).toEqual({ image: { mimeType: 'image/jpeg', base64: B64 } });
     expect(out.usage).toEqual({ logging: 'active', budgetCheck: 'approved' });
+  });
+
+  it('S4.1c hardening: the success envelope NEVER trusts a supplied mimeType — always the pinned jpeg', () => {
+    const d = decisionFor();
+    for (const smuggled of ['image/png', 'image/webp', 'text/html', '', undefined, 42]) {
+      const out = buildProviderImageSuccessResponse(d, { mimeType: smuggled, base64: B64, decodedBytes: 6 });
+      expect(out.result.image.mimeType, String(smuggled)).toBe(GEMINI_IMAGE_MIME_TYPE);
+      expect(out.result.image.mimeType, String(smuggled)).toBe('image/jpeg');
+    }
+  });
+
+  it('S4.1c hardening: the parser has NO caller MIME override — expectedMimeType is ignored both ways', () => {
+    // a PNG block cannot be made to pass by supplying expectedMimeType png
+    const png = { steps: [{ type: 'model_output', content: [{ type: 'image', mime_type: 'image/png', data: B64 }] }] };
+    expect(parseGeminiImageInteractionResponse(png, { expectedMimeType: 'image/png' })).toBe(null);
+    expect(parseGeminiImageInteractionResponse({ output_image: { mime_type: 'image/png', data: B64 } }, { expectedMimeType: 'image/png' })).toBe(null);
+    // and a valid JPEG block still passes even when a bogus override is supplied
+    expect(parseGeminiImageInteractionResponse(okInteraction(), { expectedMimeType: 'image/png' }))
+      .toEqual({ mimeType: 'image/jpeg', base64: B64, decodedBytes: 6 });
+    // maxDecodedBytes stays functional and unchanged
+    expect(parseGeminiImageInteractionResponse(okInteraction(), { expectedMimeType: 'image/png', maxDecodedBytes: 5 })).toBe(null);
+    // and the adapter passes no MIME option at all — only the size cap
+    expect(adapterSrc.includes('expectedMimeType')).toBe(false);
   });
 });
 
@@ -311,7 +347,7 @@ describe('S4.1 · image adapter (mocked fetch)', () => {
     d.request.payload = validateAiGatewayInput(ACTION, validPayload()).payload;
     const r = await runGeminiImage(d, profile);
     expect(r.status).toBe(200);
-    expect(r.body.result).toEqual({ image: { mimeType: 'image/png', base64: B64 } });
+    expect(r.body.result).toEqual({ image: { mimeType: 'image/jpeg', base64: B64 } });
     expect(r.resultChars).toBe(B64.length);
     // S4.1a: success carries NO diagnostic code
     expect(r.diagnosticCode ?? null).toBe(null);
@@ -324,7 +360,7 @@ describe('S4.1 · image adapter (mocked fetch)', () => {
     expect(JSON.parse(init.body)).toEqual({
       model: 'gemini-3.1-flash-image',
       input: 'משרד מודרני עם תאורה טבעית',
-      response_format: { type: 'image', mime_type: 'image/png', aspect_ratio: '1:1', image_size: '1K' },
+      response_format: { type: 'image', mime_type: 'image/jpeg', aspect_ratio: '1:1', image_size: '1K' },
     });
     expect(typeof JSON.parse(init.body).input).toBe('string');
     expect(GEMINI_IMAGE_MODEL).toBe('gemini-3.1-flash-image');
@@ -975,7 +1011,7 @@ describe('S4.1b · adapter 400 refinement (mocked fetch) — internal only, gene
     expect(JSON.parse(init.body)).toEqual({
       model: 'gemini-3.1-flash-image',
       input: 'משרד מודרני עם תאורה טבעית',
-      response_format: { type: 'image', mime_type: 'image/png', aspect_ratio: '1:1', image_size: '1K' },
+      response_format: { type: 'image', mime_type: 'image/jpeg', aspect_ratio: '1:1', image_size: '1K' },
     });
   });
 });

@@ -474,9 +474,21 @@ export function buildGeminiMessagesRequest(messages, profile) {
 // Takes the VALIDATED image payload ({ prompt, aspectRatio }) and the
 // SERVER-OWNED image action profile and returns the Interactions API body
 // WITHOUT the model (the provider adapter owns endpoint/model/key/fetch —
-// house pattern). All output authority — response type, MIME, image size —
-// comes from the profile; the caller controls ONLY prompt + aspectRatio,
-// and aspectRatio must be an exact member of the frozen vocabulary.
+// house pattern). Output authority: the wire MIME is the CONTRACT-PINNED
+// constant below; image size comes from the profile; the caller controls
+// ONLY prompt + aspectRatio, and aspectRatio must be an exact member of the
+// frozen vocabulary.
+
+// S4.1c: the raw REST wire MIME for Interactions image generation. The
+// official Interactions REST reference (ai.google.dev/api/interactions-api)
+// defines ImageResponseFormat.mime_type as image/jpeg, and the official REST
+// image-generation example sends image/jpeg — the SDK's image/png example
+// does NOT describe the raw REST wire contract. This constant SUPERSEDES the
+// legacy `imageMimeType: 'image/png'` field still present in the frozen
+// action profile; the builder and the adapter's response validation read
+// ONLY this constant.
+export const GEMINI_IMAGE_MIME_TYPE = 'image/jpeg';
+
 export function buildGeminiImageInteractionRequest(payload, profile) {
   const safe = normalizeGatewayPayload(payload);
   const prompt = typeof safe.prompt === 'string' ? safe.prompt.trim() : '';
@@ -491,7 +503,6 @@ export function buildGeminiImageInteractionRequest(payload, profile) {
     };
   }
   const prof = isPlainObject(profile) ? profile : {};
-  const mimeType = (typeof prof.imageMimeType === 'string' && prof.imageMimeType) ? prof.imageMimeType : 'image/png';
   const imageSize = (typeof prof.imageSize === 'string' && prof.imageSize) ? prof.imageSize : '1K';
   return {
     ok: true,
@@ -502,7 +513,7 @@ export function buildGeminiImageInteractionRequest(payload, profile) {
       input: prompt,
       response_format: {
         type: 'image',
-        mime_type: mimeType,
+        mime_type: GEMINI_IMAGE_MIME_TYPE,
         aspect_ratio: aspectRatio,
         image_size: imageSize,
       },
@@ -510,7 +521,7 @@ export function buildGeminiImageInteractionRequest(payload, profile) {
   };
 }
 
-// ---- Gemini image: strict base64/PNG validation helpers (pure) ----
+// ---- Gemini image: strict base64/image validation helpers (pure) ----
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 
 // Exact decoded byte count of a canonical base64 string, or null when the
@@ -564,9 +575,11 @@ export function parseGeminiImageInteractionResponse(json, options = {}) {
       if (Object.prototype.hasOwnProperty.call(json, k)) return null;
     }
     const opts = isPlainObject(options) ? options : {};
-    const expectedMimeType = (typeof opts.expectedMimeType === 'string' && opts.expectedMimeType)
-      ? opts.expectedMimeType
-      : 'image/png';
+    // S4.1c hardening: the accepted MIME is ALWAYS the contract-pinned wire
+    // constant — there is deliberately NO caller override (an
+    // options.expectedMimeType, if passed, is ignored), so no caller can make
+    // a non-jpeg block pass. Only the size cap is tunable (tests).
+    const expectedMimeType = GEMINI_IMAGE_MIME_TYPE;
     const maxDecodedBytes = (typeof opts.maxDecodedBytes === 'number'
       && Number.isFinite(opts.maxDecodedBytes) && opts.maxDecodedBytes > 0)
       ? opts.maxDecodedBytes
@@ -613,8 +626,13 @@ export function buildProviderImageSuccessResponse(decision, image) {
     provider: 'gemini',
     execution: { status: AI_GATEWAY_EXECUTION_STATUS.COMPLETED },
     result: {
+      // S4.1c hardening: the public MIME is ALWAYS the contract-pinned wire
+      // constant — a caller-supplied image.mimeType is never trusted or
+      // copied. The bytes themselves are protected upstream by the parser
+      // (the only production source of this image object); no transcoding
+      // or sniffing happens here.
       image: {
-        mimeType: typeof img.mimeType === 'string' ? img.mimeType : 'image/png',
+        mimeType: GEMINI_IMAGE_MIME_TYPE,
         base64: typeof img.base64 === 'string' ? img.base64 : '',
       },
     },

@@ -24,7 +24,7 @@
 //   - upstream non-2xx / thrown fetch / malformed JSON → provider_error (502)
 //     with a generic body; the raw provider response/error text is NEVER
 //     returned to the client and NEVER logged (status/name codes only)
-//   - anything but exactly one valid ≤8MiB image/png → invalid_provider_response
+//   - anything but exactly one valid ≤8MiB image/jpeg → invalid_provider_response
 //   - the API key never appears in any URL, response, log, or error
 // ===================================================================
 
@@ -278,8 +278,10 @@ export async function runGeminiImage(
       console.error('[ai-gateway] gemini image malformed json', JSON.stringify({ provider: 'gemini', model: GEMINI_IMAGE_MODEL, status: res.status }));
       return { status: 502, body: buildProviderErrorResponse(decision), resultChars: null, diagnosticCode: 'provider_malformed_json' };
     }
+    // S4.1c: the parser accepts ONLY the contract-pinned wire MIME
+    // (image/jpeg) — it exposes no MIME override option; the frozen profile's
+    // legacy imageMimeType is not read. Only the size cap is passed.
     const image = parseGeminiImageInteractionResponse(json, {
-      expectedMimeType: profile.imageMimeType || 'image/png',
       maxDecodedBytes: GEMINI_IMAGE_MAX_DECODED_BYTES,
     });
     if (!image) {
