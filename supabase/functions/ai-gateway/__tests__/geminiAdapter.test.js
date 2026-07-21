@@ -20,7 +20,7 @@ import {
 } from '../geminiAdapter.ts';
 import { isGeminiConfigured, runGeminiText } from '../geminiProvider.ts';
 import { getActionProfile, ACTION_PROFILE_KEYS } from '../actionProfiles.ts';
-import { GEMINI_EXECUTABLE_ACTION_TYPES } from '../../_shared/aiGatewayContract.js';
+import { GEMINI_EXECUTABLE_ACTION_TYPES, GEMINI_IMAGE_EXECUTABLE_ACTION_TYPES } from '../../_shared/aiGatewayContract.js';
 import { validateProviderAdapterShape } from '../../_shared/aiProviderCore.js';
 import { createExecutionRegistry } from '../../_shared/aiExecutionRegistry.js';
 
@@ -132,8 +132,11 @@ describe('requiredGatewayCapabilities', () => {
   it('covers EXACTLY the executable-action vocabulary (and the profile registry)', () => {
     expect([...REQUIRED_CAPABILITY_ACTION_KEYS].sort())
       .toEqual([...GEMINI_EXECUTABLE_ACTION_TYPES].sort());
-    expect([...REQUIRED_CAPABILITY_ACTION_KEYS].sort())
-      .toEqual([...ACTION_PROFILE_KEYS].sort());
+    // M2 J3C S4.1: the profile registry now also covers the image-executable
+    // set; the TEXT capability map stays text-only by design (the image lane
+    // has its own drift guard in geminiImageAdapter.ts).
+    expect([...ACTION_PROFILE_KEYS].sort())
+      .toEqual([...GEMINI_EXECUTABLE_ACTION_TYPES, ...GEMINI_IMAGE_EXECUTABLE_ACTION_TYPES].sort());
   });
 
   it('maps every executable action to its exact audited capabilities (frozen)', () => {

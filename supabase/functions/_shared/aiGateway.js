@@ -37,6 +37,11 @@ export const AI_ACTION_TYPES = Object.freeze([
   // Server-only in J1 — NO frontend caller is routed yet.
   'jake.force_actions',
   'studio.prompt_enhance',
+  // ImageStudio server-side image generation (M2 J3C S4.1): ONE 1K PNG per
+  // request through the server-owned Gemini image lane. Server-only in S4.1 —
+  // NO frontend caller is wired (ImageStudio behavior is unchanged until a
+  // separately approved wiring slice).
+  'studio.generate_image',
   'crm.suggest_next_action',
   // Outreach lead-ideas lane (M2 J3A): structured lead-idea generation served
   // by the Gateway with a server-owned system instruction + JSON schema.
@@ -159,6 +164,9 @@ export const COST_TIER_BY_ACTION = Object.freeze({
   'crm.diagnose_quote': 'low',
   'text.strategy': 'medium',
   'text.campaign': 'medium',
+  // Image-cost classification (M2 J3C S4.1) — the per-invocation reservation
+  // itself is pinned in ACTION_UNIT_COST_USD below, not the tier placeholder.
+  'studio.generate_image': 'medium_high',
   'image.poster': 'medium',
   'image.variation': 'medium',
   'vision.analyze_reference': 'medium',
@@ -180,6 +188,16 @@ const TIER_UNIT_COST_USD = Object.freeze({
 
 const BUDGET_CHECK_TIERS = Object.freeze(['medium', 'medium_high', 'high']);
 
+// Server-owned PER-ACTION unit reservations (USD). Consulted before the tier
+// placeholder in estimateCost — for actions whose provider list price is
+// pinned by a slice. studio.generate_image: official gemini-3.1-flash-image
+// 1K image output price is $0.067 (ai.google.dev/gemini-api/docs/pricing);
+// $0.07 is the approved conservative reservation. Still isExact: false —
+// this is a reservation estimate, never billing truth.
+const ACTION_UNIT_COST_USD = Object.freeze({
+  'studio.generate_image': 0.07,
+});
+
 // ---- table-driven default routing (recommendation map only) ----
 export const DEFAULT_PROVIDER_BY_ACTION = Object.freeze({
   'text.copy': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
@@ -189,6 +207,9 @@ export const DEFAULT_PROVIDER_BY_ACTION = Object.freeze({
   'jake.chat': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'jake.force_actions': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'studio.prompt_enhance': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
+  // Single-provider chain by design (M2 J3C S4.1): the image lane makes exactly
+  // one Gemini attempt — no second provider, no fallback, no retry.
+  'studio.generate_image': Object.freeze(['gemini']),
   'crm.suggest_next_action': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'crm.lead_ideas': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
   'crm.diagnose_quote': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
@@ -321,9 +342,14 @@ export function estimateCost(actionType, provider, units = {}) {
   let estimatedCost = null;
   if (costTier !== 'unknown') {
     // Local providers cost no API money (electricity is out of scope).
+    // A pinned per-action unit price (ACTION_UNIT_COST_USD) wins over the
+    // tier placeholder; every action without a pin keeps the exact tier
+    // arithmetic it always had.
     const unitCost = (prov && (isLocalProvider(prov) || prov === 'none'))
       ? 0
-      : TIER_UNIT_COST_USD[costTier];
+      : (Object.prototype.hasOwnProperty.call(ACTION_UNIT_COST_USD, action)
+        ? ACTION_UNIT_COST_USD[action]
+        : TIER_UNIT_COST_USD[costTier]);
     estimatedCost = Math.round(unitCost * count * 10000) / 10000;
   }
 

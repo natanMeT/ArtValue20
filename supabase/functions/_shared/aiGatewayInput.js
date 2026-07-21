@@ -48,11 +48,24 @@ export const AI_GATEWAY_INPUT_LIMITS = Object.freeze({
   // Quote-diagnosis lane (M2 J3B) bound — every field measured on TRIMMED
   // content. Over-limit input FAILS deterministically, never truncated.
   MAX_DIAGNOSE_QUOTE_FIELD_CHARS: 2000,
+  // Image-generation lane (M2 J3C S4.1) bound — prompt measured on TRIMMED
+  // content. Over-limit input FAILS deterministically, never truncated.
+  MAX_IMAGE_PROMPT_CHARS: 2000,
   // Defensive structural bounds applied to the WHOLE payload by the safe scanner.
   MAX_OBJECT_KEYS: 32,
   MAX_ARRAY_ITEMS: 64,
   MAX_DEPTH: 6,
 });
+
+// The EXACT aspect-ratio vocabulary the image lane accepts (M2 J3C S4.1) —
+// the full officially supported gemini-3.1-flash-image set (per
+// ai.google.dev/gemini-api/docs/image-generation), which is a superset of the
+// current ImageStudio presets (square 1024×1024 → '1:1', portrait 832×1216 →
+// '2:3', landscape 1216×832 → '3:2', AdStudio poster 1024×1280 → '4:5').
+// Case-sensitive, exact-match, never trimmed or repaired.
+export const AI_GATEWAY_IMAGE_ASPECT_RATIOS = Object.freeze([
+  '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9',
+]);
 
 // ---- helpers (module-private; never throw, never invoke caller getters) ----
 function isPlainObject(v) {
@@ -177,6 +190,28 @@ function diagnoseQuoteProfile() {
   };
 }
 
+// Image-generation profile (M2 J3C S4.1, studio.generate_image): EXACTLY
+// { prompt, aspectRatio }. prompt = required trimmed non-empty string ≤
+// MAX_IMAGE_PROMPT_CHARS; aspectRatio = required exact case-sensitive member
+// of AI_GATEWAY_IMAGE_ASPECT_RATIOS via the strict enum field type below (no
+// trim, no case repair, no default). All other generation authority —
+// provider, model, size, count, MIME, endpoint — is server-owned and any such
+// key is rejected by the unknown-field policy.
+function studioGenerateImageProfile() {
+  return {
+    kind: 'fields',
+    allowedKeys: ['prompt', 'aspectRatio'],
+    fields: {
+      prompt: {
+        type: 'string', required: true, trim: true, maxChars: AI_GATEWAY_INPUT_LIMITS.MAX_IMAGE_PROMPT_CHARS,
+      },
+      aspectRatio: {
+        type: 'enum', required: true, values: AI_GATEWAY_IMAGE_ASPECT_RATIOS,
+      },
+    },
+  };
+}
+
 // Multi-turn profile (C2): { messages: [{role,text}...], context?: { summary } }.
 // The message/context rules live in validateMultiTurnPayload — a dedicated
 // deterministic validator, NOT a permissive generic schema engine.
@@ -223,6 +258,9 @@ const PROFILES = deepFreeze({
   // { summary } context — assistant messages and multi-message histories fail.
   'jake.force_actions': singleUserTurnProfile(),
   'studio.prompt_enhance': promptOnlyProfile(),
+  // ImageStudio image-generation lane (M2 J3C S4.1): strict
+  // { prompt, aspectRatio } — see studioGenerateImageProfile.
+  'studio.generate_image': studioGenerateImageProfile(),
   'crm.suggest_next_action': promptOnlyProfile(),
   // Outreach lead-ideas lane (M2 J3A): strict { niche, count } — see
   // leadIdeasProfile for the exact field rules.
@@ -387,6 +425,14 @@ export function validateAiGatewayInput(actionType, payload) {
       if (!Number.isInteger(raw)) return fail('field_not_integer');
       if (typeof spec.min === 'number' && raw < spec.min) return fail('field_out_of_range');
       if (typeof spec.max === 'number' && raw > spec.max) return fail('field_out_of_range');
+      out[name] = raw;
+    } else if (spec.type === 'enum') {
+      // Strict enum field (M2 J3C S4.1): the value must be a string EXACTLY
+      // equal (case-sensitive, untrimmed) to a member of the profile's frozen
+      // vocabulary — no coercion, no normalization, no default. Enum values
+      // are content-free constants: they contribute nothing to inputChars.
+      if (typeof raw !== 'string') return fail('field_not_string');
+      if (!Array.isArray(spec.values) || !spec.values.includes(raw)) return fail('field_not_allowed');
       out[name] = raw;
     } else {
       // No other field types exist; reject rather than pass through.
