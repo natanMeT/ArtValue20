@@ -1,14 +1,18 @@
 // ===================================================================
-// AI image generation — Gemini "Nano Banana" (gemini-2.5-flash-image).
-// Reuses VITE_GEMINI_API_KEY. With no key it falls back to a free,
-// no-key generator (Pollinations) so the studio works in demo mode.
+// AI image generation.
+//   • LOCAL desktop/dev: ComfyUI (preferred) or Stable Diffusion (A1111/Forge).
+//   • HOSTED/production: the protected server-owned AI Gateway action
+//     studio.generate_image — the browser never holds a provider key and never
+//     calls a provider directly. The Gateway owns provider/model/size/MIME/budget.
+//   • Pollinations stays ONLY as the no-key demo fallback, and ONLY when Supabase
+//     is genuinely unconfigured (dev). It never masks a configured Gateway failure.
 // Returns { src, engine, demo }.
 // ===================================================================
 
 import { resolveLocalEngineUrl } from './localEngines.js';
+import { isSupabaseConfigured } from './supabase.js';
+import { callAiGateway } from './aiGatewayClient.js';
 
-const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const IMG_MODEL = import.meta.env.VITE_GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
 // Local GPU image server (e.g. AUTOMATIC1111 / Forge with --api). Free, runs on your machine.
 // Gated: hosted production builds resolve to '' (see localEngines.js).
 const LOCAL_URL = resolveLocalEngineUrl(import.meta.env.VITE_LOCAL_IMAGE_URL);
@@ -63,7 +67,10 @@ export async function checkLocalEngine() {
 const POLLI_TOKEN = import.meta.env.VITE_POLLINATIONS_TOKEN || '';
 const POLLI_MODEL = import.meta.env.VITE_POLLINATIONS_MODEL || 'flux';
 
-export const isImageAiConfigured = Boolean(API_KEY || LOCAL_URL || COMFY_URL || POLLI_TOKEN);
+// Image AI is available when the hosted AI Gateway (Supabase) is configured, OR a
+// local desktop engine is present, OR the Pollinations demo token exists. The
+// retired browser Gemini key no longer controls availability.
+export const isImageAiConfigured = Boolean(isSupabaseConfigured || LOCAL_URL || COMFY_URL || POLLI_TOKEN);
 
 function pollinations(text) {
   const seed = Math.floor(Math.random() * 1_000_000);
@@ -936,16 +943,70 @@ export async function animateImage(file, opts = {}) {
   return { src, engine: 'local', demo: false, isVideo: true };
 }
 
-async function gemini(text) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${IMG_MODEL}:generateContent`;
-  const body = { contents: [{ parts: [{ text }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } };
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-goog-api-key': API_KEY }, body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(`gemini ${res.status}`);
-  const json = await res.json();
-  const parts = json?.candidates?.[0]?.content?.parts || [];
-  const inline = parts.map((p) => p.inlineData || p.inline_data).find(Boolean);
-  if (!inline?.data) throw new Error('no image');
-  return { src: `data:${inline.mimeType || inline.mime_type || 'image/png'};base64,${inline.data}`, engine: 'gemini', demo: false };
+// ===================================================================
+// Hosted image generation via the protected AI Gateway (M2 J3C S4.2).
+// The browser sends ONLY { prompt, aspectRatio } to the server-owned
+// studio.generate_image action; the server owns provider/model/key/size/
+// MIME/count/budget. No provider/model/key/endpoint/retry/fallback field
+// is ever sent from here, and a configured-Gateway failure never falls
+// back to another provider.
+// ===================================================================
+
+// Explicit aspect → Gateway ratio table. Only the three ImageStudio presets are
+// recognized; anything else resolves to the square default. No ratio math (no
+// width/height division) and no caller-supplied arbitrary ratio ever reaches the
+// server. (square 1024×1024 → 1:1, portrait 832×1216 → 2:3, landscape 1216×832 → 3:2)
+const GATEWAY_ASPECT_RATIO = Object.freeze({ square: '1:1', portrait: '2:3', landscape: '3:2' });
+export function toGatewayAspectRatio(aspect) {
+  return GATEWAY_ASPECT_RATIO[aspect] || '1:1';
+}
+
+// Validate the Gateway's successful image result and convert it to the existing
+// UI shape, or null when it is missing / malformed / not JPEG / empty base64.
+// Pure: the base64 stays in-memory; nothing is logged or persisted here.
+function gatewayImageToResult(res) {
+  if (!res || res.ok !== true) return null;
+  const image = res.result && res.result.image;
+  if (!image || typeof image !== 'object') return null;
+  if (image.mimeType !== 'image/jpeg') return null;
+  const base64 = image.base64;
+  if (typeof base64 !== 'string' || base64.length === 0) return null;
+  return { src: `data:image/jpeg;base64,${base64}`, engine: 'gateway', demo: false, mimeType: 'image/jpeg' };
+}
+
+// Content-free Hebrew message per Gateway failure — never exposes server/provider
+// text, HTTP status, model name, key, base64, or any diagnostic.
+function gatewayImageError(res) {
+  const code = res && res.error && res.error.code;
+  if (code === 'unauthenticated' || code === 'unauthorized') return 'צריך להתחבר כדי ליצור תמונה';
+  if (code === 'rate_limited' || code === 'budget_exceeded' || code === 'budget_guard_unavailable') {
+    return 'שירות התמונות עמוס כרגע — נסה שוב עוד רגע';
+  }
+  return 'יצירת התמונה נכשלה — נסה שוב מאוחר יותר';
+}
+
+// Exactly ONE Gateway attempt. On a valid JPEG → the UI shape. On ok:true but a
+// malformed / PNG / empty image → fail VISIBLY (no retry, no other provider). Only
+// a genuinely unconfigured Supabase (dev) unlocks the Pollinations demo, and only
+// when a publishable token exists; every other failure shows a calm generic error.
+async function generateImageViaGateway(text, opts) {
+  const res = await callAiGateway('studio.generate_image', {
+    prompt: text,
+    aspectRatio: toGatewayAspectRatio(opts.aspect),
+  });
+  if (res && res.ok === true) {
+    const converted = gatewayImageToResult(res);
+    if (converted) return converted;
+    // ok:true but the image is missing / malformed / not JPEG / empty → fail
+    // visibly. Never retry, never reach for another provider.
+    throw new Error(gatewayImageError(null));
+  }
+  const code = res && res.error && res.error.code;
+  if (code === 'supabase_not_configured') {
+    if (POLLI_TOKEN) return pollinations(text);
+    throw new Error('יצירת התמונה אינה זמינה כרגע.');
+  }
+  throw new Error(gatewayImageError(res));
 }
 
 export async function generateImage(prompt, opts = {}) {
@@ -957,7 +1018,8 @@ export async function generateImage(prompt, opts = {}) {
   const h = opts.height || 1024;
   const hd = Boolean(opts.hd);
 
-  // Priority: local GPU (ComfyUI / A1111 — free, unlimited) → Pollinations → Gemini.
+  // Engine policy: local ComfyUI → local Stable Diffusion → protected AI Gateway
+  // (hosted). Pollinations is only the demo fallback when Supabase is unconfigured.
   if (COMFY_URL) {
     try { return await comfyUI(text, useFlux, w, h, hd, model); }
     catch (e) {
@@ -970,16 +1032,14 @@ export async function generateImage(prompt, opts = {}) {
     try { return await localSD(text); }
     catch { throw new Error('השרת המקומי לא מגיב. ודא ש-Stable Diffusion רץ עם --api --cors-allow-origins=*'); }
   }
-  if (POLLI_TOKEN) return pollinations(text);
-  if (API_KEY) {
-    try { return await gemini(text); } catch { /* fall through */ }
-  }
-
-  // Nothing that works is configured.
-  throw new Error('יצירת תמונות אינה זמינה כרגע. אפשרויות: (1) הפעל מחולל מקומי על ה-GPU שלך, (2) הוסף מפתח Pollinations מ-enter.pollinations.ai, או (3) הפעל billing ל-Nano Banana ב-Google.');
+  // Hosted / production: exactly ONE protected AI Gateway attempt. The server owns
+  // provider/model/key/size/MIME/budget; the browser sends only prompt + aspectRatio.
+  // A configured-Gateway failure NEVER falls back to another provider — only a
+  // genuinely unconfigured Supabase unlocks the Pollinations demo path (inside).
+  return generateImageViaGateway(text, opts);
 }
 
-export async function downloadImage(src, name = 'artvalue-nano-banana.png') {
+export async function downloadImage(src, name = 'artvalue-image.png') {
   try {
     const r = await fetch(src);
     const blob = await r.blob();

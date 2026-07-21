@@ -74,6 +74,15 @@ function studioEnhanceError(res) {
   return 'שגיאה בשדרוג הפרומפט';
 }
 
+// Truthful download filename by result type — the Gateway returns JPEG, local
+// video is animated WebP, everything else (local image) is PNG. Never transcodes;
+// it only names the download so the bytes and their extension agree.
+function studioDownloadName(r) {
+  if (r && r.isVideo) return 'artvalue-animation.webp';
+  if (r && (r.engine === 'gateway' || r.mimeType === 'image/jpeg')) return 'artvalue-image.jpg';
+  return 'artvalue-image.png';
+}
+
 // Display labels for the business preset recipe card (presentational only).
 const PRESET_PROVIDER_LABEL = {
   'local-flux': 'FLUX מקומי',
@@ -498,7 +507,9 @@ export default function ImageStudio() {
       if (mode === 'text') {
         const asp = ASPECTS.find((a) => a.id === aspect) || ASPECTS[0];
         const arch = isFluxModel ? 'flux' : 'sdxl';
-        r = await generateImage(prompt, { model: selModel?.file, arch, width: asp.w, height: asp.h, hd: !isFluxModel && hd });
+        // `aspect` (the preset id) is the ONLY field the hosted Gateway path reads —
+        // it maps to an exact ratio server-side; local engines keep using width/height.
+        r = await generateImage(prompt, { model: selModel?.file, arch, width: asp.w, height: asp.h, hd: !isFluxModel && hd, aspect });
         r = { ...r, quality: isFluxModel ? 'max' : 'fast', modelLabel: selModel?.label };
       }
       else if (mode === 'img2img') { r = hasKontextModel ? await editImage(file, prompt) : await generateImg2Img(file, prompt, { strength }); }
@@ -1296,7 +1307,7 @@ export default function ImageStudio() {
               </div>
               <div className="row between wrap" style={{ gap: 10 }}>
                 <span className={`badge ${result.demo ? 'badge-neutral' : 'badge-active'}`}>
-                  <span className="dot" />{result.isVideo ? (result.flf ? 'מקומי · לפני/אחרי (LTX)' : result.montage ? 'מקומי · מונטאז׳' : result.ltx ? 'מקומי · וידאו (LTX)' : 'מקומי · אנימציה (SVD)') : result.presenter ? `מקומי · פרזנטור (Qwen)${result.presenterQuality === 'quality' ? ' · איכות' : ''}` : result.inpaint ? 'מקומי · עריכת אזור' : result.kontext ? 'מקומי · עריכה (Kontext)' : result.engine === 'gemini' ? 'Nano Banana · Gemini' : result.engine === 'local' ? `מקומי · ${result.modelLabel || (result.quality === 'max' ? 'FLUX.1' : 'SDXL')}` : 'Pollinations · Flux'}
+                  <span className="dot" />{result.isVideo ? (result.flf ? 'מקומי · לפני/אחרי (LTX)' : result.montage ? 'מקומי · מונטאז׳' : result.ltx ? 'מקומי · וידאו (LTX)' : 'מקומי · אנימציה (SVD)') : result.presenter ? `מקומי · פרזנטור (Qwen)${result.presenterQuality === 'quality' ? ' · איכות' : ''}` : result.inpaint ? 'מקומי · עריכת אזור' : result.kontext ? 'מקומי · עריכה (Kontext)' : result.engine === 'gateway' ? 'AI מאובטח' : result.engine === 'local' ? `מקומי · ${result.modelLabel || (result.quality === 'max' ? 'FLUX.1' : 'SDXL')}` : 'Pollinations · Flux'}
                 </span>
                 <div className="row gap-2 wrap">
                   {!result.isVideo && (
@@ -1306,7 +1317,7 @@ export default function ImageStudio() {
                     <button className="btn btn-ghost btn-sm" onClick={animateResult}><Icon name="spark" size={15} style={{ color: 'var(--lime-deep)' }} /> צור אנימציה</button>
                   )}
                   <button className="btn btn-ghost btn-sm" onClick={run}><Icon name="refresh" size={15} /> צור שוב</button>
-                  <button className="btn btn-primary btn-sm" onClick={() => downloadImage(result.src, result.isVideo ? 'artvalue-animation.webp' : 'artvalue-image.png')}><Icon name="download" size={15} /> הורדה</button>
+                  <button className="btn btn-primary btn-sm" onClick={() => downloadImage(result.src, studioDownloadName(result))}><Icon name="download" size={15} /> הורדה</button>
                 </div>
               </div>
             </motion.div>

@@ -41,9 +41,8 @@ describe('studio prompt-enhance · wiring (source guards)', () => {
   });
 
   it('supplies NO provider / model / key / options authority and no Google endpoint', () => {
-    // no direct Google transport or browser key anywhere in the page now
-    // (a pre-existing 'gemini' image-engine LABEL on line ~1299 is the image
-    // path and is intentionally untouched — only key/endpoint vectors are banned)
+    // no direct Google transport or browser key anywhere in the page (the image
+    // result label became the neutral 'AI מאובטח' Gateway badge in S4.2)
     for (const banned of ['VITE_GEMINI_API_KEY', 'generativelanguage', 'X-goog-api-key', 'import.meta.env.VITE_GEMINI']) {
       expect(SRC.includes(banned), banned).toBe(false);
     }
@@ -88,10 +87,14 @@ describe('studio prompt-enhance · image generation path is untouched', () => {
     }
   });
 
-  it('geminiImage.js still owns the cloud image fallback (unchanged by this slice)', () => {
-    // the image module keeps its own direct provider path; this slice does not touch it
-    expect(IMG.includes('generativelanguage.googleapis.com')).toBe(true);
-    expect(IMG.includes('callAiGateway')).toBe(false);
+  it('geminiImage.js hosted image path now routes through the protected AI Gateway (M2 J3C S4.2)', () => {
+    // S4.2 retired the direct browser-Gemini image call: the hosted lane is a
+    // single callAiGateway('studio.generate_image', …) attempt, no Google transport.
+    expect(IMG.includes("callAiGateway('studio.generate_image'")).toBe(true);
+    expect(IMG.includes('generativelanguage.googleapis.com')).toBe(false);
+    expect(IMG.includes('X-goog-api-key')).toBe(false);
+    expect(IMG.includes('VITE_GEMINI_API_KEY')).toBe(false);
+    // this module owns image generation only — never the prompt-enhance action
     expect(IMG.includes('studio.prompt_enhance')).toBe(false);
   });
 });
