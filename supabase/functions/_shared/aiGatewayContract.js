@@ -496,7 +496,10 @@ export function buildGeminiImageInteractionRequest(payload, profile) {
   return {
     ok: true,
     body: {
-      input: [{ type: 'text', text: prompt }],
+      // Official REST text-only Interactions shape (ai.google.dev/gemini-api/
+      // docs/image-generation): `input` is the prompt STRING itself — not a
+      // content-block array. (S4.1a correction after the first upstream 502.)
+      input: prompt,
       response_format: {
         type: 'image',
         mime_type: mimeType,
