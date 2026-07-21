@@ -45,6 +45,9 @@ import {
   GEMINI_IMAGE_TIMEOUT_MS,
   isGatewayImageAction,
   REQUIRED_IMAGE_ACTION_KEYS,
+  GEMINI_IMAGE_DIAGNOSTIC_CODES,
+  classifyGeminiImageHttpStatus,
+  classifyGeminiImageThrown,
 } from '../geminiImageAdapter.ts';
 
 const ACTION = 'studio.generate_image';
@@ -173,12 +176,22 @@ describe('S4.1 · Interactions request builder (pure)', () => {
     const r = buildGeminiImageInteractionRequest(validPayload(), profile);
     expect(r.ok).toBe(true);
     expect(r.body).toEqual({
-      input: [{ type: 'text', text: 'משרד מודרני עם תאורה טבעית' }],
+      input: 'משרד מודרני עם תאורה טבעית',
       response_format: { type: 'image', mime_type: 'image/png', aspect_ratio: '1:1', image_size: '1K' },
     });
+    // S4.1a: `input` is the official text-only shape — the trimmed prompt
+    // STRING itself, never a content-block array or object.
+    expect(typeof r.body.input).toBe('string');
+    expect(Array.isArray(r.body.input)).toBe(false);
     // model/endpoint/key ownership stays in the adapter (house pattern)
     expect(JSON.stringify(r.body).includes('gemini-3.1')).toBe(false);
     expect(JSON.stringify(r.body).includes('http')).toBe(false);
+  });
+
+  it('trims the prompt into `input` (string in, string out)', () => {
+    const r = buildGeminiImageInteractionRequest({ prompt: '  a modern office  ', aspectRatio: '16:9' }, profile);
+    expect(r.ok).toBe(true);
+    expect(r.body.input).toBe('a modern office');
   });
 
   it('fails closed on blank prompt / unsupported ratio (before any provider work)', () => {
@@ -295,6 +308,8 @@ describe('S4.1 · image adapter (mocked fetch)', () => {
     expect(r.status).toBe(200);
     expect(r.body.result).toEqual({ image: { mimeType: 'image/png', base64: B64 } });
     expect(r.resultChars).toBe(B64.length);
+    // S4.1a: success carries NO diagnostic code
+    expect(r.diagnosticCode ?? null).toBe(null);
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/interactions');
@@ -303,9 +318,10 @@ describe('S4.1 · image adapter (mocked fetch)', () => {
     expect(init.headers).toEqual({ 'Content-Type': 'application/json', 'x-goog-api-key': KEY });
     expect(JSON.parse(init.body)).toEqual({
       model: 'gemini-3.1-flash-image',
-      input: [{ type: 'text', text: 'משרד מודרני עם תאורה טבעית' }],
+      input: 'משרד מודרני עם תאורה טבעית',
       response_format: { type: 'image', mime_type: 'image/png', aspect_ratio: '1:1', image_size: '1K' },
     });
+    expect(typeof JSON.parse(init.body).input).toBe('string');
     expect(GEMINI_IMAGE_MODEL).toBe('gemini-3.1-flash-image');
     expect(GEMINI_IMAGE_TIMEOUT_MS).toBe(60000);
   });
@@ -402,6 +418,20 @@ describe('S4.1 · shell wiring + source purity', () => {
     expect(code.includes('${apiKey}')).toBe(false);
   });
 
+  it('S4.1a: shell passes diagnosticCode ONLY to recordUsage — never into the client response', () => {
+    const branch = indexSrc.slice(indexSrc.indexOf('IMAGE lane (M2 J3C S4.1)'));
+    // destructured from the adapter and consumed inside the recordUsage call…
+    expect(branch.includes('diagnosticCode')).toBe(true);
+    // …while the client return is the untouched adapter body
+    expect(branch.includes('return json(out, status)')).toBe(true);
+    // the diagnostic seat is the EXISTING errorCode field — no new usage field
+    expect(branch.includes('diagnosticData')).toBe(false);
+    expect(branch.includes('metadata')).toBe(false);
+    // the contract's public response builders know nothing about diagnostics
+    const contractSrc = read('../../_shared/aiGatewayContract.js');
+    expect(contractSrc.includes('diagnosticCode')).toBe(false);
+  });
+
   it('content-free ai_usage: existing fields only; pinned estimate; counts never content', () => {
     const d = decisionFor();
     const rec = buildUsageRecord({
@@ -422,5 +452,199 @@ describe('S4.1 · shell wiring + source purity', () => {
     for (const banned of ['prompt', 'text', 'base64', 'image', 'body', 'response']) {
       expect(keys.includes(banned), banned).toBe(false);
     }
+  });
+});
+
+// ---------------------------------------------------------------
+// 7) S4.1a — content-free upstream diagnostics (allowlist + purity)
+// ---------------------------------------------------------------
+describe('S4.1a · diagnostic allowlist + classifiers (pure)', () => {
+  it('the allowlist is EXACTLY the approved closed set (frozen)', () => {
+    expect([...GEMINI_IMAGE_DIAGNOSTIC_CODES]).toEqual([
+      'provider_http_400', 'provider_http_401', 'provider_http_403',
+      'provider_http_404', 'provider_http_408', 'provider_http_409',
+      'provider_http_429', 'provider_http_5xx', 'provider_http_other',
+      'provider_timeout', 'provider_transport_error',
+      'provider_malformed_json', 'invalid_provider_response',
+    ]);
+    expect(Object.isFrozen(GEMINI_IMAGE_DIAGNOSTIC_CODES)).toBe(true);
+  });
+
+  it('HTTP classification: known statuses 1:1; other 5xx collapse; everything else → other', () => {
+    expect(classifyGeminiImageHttpStatus(400)).toBe('provider_http_400');
+    expect(classifyGeminiImageHttpStatus(401)).toBe('provider_http_401');
+    expect(classifyGeminiImageHttpStatus(403)).toBe('provider_http_403');
+    expect(classifyGeminiImageHttpStatus(404)).toBe('provider_http_404');
+    expect(classifyGeminiImageHttpStatus(408)).toBe('provider_http_408');
+    expect(classifyGeminiImageHttpStatus(409)).toBe('provider_http_409');
+    expect(classifyGeminiImageHttpStatus(429)).toBe('provider_http_429');
+    for (const s of [500, 502, 503, 504, 599]) {
+      expect(classifyGeminiImageHttpStatus(s), s).toBe('provider_http_5xx');
+    }
+    for (const s of [402, 405, 410, 418, 451, 499, 600, 302, 100, NaN, null, undefined, 'x']) {
+      expect(classifyGeminiImageHttpStatus(s), String(s)).toBe('provider_http_other');
+    }
+    // every classifier output is a member of the closed allowlist
+    for (const s of [400, 401, 403, 404, 408, 409, 429, 500, 302]) {
+      expect(GEMINI_IMAGE_DIAGNOSTIC_CODES.includes(classifyGeminiImageHttpStatus(s))).toBe(true);
+    }
+  });
+
+  it('thrown classification: Abort/Timeout names → provider_timeout; anything else → provider_transport_error', () => {
+    const timeout = new Error('x'); timeout.name = 'TimeoutError';
+    const abort = new Error('x'); abort.name = 'AbortError';
+    expect(classifyGeminiImageThrown(timeout)).toBe('provider_timeout');
+    expect(classifyGeminiImageThrown(abort)).toBe('provider_timeout');
+    expect(classifyGeminiImageThrown(new TypeError('fetch failed'))).toBe('provider_transport_error');
+    expect(classifyGeminiImageThrown(new Error('ECONNRESET'))).toBe('provider_transport_error');
+    expect(classifyGeminiImageThrown('not-an-error')).toBe('provider_transport_error');
+    expect(classifyGeminiImageThrown(null)).toBe('provider_transport_error');
+  });
+});
+
+describe('S4.1a · adapter diagnostics (mocked fetch) — internal only, public body generic', () => {
+  const KEY = 'test-key-never-real';
+  const CANARY = 'CANARY-9f3e-UPSTREAM-SECRET-DO-NOT-LEAK';
+  beforeEach(() => {
+    vi.stubGlobal('Deno', { env: { get: (k) => (k === 'GEMINI_API_KEY' ? KEY : undefined) } });
+    vi.stubGlobal('fetch', vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('every mapped HTTP status yields its allowlisted diagnostic; public body stays generic; ONE attempt each', async () => {
+    const cases = [
+      [400, 'provider_http_400'], [401, 'provider_http_401'], [403, 'provider_http_403'],
+      [404, 'provider_http_404'], [408, 'provider_http_408'], [409, 'provider_http_409'],
+      [429, 'provider_http_429'], [500, 'provider_http_5xx'], [502, 'provider_http_5xx'],
+      [503, 'provider_http_5xx'], [418, 'provider_http_other'],
+    ];
+    for (const [status, expected] of cases) {
+      fetch.mockReset();
+      fetch.mockResolvedValue({ ok: false, status, json: async () => ({ error: CANARY }), text: async () => CANARY });
+      const r = await runGeminiImage(decisionFor(), profile);
+      expect(r.status, status).toBe(502);
+      expect(r.body.error.code, status).toBe('provider_error');
+      expect(r.diagnosticCode, status).toBe(expected);
+      // the diagnostic never rides inside the client body
+      expect(JSON.stringify(r.body).includes(expected)).toBe(false);
+      expect(fetch).toHaveBeenCalledTimes(1); // no retry per classification
+    }
+  });
+
+  it('timeout-abort → provider_timeout; other thrown fetch → provider_transport_error (generic 502 both)', async () => {
+    const abort = new Error('The signal has been aborted');
+    abort.name = 'TimeoutError';
+    fetch.mockRejectedValue(abort);
+    let r = await runGeminiImage(decisionFor(), profile);
+    expect(r.status).toBe(502);
+    expect(r.body.error.code).toBe('provider_error');
+    expect(r.diagnosticCode).toBe('provider_timeout');
+
+    fetch.mockReset();
+    fetch.mockRejectedValue(new TypeError('fetch failed'));
+    r = await runGeminiImage(decisionFor(), profile);
+    expect(r.status).toBe(502);
+    expect(r.body.error.code).toBe('provider_error');
+    expect(r.diagnosticCode).toBe('provider_transport_error');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('2xx + malformed JSON → provider_malformed_json; 2xx + schema-invalid image → invalid_provider_response', async () => {
+    fetch.mockResolvedValue({ ok: true, status: 200, json: async () => { throw new Error('bad json'); } });
+    let r = await runGeminiImage(decisionFor(), profile);
+    expect(r.status).toBe(502);
+    expect(r.body.error.code).toBe('provider_error');
+    expect(r.diagnosticCode).toBe('provider_malformed_json');
+
+    fetch.mockReset();
+    fetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ steps: [{ type: 'model_output', content: [{ type: 'text', text: 'only text' }] }] }) });
+    r = await runGeminiImage(decisionFor(), profile);
+    expect(r.status).toBe(502);
+    expect(r.body.error.code).toBe('invalid_provider_response');
+    expect(r.diagnosticCode).toBe('invalid_provider_response');
+  });
+
+  it('pre-provider local failures carry NO upstream diagnostic (no key / drift / invalid payload)', async () => {
+    vi.stubGlobal('Deno', { env: { get: () => undefined } });
+    let r = await runGeminiImage(decisionFor(), profile);
+    expect(r.status).toBe(503);
+    expect(r.diagnosticCode ?? null).toBe(null);
+
+    vi.stubGlobal('Deno', { env: { get: (k) => (k === 'GEMINI_API_KEY' ? KEY : undefined) } });
+    r = await runGeminiImage(decisionFor(), null);
+    expect(r.status).toBe(502);
+    expect(r.diagnosticCode ?? null).toBe(null);
+
+    const d = decisionFor();
+    d.request.payload = { prompt: '', aspectRatio: '1:1' };
+    r = await runGeminiImage(d, profile);
+    expect(r.status).toBe(400);
+    expect(r.diagnosticCode ?? null).toBe(null);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('sensitive canary in the provider error body appears NOWHERE: response, diagnostic, usage record, logs, serialized return', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      fetch.mockResolvedValue({ ok: false, status: 500, json: async () => ({ error: { message: CANARY } }), text: async () => CANARY });
+      const r = await runGeminiImage(decisionFor(), profile);
+      // full serialized adapter return — nothing carries the canary or the key
+      const serialized = JSON.stringify(r);
+      expect(serialized.includes(CANARY)).toBe(false);
+      expect(serialized.includes(KEY)).toBe(false);
+      // diagnostic is a fixed allowlist member, not derived from upstream data
+      expect(GEMINI_IMAGE_DIAGNOSTIC_CODES.includes(r.diagnosticCode)).toBe(true);
+      // usage record built from the diagnostic stays content-free
+      const rec = buildUsageRecord({
+        requestId: 'r', userId: '123e4567-e89b-12d3-a456-426614174000', decision: decisionFor(),
+        provider: 'gemini', model: GEMINI_IMAGE_MODEL, status: 'provider_error', httpStatus: 502,
+        errorCode: r.diagnosticCode, promptChars: 5, resultChars: null,
+      });
+      expect(JSON.stringify(rec).includes(CANARY)).toBe(false);
+      expect(rec.error_code).toBe('provider_http_5xx');
+      // every console.error argument is canary-free and key-free
+      for (const call of errorSpy.mock.calls) {
+        const line = call.map(String).join(' ');
+        expect(line.includes(CANARY)).toBe(false);
+        expect(line.includes(KEY)).toBe(false);
+      }
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+});
+
+describe('S4.1a · usage persistence seat (existing error_code field only)', () => {
+  it('each allowlisted diagnostic persists verbatim through buildUsageRecord.error_code — no new field', () => {
+    for (const code of GEMINI_IMAGE_DIAGNOSTIC_CODES) {
+      const rec = buildUsageRecord({
+        requestId: 'r', userId: '123e4567-e89b-12d3-a456-426614174000', decision: decisionFor(),
+        provider: 'gemini', model: GEMINI_IMAGE_MODEL, status: 'provider_error', httpStatus: 502,
+        errorCode: code, promptChars: 5, resultChars: null,
+      });
+      expect(rec.error_code, code).toBe(code);
+      // record shape is UNCHANGED — the existing columns only
+      expect(Object.keys(rec).sort()).toEqual([
+        'action_type', 'cost_tier', 'error_code', 'estimated_cost_usd', 'http_status',
+        'is_estimate', 'model', 'prompt_chars', 'provider', 'request_id',
+        'result_chars', 'status', 'user_id',
+      ]);
+      // cost accounting stays the pinned content-free estimate
+      expect(rec.estimated_cost_usd).toBe(0.07);
+      expect(rec.prompt_chars).toBe(5);
+      expect(rec.result_chars).toBe(null);
+    }
+  });
+
+  it('successful image outcome records NO diagnostic (error_code null)', () => {
+    const rec = buildUsageRecord({
+      requestId: 'r', userId: '123e4567-e89b-12d3-a456-426614174000', decision: decisionFor(),
+      provider: 'gemini', model: GEMINI_IMAGE_MODEL, status: 'completed', httpStatus: 200,
+      errorCode: null, promptChars: 26, resultChars: B64.length,
+    });
+    expect(rec.error_code).toBe(null);
+    expect(rec.result_chars).toBe(B64.length);
   });
 });

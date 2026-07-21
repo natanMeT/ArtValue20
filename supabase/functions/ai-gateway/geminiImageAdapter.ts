@@ -55,16 +55,74 @@ export function isGeminiImageConfigured(): boolean {
   return Boolean(Deno.env.get('GEMINI_API_KEY'));
 }
 
+// ---- content-free upstream failure classification (M2 J3C S4.1a) ----
+// A CLOSED allowlist of internal diagnostic codes. The value is chosen ONLY
+// by branching on the numeric HTTP status / the local Error.name — never
+// built from upstream data — so no provider content can ever ride along.
+// It travels adapter → shell → recordUsage (ai_usage.error_code) and is
+// NEVER placed in the client response body.
+export const GEMINI_IMAGE_DIAGNOSTIC_CODES = Object.freeze([
+  'provider_http_400',
+  'provider_http_401',
+  'provider_http_403',
+  'provider_http_404',
+  'provider_http_408',
+  'provider_http_409',
+  'provider_http_429',
+  'provider_http_5xx',
+  'provider_http_other',
+  'provider_timeout',
+  'provider_transport_error',
+  'provider_malformed_json',
+  'invalid_provider_response',
+] as const);
+
+export type GeminiImageDiagnosticCode = (typeof GEMINI_IMAGE_DIAGNOSTIC_CODES)[number];
+
+// Known statuses map 1:1; other 5xx collapse to provider_http_5xx; anything
+// else collapses to provider_http_other. Pure arithmetic on the status code.
+export function classifyGeminiImageHttpStatus(status: unknown): GeminiImageDiagnosticCode {
+  const s = (typeof status === 'number' && Number.isFinite(status)) ? status : NaN;
+  switch (s) {
+    case 400: return 'provider_http_400';
+    case 401: return 'provider_http_401';
+    case 403: return 'provider_http_403';
+    case 404: return 'provider_http_404';
+    case 408: return 'provider_http_408';
+    case 409: return 'provider_http_409';
+    case 429: return 'provider_http_429';
+  }
+  if (s >= 500 && s <= 599) return 'provider_http_5xx';
+  return 'provider_http_other';
+}
+
+// Thrown fetch/abort classification: inspects ONLY Error.name (a safe local
+// property — never a message, stack, or upstream text). AbortSignal.timeout
+// aborts surface as 'TimeoutError' (or 'AbortError' on older runtimes).
+export function classifyGeminiImageThrown(e: unknown): GeminiImageDiagnosticCode {
+  const name = (e instanceof Error && typeof e.name === 'string') ? e.name : '';
+  return (name === 'TimeoutError' || name === 'AbortError')
+    ? 'provider_timeout'
+    : 'provider_transport_error';
+}
+
 // Runs ONE Gemini image generation for an already-validated gateway decision
 // using the SERVER-OWNED image action profile. Returns
 // { status, body, resultChars } exactly like the text provider; resultChars
 // is the CONTENT-FREE base64 character count of the returned image (fits the
-// existing ai_usage result_chars column).
+// existing ai_usage result_chars column). diagnosticCode (S4.1a) is the
+// INTERNAL allowlisted upstream-failure classification — the shell may pass
+// it ONLY to recordUsage; it must never enter the client response body.
 // deno-lint-ignore no-explicit-any
 export async function runGeminiImage(
   decision: any,
   profile: ActionProfile,
-): Promise<{ status: number; body: unknown; resultChars: number | null }> {
+): Promise<{
+  status: number;
+  body: unknown;
+  resultChars: number | null;
+  diagnosticCode?: GeminiImageDiagnosticCode | null;
+}> {
   const apiKey = Deno.env.get('GEMINI_API_KEY');
   if (!apiKey) {
     // Fail closed — no network call, no fallback to any frontend key.
@@ -98,12 +156,12 @@ export async function runGeminiImage(
       // Status code ONLY — the raw provider error body is never read into a
       // log or response (stricter than the text lane, per the S4.1 contract).
       console.error('[ai-gateway] gemini image upstream error', JSON.stringify({ provider: 'gemini', model: GEMINI_IMAGE_MODEL, status: res.status }));
-      return { status: 502, body: buildProviderErrorResponse(decision), resultChars: null };
+      return { status: 502, body: buildProviderErrorResponse(decision), resultChars: null, diagnosticCode: classifyGeminiImageHttpStatus(res.status) };
     }
     const json = await res.json().catch(() => null);
     if (json === null) {
       console.error('[ai-gateway] gemini image malformed json', JSON.stringify({ provider: 'gemini', model: GEMINI_IMAGE_MODEL, status: res.status }));
-      return { status: 502, body: buildProviderErrorResponse(decision), resultChars: null };
+      return { status: 502, body: buildProviderErrorResponse(decision), resultChars: null, diagnosticCode: 'provider_malformed_json' };
     }
     const image = parseGeminiImageInteractionResponse(json, {
       expectedMimeType: profile.imageMimeType || 'image/png',
@@ -113,7 +171,7 @@ export async function runGeminiImage(
       // Multiple images, text-only output, wrong MIME, malformed/oversized
       // base64, unsafe keys — all fail closed. Content-free diagnostic only.
       console.error('[ai-gateway] gemini image invalid response', JSON.stringify({ provider: 'gemini', model: GEMINI_IMAGE_MODEL, status: res.status }));
-      return { status: 502, body: buildInvalidProviderResponse(decision), resultChars: null };
+      return { status: 502, body: buildInvalidProviderResponse(decision), resultChars: null, diagnosticCode: 'invalid_provider_response' };
     }
     return {
       status: 200,
@@ -125,7 +183,7 @@ export async function runGeminiImage(
     // echo request/response content).
     const name = (e instanceof Error && typeof e.name === 'string') ? e.name.slice(0, 40) : 'unknown';
     console.error('[ai-gateway] gemini image request threw', JSON.stringify({ provider: 'gemini', model: GEMINI_IMAGE_MODEL, name }));
-    return { status: 502, body: buildProviderErrorResponse(decision), resultChars: null };
+    return { status: 502, body: buildProviderErrorResponse(decision), resultChars: null, diagnosticCode: classifyGeminiImageThrown(e) };
   }
 }
 

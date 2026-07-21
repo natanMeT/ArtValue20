@@ -361,7 +361,10 @@ serve?.(async (req: Request): Promise<Response> => {
     }
 
     // Approved + reserved → EXACTLY ONE image provider attempt.
-    const { status, body: out, resultChars } = await runGeminiImage(decision, profile);
+    const { status, body: out, resultChars, diagnosticCode } = await runGeminiImage(decision, profile);
+    // S4.1a: the allowlisted, content-free upstream diagnostic goes ONLY into
+    // the existing ai_usage.error_code seat (via recordUsage). The client body
+    // `out` is returned untouched — the diagnostic never enters the response.
     await recordUsage({
       decision,
       promptChars: inputChars,
@@ -371,8 +374,10 @@ serve?.(async (req: Request): Promise<Response> => {
       httpStatus: status,
       provider: 'gemini',
       model: GEMINI_IMAGE_MODEL,
-      // deno-lint-ignore no-explicit-any
-      errorCode: (out as any)?.error?.code ?? null,
+      errorCode: (typeof diagnosticCode === 'string' && diagnosticCode)
+        ? diagnosticCode
+        // deno-lint-ignore no-explicit-any
+        : ((out as any)?.error?.code ?? null),
       resultChars,
     });
     return json(out, status);
