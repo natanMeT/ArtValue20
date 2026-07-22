@@ -18,6 +18,7 @@ const EMPTY = {
   paidDate: new Date().toISOString().slice(0, 10),
   notes: '',
   nextAction: '',
+  nextActionDate: null,
 };
 
 export default function ClientModal({ open, onClose, onSave, initial }) {
@@ -121,9 +122,13 @@ export default function ClientModal({ open, onClose, onSave, initial }) {
             {LEAD_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
-        <div className="field full">
+        <div className="field">
           <label>פעולה הבאה</label>
           <input className="input" value={form.nextAction} onChange={set('nextAction')} placeholder="לדוגמה: לשלוח הצעת מחיר / להתקשר מחר" />
+        </div>
+        <div className="field">
+          <label>תאריך פעולה הבאה</label>
+          <input className="input" type="date" value={form.nextActionDate || ''} onChange={(e) => setForm((f) => ({ ...f, nextActionDate: e.target.value || null }))} dir="ltr" style={{ textAlign: 'right' }} />
         </div>
         <div className="field full">
           <label>הערות</label>

@@ -35,15 +35,17 @@ describe('saveLabel · Clients page wiring (source pins)', () => {
   it('both client-save toasts use saveLabel(mode); no hardcoded local wording remains', () => {
     expect(clients.includes("import { saveLabel } from '../lib/saveLabel.js';")).toBe(true);
     expect(clients.includes('const { data, dispatch, toast, mode } = useStore();')).toBe(true);
-    expect(clients.includes('toast(`הלקוח עודכן · ${saveLabel(mode)}`)')).toBe(true);
-    expect(clients.includes('toast(`לקוח נוסף · ${saveLabel(mode)}`)')).toBe(true);
+    // S0B: the save toast now fires only after a confirmed { ok } write (ternary wording).
+    expect(clients.includes('הלקוח עודכן · ${saveLabel(mode)}')).toBe(true);
+    expect(clients.includes('לקוח נוסף · ${saveLabel(mode)}')).toBe(true);
     expect(clients.includes('נשמר מקומית')).toBe(false);
   });
 
   it('scope stays surgical: no API/persistence change, and unrelated pages are untouched', () => {
-    // Clients.jsx still persists through the same dispatch actions
-    expect(clients.includes("dispatch({ type: 'ADD_CLIENT', payload: client })")).toBe(true);
-    expect(clients.includes("dispatch({ type: 'UPDATE_CLIENT', payload: client })")).toBe(true);
+    // Clients.jsx still persists through the same dispatch actions (S0B: awaited { ok })
+    expect(clients.includes("{ type: 'ADD_CLIENT', payload: client }")).toBe(true);
+    expect(clients.includes("{ type: 'UPDATE_CLIENT', payload: client }")).toBe(true);
+    expect(clients.includes('await dispatch(')).toBe(true);
     // the helper itself is pure — no store/api/supabase imports
     const helper = read('../saveLabel.js');
     expect(/^import\b/m.test(helper)).toBe(false);

@@ -250,6 +250,11 @@ export function reducer(state, action) {
   }
 }
 
+// S0B: durable task dispatches use a confirmed-write path (persist BEFORE the
+// reducer applies) so no task success can be shown before Supabase confirms.
+const TASK_DISPATCH = new Set(['ADD_TASK', 'UPDATE_TASK', 'DELETE_TASK']);
+const isTaskDispatch = (t) => TASK_DISPATCH.has(t);
+
 // Pre-assign a uuid for ADD actions so optimistic state and the DB row match.
 function withId(action) {
   if (['ADD_CLIENT', 'ADD_QUOTE', 'ADD_TX', 'ADD_LEAD', 'ADD_PROJECT', 'ADD_TASK', 'ADD_LINK', 'ADD_FILE', 'ADD_COMM'].includes(action.type) && !action.payload.id) {
@@ -273,6 +278,9 @@ function persist(action, userId) {
     case 'ADD_LEAD': return api.createLead(userId, action.payload);
     case 'UPDATE_LEAD': return api.updateLead(action.payload);
     case 'DELETE_LEAD': return api.deleteLead(action.id);
+    case 'ADD_TASK': return api.createTask(userId, action.payload);
+    case 'UPDATE_TASK': return api.updateTask(action.payload);
+    case 'DELETE_TASK': return api.deleteTask(action.id);
     default: return Promise.resolve();
   }
 }
@@ -362,14 +370,28 @@ export function StoreProvider({ children }) {
     (action) => {
       if (!supabaseEnabled) {
         setData((d) => reducer(d, action));
-        return;
+        return Promise.resolve({ ok: true }); // local mode: localStorage is durable
       }
       // Beta false-success containment (S0A): Memory-Only entity mutations are
       // NOT durably persisted in cloud mode (no persist()/fetchAll route). Block
       // before mutating so nothing changes and no caller can claim a save. Local
       // mode is unaffected (handled above — localStorage is durable there).
-      if (isMemoryOnlyDispatch(action.type)) return;
+      if (isMemoryOnlyDispatch(action.type)) return Promise.resolve({ ok: false });
       const act = withId(action);
+      const userId = session?.user?.id;
+
+      // S0B truthful write for durable Tasks: persist BEFORE applying the reducer.
+      // No optimistic task state — callers show success only after this resolves
+      // { ok: true }. On failure nothing is applied locally and we refetch the
+      // authoritative state (no false Task state, no silent local fallback).
+      if (isTaskDispatch(act.type)) {
+        if (!userId) return Promise.resolve({ ok: false });
+        return persist(act, userId).then(
+          () => { setData((d) => reducer(d, act)); return { ok: true }; },
+          async (e) => { console.error(e); toast('שגיאה בשמירת המשימה לשרת', 'error'); await refetch(); return { ok: false, error: e }; }
+        );
+      }
+
       // S0A: in cloud mode the reducer must not synthesize the auto income
       // transaction for a paid client — it would be Memory-Only (persist writes
       // only the client row). The flag rides on the ACTION, not the payload, so
@@ -378,14 +400,20 @@ export function StoreProvider({ children }) {
       const guarded = (act.type === 'ADD_CLIENT' || act.type === 'UPDATE_CLIENT')
         ? { ...act, suppressAutoIncome: true }
         : act;
-      setData((d) => reducer(d, guarded)); // optimistic
-      const userId = session?.user?.id;
-      if (!userId) return;
-      persist(act, userId).catch((e) => {
-        console.error(e);
-        toast('שגיאה בשמירה לשרת — מרענן נתונים', 'error');
-        refetch();
-      });
+      setData((d) => reducer(d, guarded)); // optimistic (durable non-task entities)
+      if (!userId) return Promise.resolve({ ok: false });
+      // Resolve with a settled result (never rejects) so existing non-awaiting
+      // callers are unaffected, while follow-up-bearing client saves can await
+      // confirmation before showing success.
+      return persist(act, userId).then(
+        () => ({ ok: true }),
+        async (e) => {
+          console.error(e);
+          toast('שגיאה בשמירה לשרת — מרענן נתונים', 'error');
+          await refetch(); // restore authoritative cloud state BEFORE settling { ok: false }
+          return { ok: false, error: e };
+        }
+      );
     },
     [supabaseEnabled, session, refetch, toast]
   );

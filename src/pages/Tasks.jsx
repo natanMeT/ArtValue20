@@ -9,8 +9,6 @@ import TaskModal from '../components/forms/TaskModal.jsx';
 import { SectionHeader, EmptyState } from '../components/ui/atoms.jsx';
 import { TASK_STATUS, TASK_PRIORITY, labelOf, studioBadgeClass } from '../data/studio.js';
 import { formatDate } from '../lib/format.js';
-import { isSupabaseConfigured } from '../lib/supabase.js';
-import { BETA_MESSAGES } from '../lib/betaCapabilities.js';
 
 const DAY = 86400000;
 const isToday = (d) => d && new Date(d).toDateString() === new Date().toDateString();
@@ -67,37 +65,36 @@ export default function Tasks() {
     return [...arr].sort((a, b) => (a.deadline || '9999').localeCompare(b.deadline || '9999'));
   }, [tasks, filter]);
 
-  // Beta false-success containment (S0A): tasks are Memory-Only in cloud mode
-  // (no durable persistence). Do not mutate and do not claim a save.
-  const betaBlocked = isSupabaseConfigured;
-
-  const save = (task) => {
-    if (betaBlocked) { setEditing(null); toast(BETA_MESSAGES.tasks, 'error'); return; }
-    if (task.id) { dispatch({ type: 'UPDATE_TASK', payload: task }); toast('המשימה עודכנה'); }
-    else { dispatch({ type: 'ADD_TASK', payload: task }); toast('משימה נוספה'); }
+  // S0B: tasks are durably persisted. Every mutation AWAITS the store's { ok }
+  // result and shows success ONLY after a confirmed cloud write — never before.
+  // On failure the store restores authoritative state; we bail without a success
+  // toast (edit modal / delete dialog stay open for a retry).
+  const save = async (task) => {
+    const res = await dispatch(task.id ? { type: 'UPDATE_TASK', payload: task } : { type: 'ADD_TASK', payload: task });
+    if (res?.ok === false) return;
+    toast(task.id ? 'המשימה עודכנה' : 'משימה נוספה');
     setEditing(null);
   };
-  // Every task mutation entry point is contained in cloud beta mode — status
-  // change, "mark complete", edit and delete — so nothing mutates and no status/
-  // deletion toast can falsely claim success. Rows (if present via stale/hot-
-  // reload state) render read-only: mutation controls are disabled or hidden.
-  const setStatus = (task, status) => { if (betaBlocked) { toast(BETA_MESSAGES.tasks, 'error'); return; } dispatch({ type: 'UPDATE_TASK', payload: { id: task.id, status } }); toast(`סטטוס: ${labelOf(TASK_STATUS, status)}`); };
-  const remove = () => { if (betaBlocked) { setToDelete(null); toast(BETA_MESSAGES.tasks, 'error'); return; } if (toDelete) { dispatch({ type: 'DELETE_TASK', id: toDelete.id }); toast('המשימה נמחקה', 'error'); setToDelete(null); } };
+  const setStatus = async (task, status) => {
+    const res = await dispatch({ type: 'UPDATE_TASK', payload: { id: task.id, status } });
+    if (res?.ok === false) return;
+    toast(`סטטוס: ${labelOf(TASK_STATUS, status)}`);
+  };
+  const remove = async () => {
+    if (!toDelete) return;
+    const res = await dispatch({ type: 'DELETE_TASK', id: toDelete.id });
+    if (res?.ok === false) return;
+    toast('המשימה נמחקה', 'error');
+    setToDelete(null);
+  };
 
   return (
     <div>
       <SectionHeader
         title="משימות"
         sub="ניהול עבודה יומית לפי לקוחות ופרויקטים"
-        action={!betaBlocked && <button className="btn btn-primary" onClick={() => setEditing('new')} disabled={(data.projects || []).length === 0}><Icon name="plus" size={18} /> משימה חדשה</button>}
+        action={<button className="btn btn-primary" onClick={() => setEditing('new')}><Icon name="plus" size={18} /> משימה חדשה</button>}
       />
-
-      {betaBlocked && (
-        <div className="card panel" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Icon name="lock" size={17} />
-          <span className="muted" style={{ fontSize: '0.9rem' }}>{BETA_MESSAGES.tasks}</span>
-        </div>
-      )}
 
       <StaggerGroup className="kpi-grid">
         <KpiMini label="להיום" value={kpis.today} icon="clock" accent />
@@ -117,7 +114,7 @@ export default function Tasks() {
 
       <div className="card panel">
         {list.length === 0 ? (
-          <EmptyState icon="check" title="אין משימות" hint={betaBlocked ? BETA_MESSAGES.tasks : 'הוסף משימה חדשה'} action={!betaBlocked && (data.projects || []).length > 0 && <button className="btn btn-primary" onClick={() => setEditing('new')}><Icon name="plus" size={18} /> משימה חדשה</button>} />
+          <EmptyState icon="check" title="אין משימות" hint="הוסף משימה חדשה" action={<button className="btn btn-primary" onClick={() => setEditing('new')}><Icon name="plus" size={18} /> משימה חדשה</button>} />
         ) : (
           <div className="table-wrap">
             <table className="tbl">
@@ -131,7 +128,7 @@ export default function Tasks() {
                     <td className="muted">{clientName(t.clientId)}</td>
                     <td className="muted">{projName(t.projectId)}</td>
                     <td>
-                      <select className="select mini-select" value={t.status} disabled={betaBlocked} onChange={(e) => setStatus(t, e.target.value)}>
+                      <select className="select mini-select" value={t.status} onChange={(e) => setStatus(t, e.target.value)}>
                         {TASK_STATUS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                       </select>
                     </td>
@@ -139,9 +136,9 @@ export default function Tasks() {
                     <td className="muted" style={{ whiteSpace: 'nowrap' }}>{t.deadline ? formatDate(t.deadline) : '—'}</td>
                     <td>
                       <div className="row gap-2" style={{ justifyContent: 'flex-end' }}>
-                        {!betaBlocked && t.status !== 'done' && <button className="icon-action" onClick={() => setStatus(t, 'done')} title="סמן כהושלם" aria-label="הושלם"><Icon name="check" size={15} /></button>}
-                        {!betaBlocked && <button className="icon-action" onClick={() => setEditing(t)} aria-label="עריכה"><Icon name="edit" size={15} /></button>}
-                        {!betaBlocked && <button className="icon-action del" onClick={() => setToDelete(t)} aria-label="מחיקה"><Icon name="trash" size={15} /></button>}
+                        {t.status !== 'done' && <button className="icon-action" onClick={() => setStatus(t, 'done')} title="סמן כהושלם" aria-label="הושלם"><Icon name="check" size={15} /></button>}
+                        <button className="icon-action" onClick={() => setEditing(t)} aria-label="עריכה"><Icon name="edit" size={15} /></button>
+                        <button className="icon-action del" onClick={() => setToDelete(t)} aria-label="מחיקה"><Icon name="trash" size={15} /></button>
                       </div>
                     </td>
                   </tr>
@@ -152,7 +149,7 @@ export default function Tasks() {
         )}
       </div>
 
-      <TaskModal open={!!editing} onClose={() => setEditing(null)} onSave={save} projects={data.projects || []} initial={editing && editing !== 'new' ? editing : null} />
+      <TaskModal open={!!editing} onClose={() => setEditing(null)} onSave={save} projects={data.projects || []} clients={data.clients || []} initial={editing && editing !== 'new' ? editing : null} />
       <ConfirmDialog open={!!toDelete} onClose={() => setToDelete(null)} onConfirm={remove} message={`למחוק את המשימה "${toDelete?.title}"?`} />
     </div>
   );
