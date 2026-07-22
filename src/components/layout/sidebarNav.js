@@ -15,13 +15,13 @@ export const NAV_SECTIONS = [
     items: [
       { to: '/', label: 'דאשבורד', icon: 'dashboard', end: true },
       { to: '/clients', label: 'לקוחות', icon: 'users' },
-      { to: '/projects', label: 'פרויקטים', icon: 'briefcase' },
+      { to: '/projects', label: 'פרויקטים', icon: 'briefcase', betaHidden: true },
       { to: '/tasks', label: 'משימות', icon: 'check' },
       { to: '/pipeline', label: 'פייפליין', icon: 'filter' },
       { to: '/quotes', label: 'הצעות מחיר', icon: 'doc' },
       { to: '/finance', label: 'פיננסים', icon: 'wallet' },
-      { to: '/inventory', label: 'מלאי', icon: 'dashboard' },
-      { to: '/activity', label: 'יומן פעילות', icon: 'clock' },
+      { to: '/inventory', label: 'מלאי', icon: 'dashboard', betaHidden: true },
+      { to: '/activity', label: 'יומן פעילות', icon: 'clock', betaHidden: true },
     ],
   },
   {
@@ -37,7 +37,7 @@ export const NAV_SECTIONS = [
       { to: '/diagnose', label: 'אבחון AI', icon: 'spark' },
       { to: '/adstudio', label: 'סטודיו פרסום', icon: 'spark' },
       { to: '/studio', label: 'מחולל תמונות', icon: 'image' },
-      { to: '/templates', label: 'תבניות', icon: 'copy' },
+      { to: '/templates', label: 'תבניות', icon: 'copy', betaHidden: true },
       { to: '/assets', label: 'קבצים וקישורים', icon: 'link' },
     ],
   },
@@ -45,3 +45,15 @@ export const NAV_SECTIONS = [
 
 // Flat list of every sectioned nav item (test + tooling convenience).
 export const SIDEBAR_ROUTE_ITEMS = NAV_SECTIONS.flatMap((s) => s.items);
+
+// Beta false-success containment (S0A): items flagged `betaHidden` point at
+// Memory-Only modules (Projects, Inventory, Templates) that can't durably persist
+// in authenticated cloud mode. Hide them from the nav there so they aren't
+// presented as usable capabilities. In local/demo mode everything is shown.
+// The routes stay registered (App.jsx) and render a restrained unavailable state.
+export function visibleNavSections(isCloudBeta) {
+  if (!isCloudBeta) return NAV_SECTIONS;
+  return NAV_SECTIONS
+    .map((s) => ({ ...s, items: s.items.filter((i) => !i.betaHidden) }))
+    .filter((s) => s.items.length > 0);
+}

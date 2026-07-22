@@ -3,6 +3,7 @@ import { buildSeed, uid } from '../data/seed.js';
 import { OUTREACH_EXTRA, OUTREACH_SEED_VERSION } from '../data/outreach.js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase.js';
 import * as api from '../lib/api.js';
+import { isMemoryOnlyDispatch } from '../lib/betaCapabilities.js';
 
 const DATA_KEY = 'artvalue_data';
 const THEME_KEY = 'artvalue_theme';
@@ -120,7 +121,12 @@ function pushAct(state, entries) {
 }
 
 // ---------------- pure reducer (shared by both modes for in-memory state) ----------------
-function reducer(state, action) {
+// S0A: `action.suppressAutoIncome` (set by the CLOUD dispatch, never by callers)
+// skips syncClientIncome() — the synthesized auto income transaction is Memory-
+// Only in cloud mode (persist() writes only the client; there is no ADD_TX), so
+// it would appear in Finance and vanish on refresh. The reducer stays pure and
+// mode-unaware: the flag is data on the action, applied at the store boundary.
+export function reducer(state, action) {
   switch (action.type) {
     case 'RESET':
       return buildSeed();
@@ -130,7 +136,7 @@ function reducer(state, action) {
     case 'ADD_CLIENT': {
       const client = { ...action.payload, id: action.payload.id || uid('cl') };
       const ev = act('client_add', `נוסף לקוח "${client.name}"${Number(client.value) ? ` (שווי ${ils(client.value)} ₪)` : ''}`, { entity: 'client', name: client.name, after: Number(client.value) || 0 });
-      return { ...state, clients: [client, ...state.clients], transactions: syncClientIncome(state.transactions, client), activity: pushAct(state, ev) };
+      return { ...state, clients: [client, ...state.clients], transactions: action.suppressAutoIncome ? state.transactions : syncClientIncome(state.transactions, client), activity: pushAct(state, ev) };
     }
     case 'UPDATE_CLIENT': {
       const prev = state.clients.find((c) => c.id === action.payload.id);
@@ -145,7 +151,7 @@ function reducer(state, action) {
           evs.push(act('client_status', `סטטוס "${merged.name}": ${prev.status} → ${merged.status}`, { entity: 'client', name: merged.name, before: prev.status, after: merged.status }));
         }
       }
-      return { ...state, clients, transactions: merged ? syncClientIncome(state.transactions, merged) : state.transactions, activity: evs.length ? pushAct(state, evs) : state.activity };
+      return { ...state, clients, transactions: merged && !action.suppressAutoIncome ? syncClientIncome(state.transactions, merged) : state.transactions, activity: evs.length ? pushAct(state, evs) : state.activity };
     }
     case 'DELETE_CLIENT': {
       const gone = state.clients.find((c) => c.id === action.id);
@@ -358,8 +364,21 @@ export function StoreProvider({ children }) {
         setData((d) => reducer(d, action));
         return;
       }
+      // Beta false-success containment (S0A): Memory-Only entity mutations are
+      // NOT durably persisted in cloud mode (no persist()/fetchAll route). Block
+      // before mutating so nothing changes and no caller can claim a save. Local
+      // mode is unaffected (handled above — localStorage is durable there).
+      if (isMemoryOnlyDispatch(action.type)) return;
       const act = withId(action);
-      setData((d) => reducer(d, act)); // optimistic
+      // S0A: in cloud mode the reducer must not synthesize the auto income
+      // transaction for a paid client — it would be Memory-Only (persist writes
+      // only the client row). The flag rides on the ACTION, not the payload, so
+      // the row persisted to Supabase is untouched; persist() receives the
+      // original unflagged action.
+      const guarded = (act.type === 'ADD_CLIENT' || act.type === 'UPDATE_CLIENT')
+        ? { ...act, suppressAutoIncome: true }
+        : act;
+      setData((d) => reducer(d, guarded)); // optimistic
       const userId = session?.user?.id;
       if (!userId) return;
       persist(act, userId).catch((e) => {

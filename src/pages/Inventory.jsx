@@ -7,8 +7,10 @@ import Icon from '../components/ui/Icon.jsx';
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
 import ItemModal from '../components/forms/ItemModal.jsx';
 import { SectionHeader, EmptyState } from '../components/ui/atoms.jsx';
+import BetaUnavailable from '../components/ui/BetaUnavailable.jsx';
 import { inventoryTotals } from '../lib/calc.js';
 import { formatCurrency } from '../lib/format.js';
+import { isSupabaseConfigured } from '../lib/supabase.js';
 
 // Show agorot only when the amount isn't a whole shekel (so ₪0.25 / ₪1.5 stay precise).
 const money = (n) => formatCurrency(n, { decimals: Number.isInteger(Number(n)) ? 0 : 2 });
@@ -81,6 +83,11 @@ export default function Inventory() {
     toast('הפריט נמחק', 'error');
     setToDelete(null);
   };
+
+  // Beta false-success containment (S0A): Inventory is Memory-Only in cloud mode.
+  if (isSupabaseConfigured) {
+    return <BetaUnavailable title="מלאי" sub="ניהול פריטים, כמויות, ערך מלאי והתראות מלאי נמוך" />;
+  }
 
   return (
     <div>

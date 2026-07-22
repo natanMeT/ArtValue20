@@ -10,6 +10,8 @@ import { SectionHeader, EmptyState } from '../components/ui/atoms.jsx';
 import { PROJECT_STATUS, SERVICE_TYPES, TEMPLATES, serviceLabel, labelOf, studioBadgeClass } from '../data/studio.js';
 import { formatCurrency, formatDate } from '../lib/format.js';
 import { uid } from '../data/seed.js';
+import BetaUnavailable from '../components/ui/BetaUnavailable.jsx';
+import { isSupabaseConfigured } from '../lib/supabase.js';
 
 const FILTERS = [{ id: 'all', label: 'הכל' }, ...PROJECT_STATUS];
 
@@ -64,6 +66,13 @@ export default function Projects() {
     toast('הפרויקט נמחק', 'error');
     setToDelete(null);
   };
+
+  // Beta false-success containment (S0A): Projects are Memory-Only in cloud mode.
+  // Render a restrained unavailable state instead of a working creation UI so a
+  // direct route can't create a record that vanishes on refresh.
+  if (isSupabaseConfigured) {
+    return <BetaUnavailable title="פרויקטים" sub="ניהול עבודות, סטטוסים, קבצים ומשימות לפי לקוח" />;
+  }
 
   return (
     <div>

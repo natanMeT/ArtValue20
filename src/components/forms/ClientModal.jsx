@@ -3,6 +3,7 @@ import Modal from '../ui/Modal.jsx';
 import Icon from '../ui/Icon.jsx';
 import { PROJECT_TYPES, LEAD_SOURCES } from '../../data/seed.js';
 import { CLIENT_STATUS_EXT } from '../../data/studio.js';
+import { isSupabaseConfigured } from '../../lib/supabase.js';
 
 const EMPTY = {
   name: '',
@@ -97,7 +98,12 @@ export default function ClientModal({ open, onClose, onSave, initial }) {
               <div className="row gap-2" style={{ alignItems: 'flex-start', background: 'color-mix(in srgb, var(--surface) 86%, #d4ff3f 14%)', border: '1px solid rgba(212,255,63,0.3)', borderRadius: 12, padding: '10px 12px' }}>
                 <Icon name="wallet" size={16} style={{ color: 'var(--lime-deep)', marginTop: 2, flexShrink: 0 }} />
                 <span className="muted" style={{ fontSize: '0.84rem', lineHeight: 1.5 }}>
-                  ייווצר אוטומטית <b>רישום הכנסה</b> בסכום השווי, בתאריך התשלום — ויופיע בפיננסים ובהכנסות החודש. שינוי הסכום/הסטטוס יסונכרן אוטומטית.
+                  {isSupabaseConfigured
+                    // S0A: in cloud beta the auto income transaction is NOT created
+                    // (it would be memory-only and vanish on refresh) — say so truthfully.
+                    ? <>סטטוס התשלום ושווי הלקוח יישמרו. רישום הכנסה אוטומטי עדיין אינו זמין בגרסת הבטא — ניתן לרשום את ההכנסה בנפרד במסך הפיננסים.</>
+                    // Local/demo mode: the auto income really is created and kept in sync.
+                    : <>ייווצר אוטומטית <b>רישום הכנסה</b> בסכום השווי, בתאריך התשלום — ויופיע בפיננסים ובהכנסות החודש. שינוי הסכום/הסטטוס יסונכרן אוטומטית.</>}
                 </span>
               </div>
             </div>

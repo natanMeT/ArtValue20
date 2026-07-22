@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { NAV_SECTIONS, SIDEBAR_ROUTE_ITEMS } from '../sidebarNav.js';
+import { NAV_SECTIONS, SIDEBAR_ROUTE_ITEMS, visibleNavSections } from '../sidebarNav.js';
 import { GROWTH_NAV } from '../../../pages/growth/growthNav.js';
 
 // ===================================================================
@@ -112,6 +112,42 @@ describe('sidebarNav — retired studios (R4.1)', () => {
   it('retired page modules are no longer imported anywhere in App.jsx', () => {
     expect(appSrc.includes('WorkflowStudio')).toBe(false);
     expect(appSrc.includes("from './pages/Fooocus.jsx'")).toBe(false);
+  });
+});
+
+describe('sidebarNav — beta false-success containment (S0A)', () => {
+  const BETA_HIDDEN = ['/projects', '/inventory', '/templates', '/activity'];
+
+  it('the Memory-Only modules carry a betaHidden flag in the data', () => {
+    for (const to of BETA_HIDDEN) {
+      const item = SIDEBAR_ROUTE_ITEMS.find((i) => i.to === to);
+      expect(item, `missing nav item: ${to}`).toBeTruthy();
+      expect(item.betaHidden, `expected betaHidden on ${to}`).toBe(true);
+    }
+  });
+
+  it('no OTHER nav item is flagged betaHidden', () => {
+    const flagged = SIDEBAR_ROUTE_ITEMS.filter((i) => i.betaHidden).map((i) => i.to).sort();
+    expect(flagged).toEqual([...BETA_HIDDEN].sort());
+  });
+
+  it('local/demo mode shows every section unchanged', () => {
+    expect(visibleNavSections(false)).toBe(NAV_SECTIONS);
+  });
+
+  it('cloud beta mode hides Projects, Inventory and Templates from the nav', () => {
+    const tos = visibleNavSections(true).flatMap((s) => s.items.map((i) => i.to));
+    for (const to of BETA_HIDDEN) expect(tos.includes(to), `${to} should be hidden in cloud beta`).toBe(false);
+  });
+
+  it('cloud beta mode keeps every durable module visible (clients, tasks, quotes, finance, outreach)', () => {
+    const tos = visibleNavSections(true).flatMap((s) => s.items.map((i) => i.to));
+    ['/', '/clients', '/tasks', '/pipeline', '/quotes', '/finance', '/outreach', '/diagnose', '/studio', '/assets']
+      .forEach((to) => expect(tos.includes(to), `${to} should stay visible`).toBe(true));
+  });
+
+  it('no section becomes empty after hiding', () => {
+    for (const s of visibleNavSections(true)) expect(s.items.length).toBeGreaterThan(0);
   });
 });
 

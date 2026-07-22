@@ -1,11 +1,13 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Icon from '../ui/Icon.jsx';
-import { NAV_SECTIONS } from './sidebarNav.js';
+import { visibleNavSections } from './sidebarNav.js';
 import { isSupabaseConfigured } from '../../lib/supabase.js';
 
 export default function Sidebar({ open, onClose }) {
   const navigate = useNavigate();
+  // Beta containment (S0A): hide Memory-Only modules from cloud-mode nav.
+  const sections = visibleNavSections(isSupabaseConfigured);
   return (
     <>
       <div className={`sidebar-scrim ${open ? 'show' : ''}`} onClick={onClose} />
@@ -28,7 +30,7 @@ export default function Sidebar({ open, onClose }) {
         </button>
 
         <nav className="nav">
-          {NAV_SECTIONS.map((section) => (
+          {sections.map((section) => (
             <div className="nav-group" key={section.label}>
               <div className="nav-group-label">{section.label}</div>
               {section.items.map((item) => (
