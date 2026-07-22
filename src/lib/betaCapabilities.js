@@ -23,13 +23,15 @@ export const DURABLE_DISPATCH = new Set([
   'ADD_QUOTE', 'UPDATE_QUOTE', 'DELETE_QUOTE',
   'ADD_TX', 'UPDATE_TX', 'DELETE_TX',
   'ADD_LEAD', 'UPDATE_LEAD', 'DELETE_LEAD',
+  // S0B: tasks are now durably persisted (store.jsx persist() + api.*Task + fetchAll).
+  'ADD_TASK', 'UPDATE_TASK', 'DELETE_TASK',
 ]);
 
 // Memory-only ENTITY mutations — dispatched, reduced into state, but never
 // persisted or re-fetched in cloud mode. These are the false-success surface.
 export const MEMORY_ONLY_DISPATCH = new Set([
   'ADD_PROJECT', 'UPDATE_PROJECT', 'DELETE_PROJECT',
-  'ADD_TASK', 'UPDATE_TASK', 'DELETE_TASK',
+  // S0B: ADD_TASK / UPDATE_TASK / DELETE_TASK moved to DURABLE_DISPATCH.
   'ADD_ITEM', 'UPDATE_ITEM', 'DELETE_ITEM',
   'ADD_LINK', 'UPDATE_LINK', 'DELETE_LINK',
   'ADD_FILE', 'UPDATE_FILE', 'DELETE_FILE',
@@ -55,12 +57,14 @@ export const JAKE_DURABLE_OPS = new Set([
   'add_income_from_clients', 'remove_duplicate_clients',
   'add_lead', 'update_lead', 'delete_lead',
   'update_tx', 'delete_tx',
+  // S0B: individual task ops now dispatch durable ADD/UPDATE/DELETE_TASK.
+  'add_task', 'update_task', 'delete_task',
 ]);
 
 export const JAKE_BETA_UNAVAILABLE_OPS = new Set([
   'add_item', 'update_item', 'add_stock', 'remove_stock', 'delete_item',
   'add_project', 'update_project', 'delete_project',
-  'add_task', 'update_task', 'delete_task',
+  // S0B: add_task / update_task / delete_task moved to JAKE_DURABLE_OPS.
   // mark_paid dispatches only UPDATE_CLIENT and relies on the reducer's
   // syncClientIncome() to SYNTHESISE an auto income transaction in memory —
   // that transaction is never persisted (no ADD_TX), so the "income recorded"
@@ -188,9 +192,8 @@ export function partitionJakeActions(actions, { isCloudBeta, clients = [] } = {}
 
 // ---- calm Hebrew copy (centralised) -----------------------------------------
 export const BETA_MESSAGES = {
-  // Tasks / follow-ups screen note.
-  tasks: 'שמירת משימות ופולואפים בענן עדיין אינה זמינה בגרסת הבטא.',
-  // Generic hidden-module state (Projects / Inventory / Templates).
+  // Generic hidden-module state (Projects / Inventory / Templates / Activity).
+  // (S0B removed the tasks/follow-ups note — both are now durably persisted.)
   moduleTitle: 'עדיין לא בגרסת הבטא',
   moduleHint: 'המודול עדיין אינו זמין בגרסת הבטא.',
 };

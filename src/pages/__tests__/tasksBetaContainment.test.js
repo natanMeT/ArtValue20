@@ -3,50 +3,53 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 // ===================================================================
-// S0A finding 1 — EVERY task mutation entry point is contained in cloud beta.
-// Tasks.jsx pulls the store/router, so (per the repo's page-test convention)
-// we source-pin the containment: create, edit/save, status change, "mark
-// complete", and delete all gate on `betaBlocked` (= isSupabaseConfigured),
-// and the row mutation controls are disabled/hidden. Local/demo mode keeps the
-// full behavior (betaBlocked === false).
+// S0B — Tasks are now DURABLY persisted in cloud mode. The S0A read-only
+// containment is removed; the truthfulness guarantee MOVES to confirmed-write:
+// every task mutation AWAITS the store's { ok } result and shows success ONLY
+// after a confirmed cloud write (never a false success). Source-pinned, per the
+// repo's page-test convention (Tasks.jsx pulls store/router).
 // ===================================================================
 const src = readFileSync(fileURLToPath(new URL('../Tasks.jsx', import.meta.url)), 'utf8');
 
-describe('Tasks.jsx — beta mutation containment (source pins)', () => {
-  it('derives betaBlocked from the Supabase (cloud) transport', () => {
-    expect(src.includes("import { isSupabaseConfigured } from '../lib/supabase.js';")).toBe(true);
-    expect(src.includes('const betaBlocked = isSupabaseConfigured;')).toBe(true);
+describe('Tasks.jsx — S0B durable + confirmed-write (source pins)', () => {
+  it('the S0A read-only containment is gone (no betaBlocked / BETA_MESSAGES / isSupabaseConfigured)', () => {
+    expect(src.includes('betaBlocked')).toBe(false);
+    expect(src.includes('BETA_MESSAGES')).toBe(false);
+    expect(src.includes('isSupabaseConfigured')).toBe(false);
   });
 
-  it('save/create is guarded before dispatch with no success toast', () => {
-    expect(/const save = \(task\) => \{\s*if \(betaBlocked\) \{[^}]*return;/.test(src)).toBe(true);
-  });
-
-  it('status change (incl. "mark complete") is guarded before dispatch', () => {
-    // setStatus early-returns on betaBlocked BEFORE dispatching UPDATE_TASK.
-    const m = src.match(/const setStatus = \(task, status\) => \{([\s\S]*?)\};/);
-    expect(m, 'setStatus present').not.toBe(null);
+  it('save awaits the dispatch result and shows success only on { ok } (no false success)', () => {
+    const m = src.match(/const save = async \(task\) => \{([\s\S]*?)\n  \};/);
+    expect(m, 'async save present').not.toBe(null);
     const body = m[1];
-    expect(body.indexOf('betaBlocked')).toBeLessThan(body.indexOf("dispatch({ type: 'UPDATE_TASK'"));
-    expect(body.includes('return;')).toBe(true);
+    expect(body.includes('await dispatch(')).toBe(true);
+    expect(body.indexOf('res?.ok === false')).toBeLessThan(body.indexOf('toast('));   // bail before success toast
+    expect(body.indexOf('res?.ok === false')).toBeLessThan(body.indexOf('setEditing(null)')); // bail before closing
   });
 
-  it('delete is guarded before dispatch', () => {
-    const m = src.match(/const remove = \(\) => \{([\s\S]*?)\};/);
-    expect(m, 'remove present').not.toBe(null);
+  it('status change awaits confirmation before the status toast', () => {
+    const m = src.match(/const setStatus = async \(task, status\) => \{([\s\S]*?)\n  \};/);
+    expect(m, 'async setStatus present').not.toBe(null);
     const body = m[1];
-    expect(body.indexOf('betaBlocked')).toBeLessThan(body.indexOf("dispatch({ type: 'DELETE_TASK'"));
+    expect(body.indexOf('await dispatch(')).toBeLessThan(body.indexOf('toast('));
+    expect(body.includes("type: 'UPDATE_TASK'")).toBe(true);
+    expect(body.includes('res?.ok === false')).toBe(true);
   });
 
-  it('row mutation controls are read-only in beta: status select disabled, action buttons hidden', () => {
-    expect(src.includes('disabled={betaBlocked}')).toBe(true);
-    expect(src.includes('{!betaBlocked && t.status !== \'done\' &&')).toBe(true);
-    expect(src.includes('{!betaBlocked && <button className="icon-action" onClick={() => setEditing(t)}')).toBe(true);
-    expect(src.includes('{!betaBlocked && <button className="icon-action del"')).toBe(true);
+  it('delete awaits confirmation before the deletion toast', () => {
+    const m = src.match(/const remove = async \(\) => \{([\s\S]*?)\n  \};/);
+    expect(m, 'async remove present').not.toBe(null);
+    const body = m[1];
+    expect(body.indexOf('await dispatch(')).toBeLessThan(body.indexOf('toast('));
+    expect(body.includes("type: 'DELETE_TASK'")).toBe(true);
+    expect(body.includes('res?.ok === false')).toBe(true);
   });
 
-  it('the create affordances are hidden in beta and a calm note is shown', () => {
-    expect(src.includes('action={!betaBlocked &&')).toBe(true);
-    expect(src.includes('BETA_MESSAGES.tasks')).toBe(true);
+  it('task creation is no longer gated by cloud mode or by having projects', () => {
+    expect(src.includes('disabled={(data.projects || []).length === 0}')).toBe(false);
+  });
+
+  it('TaskModal receives clients so a task can be client-linked or standalone', () => {
+    expect(src.includes('clients={data.clients || []}')).toBe(true);
   });
 });

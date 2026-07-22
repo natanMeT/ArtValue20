@@ -437,8 +437,14 @@ export default function Assistant() {
   };
 
   // Confirm / cancel a pending destructive action (delete) inline in the chat.
-  const confirmAction = (idx, d) => {
-    dispatch(d.action);
+  const confirmAction = async (idx, d) => {
+    // S0B: await the settled { ok } result (DELETE_TASK is a durable confirmed
+    // write; other deletes resolve { ok } too) — report success ONLY on ok:true.
+    const res = await dispatch(d.action);
+    if (res && res.ok === false) {
+      setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', text: 'לא בוצע — השמירה בענן נכשלה. נסה שוב.', system: true } : mm)));
+      return;
+    }
     toast('בוצע ✓');
     setMessages((m) => m.map((mm, i) => (i === idx ? { role: 'assistant', text: `✓ ${d.label.replace('?', '')} — בוצע.`, system: true } : mm)));
   };
@@ -450,8 +456,25 @@ export default function Assistant() {
   // The batch runs ONLY here, on the user's click. Adds/updates apply immediately;
   // any delete inside the batch still surfaces its own explicit confirm (and bulk
   // deletes a code gate) — nothing destructive happens without a second yes.
-  const approvePreview = (idx, actions) => {
-    const { logs, pendingDeletes, codeGates = [] } = executeActions(actions, data, dispatch, activePack.actions, activePack.entities);
+  const approvePreview = async (idx, actions) => {
+    // S0B: capture durable Task write promises so we can AWAIT confirmed cloud
+    // persistence before claiming success. Non-task dispatches are unchanged.
+    const taskWrites = [];
+    const trackingDispatch = (action) => {
+      const p = dispatch(action);
+      if (action && /_TASK$/.test(action.type)) taskWrites.push(Promise.resolve(p));
+      return p;
+    };
+    const { logs, pendingDeletes, codeGates = [] } = executeActions(actions, data, trackingDispatch, activePack.actions, activePack.entities);
+    const taskResults = await Promise.all(taskWrites);
+    if (taskResults.some((r) => r && r.ok === false)) {
+      // A durable task write did not persist — the store already refetched
+      // authoritative state and showed the error. Do NOT claim success.
+      setMessages((m) => m.map((mm, i) => (i === idx
+        ? { role: 'assistant', system: true, text: '⚠️ חלק מהפעולות לא נשמרו בענן. הנתונים רועננו — בדוק ונסה שוב.' }
+        : mm)));
+      return;
+    }
     if (logs.some((l) => l.startsWith('✓'))) toast('ג׳יק ביצע פעולה ✓');
     setMessages((m) => m.map((mm, i) => (i === idx
       ? { role: 'assistant', system: true, text: logs.length ? logs.join('\n') : '✓ בוצע.' }

@@ -54,14 +54,16 @@ export default function Clients() {
 
   const linkedQuotes = (clientId) => data.quotes.filter((quote) => quote.clientId === clientId);
 
-  const save = (client) => {
-    if (client.id) {
-      dispatch({ type: 'UPDATE_CLIENT', payload: client });
-      toast(`הלקוח עודכן · ${saveLabel(mode)}`);
-    } else {
-      dispatch({ type: 'ADD_CLIENT', payload: client });
-      toast(`לקוח נוסף · ${saveLabel(mode)}`);
-    }
+  // S0B: client saves may carry follow-up fields (nextAction / nextActionDate).
+  // Await the store's settled { ok } result — show success and close the modal
+  // ONLY on ok:true. On failure the store restores authoritative cloud state; we
+  // keep the modal open with the submitted values for correction, no success toast.
+  const save = async (client) => {
+    const res = await dispatch(client.id
+      ? { type: 'UPDATE_CLIENT', payload: client }
+      : { type: 'ADD_CLIENT', payload: client });
+    if (res?.ok === false) return;
+    toast(client.id ? `הלקוח עודכן · ${saveLabel(mode)}` : `לקוח נוסף · ${saveLabel(mode)}`);
     setEditing(null);
   };
 

@@ -144,7 +144,7 @@ describe('Assistant integration · source-level pins', () => {
   });
 
   it('confirm/action machinery and the jake:ask seam are untouched', () => {
-    expect(assistant).toContain('const approvePreview = (idx, actions) => {');
+    expect(assistant).toContain('const approvePreview = async (idx, actions) => {'); // S0B: awaits durable task writes; propose→confirm→execute intact
     expect(assistant).toContain("window.addEventListener('jake:open', onOpen)");
     expect(assistant).toContain("window.addEventListener('jake:ask', onAsk)");
     expect(assistant).toContain('detectBulkDelete(text, activePack.entities)');

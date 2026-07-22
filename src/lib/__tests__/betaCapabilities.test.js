@@ -48,10 +48,11 @@ describe('dispatch classification — lockstep with store.jsx persist()', () => 
     for (const t of MEMORY_ONLY_DISPATCH) expect(DURABLE_DISPATCH.has(t)).toBe(false);
   });
 
-  it('memory-only types are the project/task/inventory/link/file/comm mutations', () => {
-    ['ADD_TASK', 'UPDATE_TASK', 'DELETE_TASK', 'ADD_PROJECT', 'ADD_ITEM', 'ADD_COMM']
+  it('memory-only types are the project/inventory/link/file/comm mutations (S0B: tasks are durable)', () => {
+    ['ADD_PROJECT', 'ADD_ITEM', 'ADD_LINK', 'ADD_FILE', 'ADD_COMM']
       .forEach((t) => expect(isMemoryOnlyDispatch(t)).toBe(true));
-    ['ADD_CLIENT', 'ADD_QUOTE', 'ADD_TX', 'ADD_LEAD'].forEach((t) => expect(isMemoryOnlyDispatch(t)).toBe(false));
+    ['ADD_CLIENT', 'ADD_QUOTE', 'ADD_TX', 'ADD_LEAD', 'ADD_TASK', 'UPDATE_TASK', 'DELETE_TASK']
+      .forEach((t) => expect(isMemoryOnlyDispatch(t)).toBe(false));
   });
 });
 
@@ -84,9 +85,15 @@ describe('Jake op classification — every registry op is classified', () => {
     expect(JAKE_BETA_UNAVAILABLE_OPS.has('mark_paid')).toBe(true);
   });
 
-  it('memory-only ops classify beta-unavailable', () => {
-    ['add_task', 'update_task', 'delete_task', 'add_project', 'delete_project', 'add_item', 'add_stock', 'remove_stock', 'delete_item']
+  it('memory-only module ops classify beta-unavailable (S0B: task ops are durable)', () => {
+    ['add_project', 'delete_project', 'add_item', 'add_stock', 'remove_stock', 'delete_item']
       .forEach((op) => expect(classifyJakeAction({ op })).toBe(JAKE_ACTION.BETA_UNAVAILABLE));
+  });
+
+  it('S0B: individual task ops classify durable; bulk delete_all tasks stays contained', () => {
+    ['add_task', 'update_task', 'delete_task']
+      .forEach((op) => expect(classifyJakeAction({ op })).toBe(JAKE_ACTION.DURABLE));
+    expect(classifyJakeAction({ op: 'delete_all', entity: 'tasks' })).toBe(JAKE_ACTION.BETA_UNAVAILABLE);
   });
 
   it('unknown op fails closed', () => {
@@ -164,12 +171,23 @@ describe('partitionJakeActions', () => {
 
   it('cloud mode: durable allowed, memory-only blocked', () => {
     const durable = { op: 'add_client', name: 'דני' };
-    const blocked = { op: 'add_task', title: 'לשלוח סקיצה' };
+    const blocked = { op: 'add_project', name: 'פרויקט' };
     const r = partitionJakeActions([durable, blocked], { isCloudBeta: true });
     expect(r.allowed).toEqual([durable]);
     expect(r.blocked).toEqual([blocked]);
-    expect(r.message).toContain('משימות');
+    expect(r.message).toContain('פרויקטים');
     expect(r.message.length).toBeGreaterThan(0);
+  });
+
+  it('S0B cloud mode: durable task ops are allowed (not blocked)', () => {
+    const r = partitionJakeActions([
+      { op: 'add_task', title: 'לשלוח סקיצה' },
+      { op: 'update_task', task: 'x', set: { status: 'done' } },
+      { op: 'delete_task', task: 'x' },
+    ], { isCloudBeta: true });
+    expect(r.blocked).toEqual([]);
+    expect(r.allowed.map((a) => a.op)).toEqual(['add_task', 'update_task', 'delete_task']);
+    expect(r.message).toBe('');
   });
 
   it('cloud mode: unknown op is blocked (fail closed), not silently allowed', () => {
@@ -195,17 +213,17 @@ describe('partitionJakeActions', () => {
 
   it('mixed durable + blocked batch (finding 4): durable allowed, blocked reported, message present', () => {
     const durable = { op: 'add_client', name: 'דני', status: 'lead' };
-    const blocked = { op: 'add_task', title: 'לשלוח סקיצה' };
+    const blocked = { op: 'add_project', name: 'פרויקט' };
     const r = partitionJakeActions([durable, blocked], { isCloudBeta: true });
     expect(r.allowed).toEqual([durable]); // client proceeds to the confirm card
-    expect(r.blocked).toEqual([blocked]); // task never reaches a card / execution
-    expect(r.message).toContain('משימות');
+    expect(r.blocked).toEqual([blocked]); // project never reaches a card / execution
+    expect(r.message).toContain('פרויקטים');
   });
 });
 
 describe('beta messages + modules', () => {
   it('blocked message names durable capabilities that DO persist', () => {
-    const msg = betaBlockedMessage([{ op: 'add_task' }]);
+    const msg = betaBlockedMessage([{ op: 'add_project' }]);
     expect(msg).toContain('לקוחות');
     expect(msg).toMatch(/בטא/);
   });
@@ -214,8 +232,9 @@ describe('beta messages + modules', () => {
     expect([...BETA_HIDDEN_MODULES].sort()).toEqual(['activity', 'inventory', 'projects', 'templates']);
   });
 
-  it('tasks beta copy is present and calm (no error jargon)', () => {
-    expect(BETA_MESSAGES.tasks).toContain('בטא');
-    expect(BETA_MESSAGES.tasks).not.toMatch(/error|Error|שגיאה/);
+  it('S0B: the tasks/follow-ups beta note is gone (both are durable); module copy remains', () => {
+    expect(BETA_MESSAGES.tasks).toBeUndefined();
+    expect(BETA_MESSAGES.moduleTitle).toContain('בטא');
+    expect(BETA_MESSAGES.moduleHint).toContain('בטא');
   });
 });

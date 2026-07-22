@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 const SCHEMA = read('../../../supabase/schema.sql');
 const MIGRATION = read('../../../supabase/migrations/20260716120000_add_missing_crm_tables.sql');
+const S0B = read('../../../supabase/migrations/20260722120000_s0b_tasks_followups.sql');
 
 // Extract the declared SQL type of `column` inside `create table ... public.<table> ( ... );`
 function columnType(sql, table, column) {
@@ -82,6 +83,48 @@ describe('db type contract · versioned migration (20260716120000_add_missing_cr
     // Statement-initial keywords only — 'before update on' (trigger timing) and
     // 'updated_at' column references are legitimate and must not trip this.
     for (const banned of [/^drop table\b/, /^delete\b/, /^truncate\b/, /^update\b/, /^insert\b/, /^grant\b/, /^revoke\b/, /^alter table public\.quotes\b/]) {
+      expect(lines.some((l) => banned.test(l)), String(banned)).toBe(false);
+    }
+  });
+});
+
+describe('db contract · S0B migration (tasks + client follow-ups)', () => {
+  it('tasks.id is text; user_id uuid; project_id text (no FK); client_id uuid', () => {
+    expect(columnType(S0B, 'tasks', 'id')).toBe('text');        // opaque app ids (legacy tk_ + uuid strings)
+    expect(columnType(S0B, 'tasks', 'user_id')).toBe('uuid');
+    expect(columnType(S0B, 'tasks', 'project_id').replace(/,$/, '')).toBe('text'); // soft link, no FK (bare `text,`)
+    expect(columnType(S0B, 'tasks', 'client_id')).toBe('uuid');
+  });
+
+  it('tasks.client_id type matches clients.id (uuid) — FK-compatible', () => {
+    expect(columnType(S0B, 'tasks', 'client_id')).toBe(columnType(SCHEMA, 'clients', 'id'));
+  });
+
+  it('status/priority CHECK constraints match the audited studio enums', () => {
+    expect(S0B).toContain("check (status in ('new', 'todo', 'in_progress', 'await_client', 'await_material', 'review', 'done'))");
+    expect(S0B).toContain("check (priority in ('low', 'normal', 'high', 'urgent'))");
+  });
+
+  it('declares the client follow-up columns, index, RLS, ownership policy and trigger', () => {
+    for (const required of [
+      'add column if not exists next_action      text',
+      'add column if not exists next_action_date date',
+      'references public.clients (id) on delete set null',
+      'references auth.users (id) on delete cascade',
+      'create index if not exists idx_tasks_user on public.tasks (user_id);',
+      'drop trigger if exists trg_tasks_updated on public.tasks;',
+      'create trigger trg_tasks_updated before update on public.tasks',
+      'alter table public.tasks enable row level security;',
+      'create policy "tasks_own" on public.tasks',
+      'for all using (auth.uid() = user_id) with check (auth.uid() = user_id);',
+    ]) {
+      expect(S0B.includes(required), required).toBe(true);
+    }
+  });
+
+  it('contains no destructive or data-mutating statements (executable lines only)', () => {
+    const lines = S0B.split('\n').filter((l) => !/^\s*--/.test(l)).map((l) => l.trim().toLowerCase());
+    for (const banned of [/^drop table\b/, /^delete\b/, /^truncate\b/, /^update\b/, /^insert\b/, /^grant\b/, /^revoke\b/]) {
       expect(lines.some((l) => banned.test(l)), String(banned)).toBe(false);
     }
   });
