@@ -49,6 +49,19 @@ function mapToRow(obj, fieldMap) {
   return row;
 }
 
+// PostgreSQL rejects '' for a `date` column. Optional date fields must write
+// null, not '' — normalize ONLY these date columns at the DB boundary (task
+// deadline, client follow-up date) so createTask/updateTask/createClient/
+// updateClient, Jake-originated writes, and bulkUpload/import are all safe.
+// Deliberately scoped: never a blanket empty-string → null conversion.
+const BLANK_DATE_COLS = ['deadline', 'next_action_date'];
+function nullifyBlankDates(row) {
+  for (const c of BLANK_DATE_COLS) {
+    if (c in row && row[c] === '') row[c] = null;
+  }
+  return row;
+}
+
 // ---- row → in-memory shape ----
 function rowToClient(r) {
   return {
@@ -125,10 +138,10 @@ export async function fetchAll() {
 // Mutations — each takes the already-known record (ids assigned in store).
 // ===================================================================
 export async function createClient(userId, client) {
-  guard((await supabase.from('clients').insert({ id: client.id, user_id: userId, ...mapToRow(client, CLIENT_FIELDS) })).error);
+  guard((await supabase.from('clients').insert({ id: client.id, user_id: userId, ...nullifyBlankDates(mapToRow(client, CLIENT_FIELDS)) })).error);
 }
 export async function updateClient(client) {
-  guard((await supabase.from('clients').update(mapToRow(client, CLIENT_FIELDS)).eq('id', client.id)).error);
+  guard((await supabase.from('clients').update(nullifyBlankDates(mapToRow(client, CLIENT_FIELDS))).eq('id', client.id)).error);
 }
 export async function deleteClient(id) {
   // FK cascade removes the client's quotes + their items.
@@ -181,13 +194,22 @@ export async function deleteLead(id) {
 
 // ---- tasks (S0B) ----
 export async function createTask(userId, task) {
-  guard((await supabase.from('tasks').insert({ id: task.id, user_id: userId, ...mapToRow(task, TASK_FIELDS) })).error);
+  guard((await supabase.from('tasks').insert({ id: task.id, user_id: userId, ...nullifyBlankDates(mapToRow(task, TASK_FIELDS)) })).error);
 }
 export async function updateTask(task) {
-  guard((await supabase.from('tasks').update(mapToRow(task, TASK_FIELDS)).eq('id', task.id)).error);
+  guard((await supabase.from('tasks').update(nullifyBlankDates(mapToRow(task, TASK_FIELDS))).eq('id', task.id)).error);
 }
 export async function deleteTask(id) {
   guard((await supabase.from('tasks').delete().eq('id', id)).error);
+}
+
+// S0B: build task rows for bulkUpload — fresh TEXT id, client_id remapped
+// through clientIdMap, project_id retained (nullable text, no FK), blank
+// deadline → null. Pure + exported for focused tests. Empty/missing → [].
+export function buildBulkTaskRows(tasks, userId, clientIdMap = {}) {
+  return (tasks || []).map((t) => nullifyBlankDates({
+    id: uuid(), user_id: userId, ...mapToRow(t, TASK_FIELDS), client_id: clientIdMap[t.clientId] || null,
+  }));
 }
 
 // ===================================================================
@@ -199,7 +221,7 @@ export async function bulkUpload(userId, data) {
   const clientRows = (data.clients || []).map((c) => {
     const id = uuid();
     clientIdMap[c.id] = id;
-    return { id, user_id: userId, ...mapToRow(c, CLIENT_FIELDS) };
+    return nullifyBlankDates({ id, user_id: userId, ...mapToRow(c, CLIENT_FIELDS) });
   });
   if (clientRows.length) guard((await supabase.from('clients').insert(clientRows)).error);
 
@@ -225,8 +247,13 @@ export async function bulkUpload(userId, data) {
   }));
   if (leadRows.length) guard((await supabase.from('outreach_leads').insert(leadRows)).error);
 
-  return { clients: clientRows.length, quotes: quoteRows.length, transactions: txRows.length, leads: leadRows.length };
+  // S0B: tasks are durable — import/migrate them too (else refetch() silently
+  // drops them). Fresh TEXT id, client_id remapped, project_id retained (no FK).
+  const taskRows = buildBulkTaskRows(data.tasks, userId, clientIdMap);
+  if (taskRows.length) guard((await supabase.from('tasks').insert(taskRows)).error);
+
+  return { clients: clientRows.length, quotes: quoteRows.length, transactions: txRows.length, leads: leadRows.length, tasks: taskRows.length };
 }
 
 // Pure mapping helpers exported for focused unit tests (S0B).
-export { uuid, mapToRow, rowToClient, rowToTask, CLIENT_FIELDS, TASK_FIELDS };
+export { uuid, mapToRow, rowToClient, rowToTask, CLIENT_FIELDS, TASK_FIELDS, nullifyBlankDates };

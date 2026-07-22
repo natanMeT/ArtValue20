@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mapToRow, rowToClient, CLIENT_FIELDS } from '../api.js';
+import { mapToRow, rowToClient, CLIENT_FIELDS, nullifyBlankDates } from '../api.js';
 
 // S0B — client follow-up fields (next_action / next_action_date) now map in both
 // directions. Before S0B they were silently dropped by the client column map.
@@ -29,5 +29,15 @@ describe('S0B · client follow-up mapping', () => {
     const c = rowToClient({ id: 'c1', name: 'x', status: 'lead', value: 0 });
     expect(c.nextAction).toBe('');
     expect(c.nextActionDate).toBeNull();
+  });
+});
+
+describe('S0B · client follow-up date normalization (blank → null at the DB boundary)', () => {
+  it('blank nextActionDate → null; a real date is unchanged', () => {
+    expect(nullifyBlankDates(mapToRow({ nextActionDate: '' }, CLIENT_FIELDS))).toEqual({ next_action_date: null });
+    expect(nullifyBlankDates(mapToRow({ nextActionDate: '2026-08-05' }, CLIENT_FIELDS))).toEqual({ next_action_date: '2026-08-05' });
+  });
+  it('nextAction text is never coerced (only the date column is normalized)', () => {
+    expect(nullifyBlankDates(mapToRow({ nextAction: '', name: 'x' }, CLIENT_FIELDS))).toEqual({ next_action: '', name: 'x' });
   });
 });

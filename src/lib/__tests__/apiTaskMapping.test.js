@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mapToRow, rowToTask, TASK_FIELDS } from '../api.js';
+import { mapToRow, rowToTask, TASK_FIELDS, nullifyBlankDates, buildBulkTaskRows } from '../api.js';
 
 // S0B — task camelCase ↔ snake_case mapping (both directions).
 describe('S0B · task API mapping', () => {
@@ -50,5 +50,48 @@ describe('S0B · task API mapping', () => {
     expect(t.priority).toBe('normal');  // default
     expect(t.deadline).toBeNull();
     expect(t.linkRef).toBe('');
+  });
+});
+
+describe('S0B · optional date normalization (blank date → null at the DB boundary)', () => {
+  it('blank task deadline normalizes to null; a real deadline is unchanged', () => {
+    expect(nullifyBlankDates(mapToRow({ deadline: '' }, TASK_FIELDS))).toEqual({ deadline: null });
+    expect(nullifyBlankDates(mapToRow({ deadline: '2026-08-01' }, TASK_FIELDS))).toEqual({ deadline: '2026-08-01' });
+  });
+  it('never blanket-converts other empty strings (only the date column)', () => {
+    expect(nullifyBlankDates(mapToRow({ notes: '', title: '', linkRef: '' }, TASK_FIELDS)))
+      .toEqual({ notes: '', title: '', link_ref: '' });
+  });
+});
+
+describe('S0B · bulkUpload task rows (import / local→cloud migration)', () => {
+  it('builds a task row: fresh TEXT id, remapped client_id, retained project_id, user_id', () => {
+    const rows = buildBulkTaskRows(
+      [{ id: 'tk_old', title: 't', projectId: 'pr_1', clientId: 'c_old', status: 'todo', priority: 'high', deadline: '2026-08-01' }],
+      'user-1', { c_old: 'c_new' },
+    );
+    expect(rows).toHaveLength(1);
+    const r = rows[0];
+    expect(typeof r.id).toBe('string');
+    expect(r.id).not.toBe('tk_old');   // fresh id — avoids PK collision on re-import
+    expect(r.user_id).toBe('user-1');
+    expect(r.client_id).toBe('c_new'); // remapped through clientIdMap
+    expect(r.project_id).toBe('pr_1'); // retained (nullable text, no FK)
+    expect(r.title).toBe('t');
+    expect(r.deadline).toBe('2026-08-01');
+  });
+  it('standalone task (no client) → client_id null; blank deadline → null', () => {
+    const rows = buildBulkTaskRows([{ id: 'x', title: 's', projectId: null, clientId: null, deadline: '' }], 'u', {});
+    expect(rows[0].client_id).toBeNull();
+    expect(rows[0].project_id).toBeNull();
+    expect(rows[0].deadline).toBeNull();
+  });
+  it('empty / missing tasks is backward-compatible (returns [])', () => {
+    expect(buildBulkTaskRows([], 'u', {})).toEqual([]);
+    expect(buildBulkTaskRows(undefined, 'u')).toEqual([]);
+  });
+  it('the returned count equals the number of task rows built', () => {
+    const rows = buildBulkTaskRows([{ id: 'a', title: '1' }, { id: 'b', title: '2' }], 'u', {});
+    expect(rows.length).toBe(2);
   });
 });
