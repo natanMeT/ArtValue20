@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '../../store/store.jsx';
 import Icon from '../ui/Icon.jsx';
 import {
@@ -22,7 +22,7 @@ const BLANK = () => ({
   audiences: [], tone: [], differentiators: [], services: [], brandPalette: {},
 });
 
-function fromProfile(p) {
+export function fromProfile(p) {
   if (!p) return BLANK();
   return {
     businessName: p.businessName || '',
@@ -33,6 +33,14 @@ function fromProfile(p) {
     services: (p.services || []).map((s) => ({ name: s.name || '', pitch: s.pitch || '' })),
     brandPalette: { ...(p.brandPalette || {}) },
   };
+}
+
+// Pure resync decision (exported for tests): adopt the authoritative saved
+// profile ONLY when it actually changed AND the form has no unsaved edits.
+// A dirty form (mid-edit, or after a failed save) is preserved.
+export function shouldAdoptSaved({ formKey, baselineKey, savedKey }) {
+  if (savedKey === baselineKey) return false; // no authoritative change
+  return formKey === baselineKey;             // clean → adopt; dirty → keep
 }
 
 const LIST_META = {
@@ -69,12 +77,26 @@ export default function BusinessContextEditor() {
   const saved = data.businessProfile || null;
 
   const [form, setForm] = useState(() => fromProfile(saved));
+  const [baseline, setBaseline] = useState(() => JSON.stringify(fromProfile(saved)));
   const [errors, setErrors] = useState([]);
   const [busy, setBusy] = useState(false);
 
-  // Baseline snapshot of the last-saved profile → dirty detection + revert.
-  const baseline = useMemo(() => JSON.stringify(fromProfile(saved)), [saved]);
-  const dirty = JSON.stringify(form) !== baseline;
+  const formKey = JSON.stringify(form);
+  const savedKey = JSON.stringify(fromProfile(saved));
+  const dirty = formKey !== baseline;
+
+  // Authoritative resync: when the saved profile changes underneath us (import /
+  // bulkUpload refetch / external save) AND there are no unsaved edits, adopt
+  // the new saved profile. Dirty input (mid-edit or after a failed save) is
+  // preserved — the form only reflects an authoritative change when it is clean.
+  useEffect(() => {
+    if (shouldAdoptSaved({ formKey, baselineKey: baseline, savedKey })) {
+      setForm(fromProfile(saved));
+      setBaseline(savedKey);
+      setErrors([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedKey]);
 
   const errorFor = (field) => (errors.find((e) => e.field === field) || {}).message;
 
@@ -88,7 +110,7 @@ export default function BusinessContextEditor() {
   const removeService = (i) => setForm((f) => ({ ...f, services: f.services.filter((_, j) => j !== i) }));
   const setColor = (role, v) => setForm((f) => ({ ...f, brandPalette: { ...f.brandPalette, [role]: v } }));
 
-  const revert = () => { setForm(fromProfile(saved)); setErrors([]); };
+  const revert = () => { setForm(fromProfile(saved)); setBaseline(savedKey); setErrors([]); };
 
   const save = async () => {
     const { ok, errors: errs, value } = validateBusinessProfile(form);
@@ -98,9 +120,15 @@ export default function BusinessContextEditor() {
     try {
       // Persist-first: the store applies the reducer + resolves { ok:true } ONLY
       // after Supabase confirms. On { ok:false } the store already toasted and
-      // refetched the authoritative state — we keep the form input as-is.
+      // refetched the authoritative state — we keep the form input as-is (dirty).
       const res = await dispatch({ type: 'SAVE_BUSINESS_PROFILE', payload: value });
-      if (res && res.ok) toast('ההקשר העסקי נשמר');
+      if (res && res.ok) {
+        // adopt the authoritative normalized value as the new clean baseline
+        const norm = fromProfile(value);
+        setForm(norm);
+        setBaseline(JSON.stringify(norm));
+        toast('ההקשר העסקי נשמר');
+      }
     } finally {
       setBusy(false);
     }

@@ -61,19 +61,24 @@ begin
     raise exception 'S0D preflight SAFE STOP: public.business_profile.user_id is not uuid NOT NULL.';
   end if;
 
-  -- user_id FK must target auth.users(id) with ON DELETE CASCADE
+  -- user_id FK must target EXACTLY auth.users(id) — verify the referenced
+  -- column (confkey) is auth.users.id, not merely the target table — with
+  -- ON DELETE CASCADE and a single-column key on both sides.
   if not exists (
     select 1
     from pg_constraint c
-    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+    join pg_attribute a  on a.attrelid  = c.conrelid  and a.attnum = c.conkey[1]   -- local column
+    join pg_attribute fa on fa.attrelid = c.confrelid and fa.attnum = c.confkey[1] -- referenced column
     where c.conrelid = 'public.business_profile'::regclass
       and c.contype = 'f'
       and a.attname = 'user_id'
       and c.confrelid = 'auth.users'::regclass
+      and fa.attname = 'id'                   -- referenced column is exactly auth.users.id
       and c.confdeltype = 'c'                 -- 'c' = ON DELETE CASCADE
       and array_length(c.conkey, 1) = 1
+      and array_length(c.confkey, 1) = 1
   ) then
-    raise exception 'S0D preflight SAFE STOP: public.business_profile.user_id FK is not auth.users(id) ON DELETE CASCADE.';
+    raise exception 'S0D preflight SAFE STOP: public.business_profile.user_id FK is not exactly auth.users(id) ON DELETE CASCADE.';
   end if;
 
   -- EXISTING expected scalar/jsonb columns must have the expected type
@@ -123,6 +128,28 @@ begin
       and column_name not in ('user_id', 'created_at', 'updated_at')
   ) then
     raise exception 'S0D preflight SAFE STOP: public.business_profile has an unexpected NOT NULL column without a default.';
+  end if;
+
+  -- no UNEXPECTED / conflicting RLS policy — only business_profile_own is
+  -- expected. Any other (e.g. a broader permissive policy) would widen access
+  -- beyond own-row and must abort rather than be silently accepted.
+  if exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'business_profile'
+      and policyname <> 'business_profile_own'
+  ) then
+    raise exception 'S0D preflight SAFE STOP: public.business_profile has an unexpected/conflicting RLS policy.';
+  end if;
+
+  -- no UNEXPECTED trigger — only trg_business_profile_updated is expected
+  -- (a conflicting trigger assumption must abort, not silently continue).
+  if exists (
+    select 1 from pg_trigger t
+    where t.tgrelid = 'public.business_profile'::regclass
+      and not t.tgisinternal
+      and t.tgname <> 'trg_business_profile_updated'
+  ) then
+    raise exception 'S0D preflight SAFE STOP: public.business_profile has an unexpected trigger.';
   end if;
 end $$;
 

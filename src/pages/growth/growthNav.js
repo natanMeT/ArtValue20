@@ -4,12 +4,18 @@
 
 // Sidebar group items (each is a NavLink with active state).
 // Icons are existing names from components/ui/Icon.jsx only.
+// S0D containment: every Growth item is `betaHidden` — in authenticated cloud
+// beta the whole Growth OS is temporarily unavailable (its datasets + Ask-Jake
+// seeds are ArtValue-specific and not yet account-aware; see the "Account-aware
+// Growth & Creative Context" follow-up). visibleNavSections() filters these in
+// cloud beta; Outreach (not part of GROWTH_NAV) stays visible + LIVE. Local/demo
+// shows everything unchanged.
 export const GROWTH_NAV = [
-  { to: '/growth', label: 'מרכז הצמיחה', icon: 'trendUp', end: true },
-  { to: '/growth/leads', label: 'מיפוי לידים', icon: 'target' },
-  { to: '/growth/calendar', label: 'לוח פעולה', icon: 'calendar' },
-  { to: '/calls', label: 'שיחות', icon: 'phone' },
-  { to: '/growth/content', label: 'ספריית פרסום', icon: 'image' },
+  { to: '/growth', label: 'מרכז הצמיחה', icon: 'trendUp', end: true, betaHidden: true },
+  { to: '/growth/leads', label: 'מיפוי לידים', icon: 'target', betaHidden: true },
+  { to: '/growth/calendar', label: 'לוח פעולה', icon: 'calendar', betaHidden: true },
+  { to: '/calls', label: 'שיחות', icon: 'phone', betaHidden: true },
+  { to: '/growth/content', label: 'ספריית פרסום', icon: 'image', betaHidden: true },
 ];
 
 // Hub modules — cards on the /growth page. All four modules are shipped and

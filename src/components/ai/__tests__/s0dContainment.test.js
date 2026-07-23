@@ -1,86 +1,84 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { visibleNavSections, NAV_SECTIONS } from '../../layout/sidebarNav.js';
+import { GROWTH_NAV } from '../../../pages/growth/growthNav.js';
+import { BETA_HIDDEN_MODULES } from '../../../lib/betaCapabilities.js';
+import { buildGrowthContext } from '../../../data/growthContext.js';
 
 // ===================================================================
-// S0D minimal cloud-beta containment (Option A) — source-level guards
-// (the repo has no DOM renderer; components are pinned via readFileSync).
-// Proves no signed-in cloud-beta account can view/send hardcoded ArtValue
-// business facts through the mapped Growth surfaces or the Studio handoff,
-// while local/demo behavior and all frozen LIVE lanes are preserved.
+// S0D cloud-beta containment (Option A, corrected P1) — the ENTIRE Growth
+// OS is beta-contained via the existing BetaUnavailable route seam, so no
+// signed-in cloud-beta account can view/send the ArtValue-specific Growth
+// datasets or Ask-Jake seeds. Proven by the route gate + sidebar hiding
+// (structural), NOT by string neutralization. Local/demo is unchanged.
+// (No DOM renderer in this repo → App/Assistant pinned via readFileSync;
+// sidebar + nav config verified behaviorally.)
 // ===================================================================
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
+const app = read('../../../App.jsx');
 const assistant = read('../Assistant.jsx');
-const panel = read('../../growth/BusinessBrainPanel.jsx');
-const growth = read('../../../pages/growth/Growth.jsx');
-const growthContext = read('../../../data/growthContext.js');
-const sidebar = read('../../layout/sidebarNav.js');
 
-describe('S0D · Studio handoff gated in authenticated cloud beta', () => {
-  it('every studioHandoffFor(text) call is gated by isSupabaseConfigured (both lanes)', () => {
-    const all = (assistant.match(/studioHandoffFor\(text\)/g) || []).length;
-    const gated = (assistant.match(/isSupabaseConfigured \? null : studioHandoffFor\(text\)/g) || []).length;
-    expect(all).toBe(2);          // draft lane + chat lane
-    expect(gated).toBe(2);        // and both are gated → zero ungated
+const GROWTH_ROUTES = ['/growth', '/growth/leads', '/growth/calendar', '/growth/content', '/calls'];
+const flat = (sections) => sections.flatMap((s) => s.items).map((i) => i.to);
+
+describe('S0D · every Growth route is beta-contained (cloud beta) via a centralized gate', () => {
+  it('App.jsx wires a GrowthBetaGate that renders BetaUnavailable when isSupabaseConfigured', () => {
+    expect(app).toContain("import BetaUnavailable from './components/ui/BetaUnavailable.jsx'");
+    expect(app).toMatch(/import\s*\{\s*isSupabaseConfigured\s*\}\s*from\s*'\.\/lib\/supabase\.js'/);
+    expect(app).toMatch(/function GrowthBetaGate[\s\S]*?if \(isSupabaseConfigured\) return <BetaUnavailable[\s\S]*?return children/);
   });
 
-  it('preserves handoff behavior OUTSIDE cloud beta (ternary keeps studioHandoffFor for local/demo)', () => {
-    // isSupabaseConfigured === false → studioHandoffFor(text) still runs.
-    expect(assistant).toContain('? null : studioHandoffFor(text)');
+  it('ALL five Growth routes are wrapped by the gate; no Growth page renders directly', () => {
+    for (const p of GROWTH_ROUTES) {
+      expect(app, p).toContain(`path="${p}" element={<GrowthBetaGate`);
+    }
+    expect((app.match(/<GrowthBetaGate/g) || []).length).toBe(GROWTH_ROUTES.length);
   });
 
-  it('direct ImageStudio access is untouched (open-in-Studio navigation + /studio route unaffected)', () => {
-    expect(assistant).toContain("navigate('/studio'");            // Jake→Studio open handler still present
-    const app = read('../../../App.jsx');
-    expect(app).toContain('path="/studio"');                       // direct route intact
+  it('Outreach + ImageStudio are NOT gated (LIVE lanes untouched)', () => {
+    expect(app).toContain('path="/outreach" element={<Outreach />}');
+    expect(app).toContain('path="/studio" element={<ImageStudio />}');
+    expect(app).not.toContain('GrowthBetaGate title=""'); // sanity: no empty gate
   });
-});
 
-describe('S0D · BusinessBrainPanel contained in cloud beta', () => {
-  it('imports the cloud-beta signal and early-returns a neutral note before any ArtValue content', () => {
-    expect(panel).toMatch(/import\s*\{\s*isSupabaseConfigured\s*\}\s*from\s*'[^']*lib\/supabase\.js'/);
-    const gate = panel.indexOf('if (isSupabaseConfigured)');
-    const neutral = panel.indexOf('עדיין אינו זמין בגרסת הבטא');
-    const brandCopy = panel.indexOf('לפי השפה של ArtValue');
-    const brandSeed = panel.indexOf('askJake(buildPosterBrief');
-    expect(gate).toBeGreaterThan(-1);
-    expect(neutral).toBeGreaterThan(gate);          // neutral note rendered inside the gated return
-    // the ArtValue copy + active brand seeds are only reachable AFTER the gate
-    expect(brandCopy).toBeGreaterThan(gate);
-    expect(brandSeed).toBeGreaterThan(gate);
-    expect(neutral).toBeLessThan(brandCopy);        // gate returns before the ArtValue panel
+  it('growth is in the central BETA_HIDDEN_MODULES classification', () => {
+    expect(BETA_HIDDEN_MODULES.has('growth')).toBe(true);
   });
 });
 
-describe('S0D · Growth seeds neutralized at source (no ArtValue brand sent)', () => {
-  it('growthContext.js emits no hardcoded "ArtValue" business name/positioning in its seeds', () => {
-    // header comment may reference the rule; code/output must not emit the brand.
-    const nonComment = growthContext.split('\n').filter((l) => !l.trimStart().startsWith('//')).join('\n');
-    expect(nonComment).not.toContain('ArtValue');
-    expect(growthContext).not.toContain('POSITIONING'); // brand positioning import removed
+describe('S0D · sidebar hides all Growth items in cloud beta, keeps Outreach', () => {
+  it('every GROWTH_NAV item is betaHidden', () => {
+    expect(GROWTH_NAV.length).toBeGreaterThan(0);
+    expect(GROWTH_NAV.every((i) => i.betaHidden === true)).toBe(true);
   });
 
-  it('Growth hub subtitle is brand-neutral', () => {
-    expect(growth).not.toContain('של Art Value');
+  it('cloud-beta sidebar contains NO Growth route and DOES contain Outreach', () => {
+    const visible = flat(visibleNavSections(true));
+    for (const p of GROWTH_ROUTES) expect(visible, p).not.toContain(p);
+    expect(visible).toContain('/outreach');
+  });
+
+  it('local/demo sidebar shows the FULL Growth group unchanged', () => {
+    const visible = flat(visibleNavSections(false));
+    for (const p of GROWTH_ROUTES) expect(visible, p).toContain(p);
+    expect(visible).toContain('/outreach');
+    // and the source-of-truth section still composes GROWTH_NAV
+    expect(NAV_SECTIONS.some((s) => s.label === 'צמיחה ולידים')).toBe(true);
   });
 });
 
-describe('S0D · frozen LIVE lanes + sidebar unchanged', () => {
-  it('sidebar navigation is unchanged (Growth items still present, no beta gating change)', () => {
-    expect(sidebar).toContain('GROWTH_NAV');
-    expect(sidebar).toContain("label: 'צמיחה ולידים'");
-    // Growth is NOT beta-hidden (unchanged) — only Projects/Inventory/Templates/Activity are.
-    expect(sidebar).not.toContain("...GROWTH_NAV, betaHidden");
+describe('S0D · local/demo Growth datasets + behavior are unchanged (partial neutralization reverted)', () => {
+  it('growthContext still emits its original ArtValue content for local/demo', () => {
+    // toContain here proves the REVERT (local unchanged) — not a neutrality claim.
+    expect(buildGrowthContext()).toContain('ArtValue');
   });
+});
 
-  it('Creative V2 campaign lane is frozen (still imported + not brain-wrapped)', () => {
-    expect(assistant).toContain("import { createArtValueCreative } from '../../creative/v2/createArtValueCreative.js'");
-    expect(assistant).not.toContain('createArtValueCreative(withBusinessBrain');
-  });
-
-  it('force-actions lane stays lean (no business brain), briefing untouched', () => {
-    expect(assistant).toContain('forceActionsJake(text, activePack.buildContext(data))');
-    expect(assistant).not.toContain('forceActionsJake(text, withBusinessBrain');
-    expect(assistant).toContain('activePack.briefing(data)');
+describe('S0D · Assistant Studio-handoff containment remains active', () => {
+  it('both studioHandoffFor(text) calls stay gated by isSupabaseConfigured', () => {
+    expect((assistant.match(/studioHandoffFor\(text\)/g) || []).length).toBe(2);
+    expect((assistant.match(/isSupabaseConfigured \? null : studioHandoffFor\(text\)/g) || []).length).toBe(2);
+    expect(assistant).toContain("navigate('/studio'"); // direct Studio open still present
   });
 });

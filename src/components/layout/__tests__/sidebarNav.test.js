@@ -126,9 +126,11 @@ describe('sidebarNav — beta false-success containment (S0A)', () => {
     }
   });
 
-  it('no OTHER nav item is flagged betaHidden', () => {
+  it('only the S0A Memory-Only modules AND the S0D-contained Growth routes are flagged betaHidden', () => {
     const flagged = SIDEBAR_ROUTE_ITEMS.filter((i) => i.betaHidden).map((i) => i.to).sort();
-    expect(flagged).toEqual([...BETA_HIDDEN].sort());
+    // S0D: the entire Growth OS is beta-contained (GROWTH_NAV items betaHidden).
+    const expected = [...BETA_HIDDEN, ...GROWTH_NAV.map((g) => g.to)].sort();
+    expect(flagged).toEqual(expected);
   });
 
   it('local/demo mode shows every section unchanged', () => {

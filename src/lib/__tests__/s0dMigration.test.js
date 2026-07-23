@@ -52,14 +52,25 @@ describe('S0D migration · idempotency + RLS + trigger', () => {
 });
 
 describe('S0D migration · fail-loud preflight + safety', () => {
-  it('runs a preflight that RAISEs on an incompatible pre-existing table', () => {
-    expect(sql).toContain('to_regclass(\'public.business_profile\')');
+  it('skips the preflight on a fresh install (guarded by to_regclass ... is null → return)', () => {
+    // fresh install: table absent → preflight returns early; create-table handles it.
+    // (This is also what lets a clean rerun after the canonical migration pass.)
+    expect(sql).toMatch(/if to_regclass\('public\.business_profile'\) is null then\s*return/);
+  });
+
+  it('runs a preflight that RAISEs on every incompatible structural property', () => {
     expect(sql).toContain('raise exception');
-    // structural checks: base table, PK exactly user_id, uuid+not null, FK cascade
     expect(sql).toContain('is not a base table');
     expect(sql).toContain('primary key is not exactly (user_id)');
     expect(sql).toContain('is not uuid not null');
-    expect(sql).toContain('fk is not auth.users(id) on delete cascade');
+    // FK must reference EXACTLY auth.users(id) — referenced-column (confkey) check
+    expect(sql).toContain('is not exactly auth.users(id) on delete cascade');
+    expect(sql).toContain("fa.attname = 'id'");
+    expect(sql).toContain('array_length(c.confkey, 1) = 1');
+    // conflicting policy / trigger assumptions abort, not silently continue
+    expect(sql).toContain('unexpected/conflicting rls policy');
+    expect(sql).toContain('unexpected trigger');
+    expect(sql).toContain('unexpected not null column without a default');
   });
 
   it('is non-destructive: no DROP TABLE / DELETE FROM / user-specific INSERT statement', () => {

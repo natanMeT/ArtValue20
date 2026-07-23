@@ -12,7 +12,7 @@ export default function Growth() {
     <div>
       <SectionHeader
         title="Growth OS"
-        sub="מרכז הצמיחה העסקית שלך — לידים, תכנון פעולה ושיחות במקום אחד"
+        sub="מרכז הצמיחה העסקית של Art Value — לידים, תכנון פעולה ושיחות במקום אחד"
       />
 
       <Reveal>
