@@ -53,11 +53,16 @@ describe('S0C · no hardcoded person identity in active cloud UI surfaces', () =
     expect(dashboard.includes('avatarInitial(session)')).toBe(true);
   });
 
-  it('TaskModal: neutral empty assignee + session-driven default for NEW tasks only', () => {
+  it('TaskModal: neutral "משתמש" default for NEW tasks; supplied + existing values preserved (P2 fix)', () => {
     expect(taskModal.includes(HARD_NAME)).toBe(false);
-    expect(taskModal.includes("assignee: ''")).toBe(true);            // neutral base
-    expect(taskModal.includes('defaultAssignee = ')).toBe(true);      // prop with neutral default
-    expect(taskModal.includes('assignee: defaultAssignee')).toBe(true); // seeds only the new-task branch
+    // Omitted defaultAssignee (e.g. frozen ProjectDetail caller) → locked neutral,
+    // never blank, never a person.
+    expect(taskModal.includes("defaultAssignee = 'משתמש'")).toBe(true);
+    // A supplied defaultAssignee (Tasks.jsx passes the session name) flows through
+    // to the NEW-task branch verbatim.
+    expect(taskModal.includes('assignee: defaultAssignee')).toBe(true);
+    // Editing preserves the task's OWN assignee (initial spread after empty).
+    expect(taskModal.includes('setForm({ ...empty, ...initial })')).toBe(true);
   });
 
   it('Tasks page passes the resolved display name as the default assignee', () => {

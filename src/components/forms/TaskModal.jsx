@@ -12,7 +12,9 @@ const empty = {
 // the client picker only appears where a clients list is provided (e.g. Tasks).
 // S0C: `defaultAssignee` seeds NEW tasks with the signed-in user's display name
 // (callers pass the session-resolved name); editing keeps the task's own value.
-export default function TaskModal({ open, onClose, onSave, projects, clients = [], initial, lockProjectId, defaultAssignee = '' }) {
+// P2 fix: when a caller omits the prop (e.g. the frozen ProjectDetail caller),
+// fall back to the LOCKED NEUTRAL name 'משתמש' — never blank, never a person.
+export default function TaskModal({ open, onClose, onSave, projects, clients = [], initial, lockProjectId, defaultAssignee = 'משתמש' }) {
   const [form, setForm] = useState(empty);
   const [err, setErr] = useState(false);
 
