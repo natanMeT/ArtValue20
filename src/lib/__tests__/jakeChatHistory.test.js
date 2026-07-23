@@ -158,7 +158,9 @@ describe('Assistant caller integration (source pins)', () => {
   });
 
   it('the proactive morning briefing stays in UI state exactly as before (visible, assistant-role, textual)', () => {
-    expect(assistant.includes("setMessages((m) => [...m, { role: 'assistant', text: `${greet}, נתן! 👋\\n\\n${activePack.briefing(data)}` }]);")).toBe(true);
+    // S0C: the greeting is personalized from the signed-in session (displayName)
+    // instead of a hardcoded person — same shape, role and delivery otherwise.
+    expect(assistant.includes("setMessages((m) => [...m, { role: 'assistant', text: `${greet}, ${displayName}! 👋\\n\\n${activePack.briefing(data)}` }]);")).toBe(true);
   });
 
   it('Assistant still has no gateway wiring; forceActionsJake/draftWithJake call shapes untouched', () => {

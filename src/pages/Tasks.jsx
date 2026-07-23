@@ -9,6 +9,7 @@ import TaskModal from '../components/forms/TaskModal.jsx';
 import { SectionHeader, EmptyState } from '../components/ui/atoms.jsx';
 import { TASK_STATUS, TASK_PRIORITY, labelOf, studioBadgeClass } from '../data/studio.js';
 import { formatDate } from '../lib/format.js';
+import { resolveDisplayName } from '../lib/userIdentity.js';
 
 const DAY = 86400000;
 const isToday = (d) => d && new Date(d).toDateString() === new Date().toDateString();
@@ -38,7 +39,7 @@ function KpiMini({ label, value, icon, accent }) {
 }
 
 export default function Tasks() {
-  const { data, dispatch, toast } = useStore();
+  const { data, dispatch, toast, session } = useStore();
   const [filter, setFilter] = useState('all');
   const [editing, setEditing] = useState(null);
   const [toDelete, setToDelete] = useState(null);
@@ -149,7 +150,7 @@ export default function Tasks() {
         )}
       </div>
 
-      <TaskModal open={!!editing} onClose={() => setEditing(null)} onSave={save} projects={data.projects || []} clients={data.clients || []} initial={editing && editing !== 'new' ? editing : null} />
+      <TaskModal open={!!editing} onClose={() => setEditing(null)} onSave={save} projects={data.projects || []} clients={data.clients || []} initial={editing && editing !== 'new' ? editing : null} defaultAssignee={resolveDisplayName(session)} />
       <ConfirmDialog open={!!toDelete} onClose={() => setToDelete(null)} onConfirm={remove} message={`למחוק את המשימה "${toDelete?.title}"?`} />
     </div>
   );

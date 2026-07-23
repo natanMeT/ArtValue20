@@ -9,6 +9,7 @@ import { StatusBadge } from '../components/ui/atoms.jsx';
 import { FinancialBars, GaugeDonut, DonutChart, DONUT_COLORS } from '../components/charts/charts.jsx';
 import { dashboardKpis, monthlySeries, clientBreakdown, momChange, quoteTotal, financeTotals } from '../lib/calc.js';
 import { formatCurrency, formatCompact, relativeTime } from '../lib/format.js';
+import { resolveDisplayName, avatarInitial } from '../lib/userIdentity.js';
 
 const STATUS_NAMES = { lead: 'לידים', active: 'פעילים', completed: 'הושלמו', lost: 'אבודים' };
 
@@ -33,8 +34,10 @@ function KpiRich({ label, value, money = true, decimals = 0, icon, accent, delta
 }
 
 export default function Dashboard() {
-  const { data } = useStore();
+  const { data, session } = useStore();
   const navigate = useNavigate();
+  // S0C: greeting + assignee identity follow the signed-in account.
+  const displayName = resolveDisplayName(session);
 
   const kpis = useMemo(() => dashboardKpis(data), [data]);
   const series = useMemo(() => monthlySeries(data.transactions, 12), [data.transactions]);
@@ -88,7 +91,7 @@ export default function Dashboard() {
       {/* Hero greeting */}
       <motion.section className="hero-greeting" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1.44, ease: [0.16, 1, 0.3, 1] }}>
         <div>
-          <h1 className="hero-title">ברוך שובך, נתן</h1>
+          <h1 className="hero-title">ברוך שובך, {displayName}</h1>
           <p className="hero-sub">הפייפליין שלך <span className="hl">{growthText}</span> החודש. בוא נסגור עוד עסקאות.</p>
         </div>
         <div className="row gap-3 wrap">
@@ -182,7 +185,7 @@ export default function Dashboard() {
                     </td>
                     <td className="tnum" style={{ fontWeight: 700 }}>{formatCurrency(a.amount)}</td>
                     <td><StatusBadge status={a.status} /></td>
-                    <td><div className="row gap-2"><span className="assignee-ava">נ</span><span className="muted">נתן</span></div></td>
+                    <td><div className="row gap-2"><span className="assignee-ava">{avatarInitial(session)}</span><span className="muted">{displayName}</span></div></td>
                     <td><div className="row" style={{ justifyContent: 'flex-end' }}><button className="icon-action" onClick={() => navigate('/quotes')} aria-label="פתיחה"><Icon name="arrow" size={15} /></button></div></td>
                   </tr>
                 ))}

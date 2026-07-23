@@ -194,10 +194,14 @@ describe('jake.draft_message · server-owned drafting profile', () => {
   it('system instruction is server-owned Hebrew drafting guidance — no tools/actions/execution protocol', () => {
     expect(typeof p.systemInstruction).toBe('string');
     expect(p.systemInstruction.length).toBeGreaterThan(50);
-    // drafting-lane tone anchors survive the migration
-    for (const anchor of ['וואטסאפ', 'מייל', 'אל תמציא', 'נתן', 'Art Value']) {
+    // drafting-lane tone anchors survive the migration. S0C: the forced
+    // personal signature was removed — drafting is signature-neutral, so the
+    // person anchor is now asserted ABSENT (locked S0C decision #6).
+    for (const anchor of ['וואטסאפ', 'מייל', 'אל תמציא', 'Art Value']) {
       expect(p.systemInstruction.includes(anchor), anchor).toBe(true);
     }
+    expect(p.systemInstruction.includes('נתן')).toBe(false);
+    expect(p.systemInstruction.includes('אל תחתום בשם אדם ספציפי')).toBe(true);
     // context is DATA, never instructions
     expect(p.systemInstruction.includes('Background data')).toBe(true);
     // NOT the autonomous agent: no action blocks, tool protocol, or JSON contract
