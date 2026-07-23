@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { activePack } from '../jakePack.js';
+import { executeActions } from '../jakeAgent.js';
 import { JAKE_PACK_PERSONA } from '../../../supabase/functions/ai-gateway/actionProfiles.ts';
 
 // ===================================================================
@@ -139,6 +140,51 @@ describe('S0C · generic Jake persona + signature-neutral drafting', () => {
 
   it('jakePack has no remaining hardcoded person anywhere', () => {
     expect(jakePackSrc.includes(HARD_NAME)).toBe(false);
+  });
+});
+
+describe('S0C · Jake add_task assignee follows the active account (PR #100 blocker fix)', () => {
+  const emptyData = { clients: [], projects: [], tasks: [], inventory: [], quotes: [], transactions: [], outreachLeads: [] };
+  const run = (action) => {
+    const dispatched = [];
+    executeActions([action], emptyData, (a) => { dispatched.push(a); });
+    return dispatched.find((d) => d.type === 'ADD_TASK')?.payload;
+  };
+
+  it('explicit user-supplied assignee is preserved unchanged', () => {
+    expect(run({ op: 'add_task', title: 'משימה', assignee: 'דנה לוי' }).assignee).toBe('דנה לוי');
+  });
+
+  it('omitted assignee falls back to the locked NEUTRAL name — never a hardcoded person', () => {
+    const p = run({ op: 'add_task', title: 'משימה' });
+    expect(p.assignee).toBe('משתמש');
+    expect(p.assignee).not.toBe('נתן');
+  });
+
+  it('an enriched action (as Assistant produces for the active account) persists that exact name', () => {
+    // Assistant enriches un-assigned add_task with the session displayName;
+    // the handler must persist it verbatim (accounts never share a fallback).
+    expect(run({ op: 'add_task', title: 'משימה', assignee: 'Account B' }).assignee).toBe('Account B');
+    expect(run({ op: 'add_task', title: 'משימה', assignee: 'Account A' }).assignee).toBe('Account A');
+  });
+
+  it('no active Jake task path contains a literal hardcoded person', () => {
+    const jakeAgentSrc = read('../jakeAgent.js');
+    expect(jakeAgentSrc.includes(HARD_NAME)).toBe(false);
+  });
+
+  it('Assistant enriches BEFORE the proposal card — approved == persisted', () => {
+    // Enrichment exists, targets only un-assigned add_task, uses the session
+    // displayName, and the SAME enriched array feeds describeActions + the
+    // preview card that approvePreview later executes.
+    expect(assistant.includes("a.op === 'add_task'")).toBe(true);
+    expect(assistant.includes('assignee: displayName')).toBe(true);
+    expect(assistant.includes('describeActions(enrichedActions, data)')).toBe(true);
+    expect(assistant.includes('preview: { actions: enrichedActions, items }')).toBe(true);
+    // no un-enriched proposal path remains
+    expect(assistant.includes('preview: { actions: allowedActions')).toBe(false);
+    // the enrichment is conditional on a MISSING explicit assignee only
+    expect(assistant.includes("!(typeof a.assignee === 'string' && a.assignee.trim())")).toBe(true);
   });
 });
 

@@ -978,7 +978,18 @@ export default function Assistant() {
       // never yield a fake ✓.
       const { allowed: allowedActions, blocked, message: betaMsg } = partitionJakeActions(actions, { isCloudBeta: isSupabaseConfigured, clients: data.clients });
 
-      if (allowedActions.length) {
+      // S0C: a Jake add_task with NO explicit assignee follows the ACTIVE
+      // account. Enrich ONCE here — the same enriched objects feed the
+      // proposal card (preview.actions) and, on approval, executeActions —
+      // so what the user approves is exactly what persists. An explicit
+      // assignee from the user is never overridden.
+      const enrichedActions = allowedActions.map((a) => (
+        a && a.op === 'add_task' && !(typeof a.assignee === 'string' && a.assignee.trim())
+          ? { ...a, assignee: displayName }
+          : a
+      ));
+
+      if (enrichedActions.length) {
         // MIXED-BATCH SAFETY: when the same reply also contains blocked actions,
         // suppress the model's free prose entirely — it may claim the blocked
         // action completed ("הוספתי לקוח ומשימה"). The deterministic confirm card
@@ -989,8 +1000,8 @@ export default function Assistant() {
           const proposal = (clean || '').replace(/\s*[✓✅]\s*/g, ' ').trim();
           if (proposal) { setMessages((m) => [...m, { role: 'assistant', text: proposal }]); speak(proposal); }
         }
-        const items = describeActions(allowedActions, data);
-        setMessages((m) => [...m, { role: 'assistant', preview: { actions: allowedActions, items } }]);
+        const items = describeActions(enrichedActions, data);
+        setMessages((m) => [...m, { role: 'assistant', preview: { actions: enrichedActions, items } }]);
       } else if (!blocked.length) {
         // Pure prose / info answer — no actions at all.
         const body = clean || reply;
