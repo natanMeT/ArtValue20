@@ -120,14 +120,18 @@ begin
     end if;
   end loop;
 
-  -- no UNEXPECTED NOT NULL column lacking a default (would break upsert)
+  -- no NOT NULL column lacking a default that the app's upsert never sends
+  -- (would fail the first save). user_id is the ONLY column the upsert always
+  -- provides, so it is the ONLY legitimate NOT-NULL-without-default column;
+  -- created_at/updated_at must carry a default (ADD COLUMN IF NOT EXISTS does
+  -- NOT repair an existing column's missing default), so they are checked too.
   if exists (
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'business_profile'
       and is_nullable = 'NO' and column_default is null
-      and column_name not in ('user_id', 'created_at', 'updated_at')
+      and column_name <> 'user_id'
   ) then
-    raise exception 'S0D preflight SAFE STOP: public.business_profile has an unexpected NOT NULL column without a default.';
+    raise exception 'S0D preflight SAFE STOP: public.business_profile has a NOT NULL column without a default that the app upsert does not populate.';
   end if;
 
   -- no UNEXPECTED / conflicting RLS policy — only business_profile_own is

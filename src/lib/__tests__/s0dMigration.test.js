@@ -70,7 +70,10 @@ describe('S0D migration · fail-loud preflight + safety', () => {
     // conflicting policy / trigger assumptions abort, not silently continue
     expect(sql).toContain('unexpected/conflicting rls policy');
     expect(sql).toContain('unexpected trigger');
-    expect(sql).toContain('unexpected not null column without a default');
+    // NOT NULL columns without a default that the upsert never sends abort too —
+    // only user_id is exempt (created_at/updated_at must carry a default).
+    expect(sql).toContain('not null column without a default');
+    expect(sql).toMatch(/is_nullable = 'no' and column_default is null\s*and column_name <> 'user_id'/);
   });
 
   it('is non-destructive: no DROP TABLE / DELETE FROM / user-specific INSERT statement', () => {
