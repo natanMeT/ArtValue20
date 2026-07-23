@@ -151,7 +151,7 @@ describe('Assistant caller integration (source pins)', () => {
 
   it('the chat lane builds convo via selectJakeChatHistory and the chatJake call shape is unchanged', () => {
     expect(assistant.includes('const convo = selectJakeChatHistory(next);')).toBe(true);
-    expect(assistant.includes('chatJake(convo, withBusinessBrain(activePack.buildContext(data), text))')).toBe(true);
+    expect(assistant.includes('chatJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile))')).toBe(true);
     // the old inline window for the CHAT lane is gone (the -12 drafting window remains untouched)
     expect(assistant.includes('.filter((mm) => mm.text && !mm.system).slice(-14)')).toBe(false);
     expect(assistant.includes('.filter((mm) => mm.text && !mm.system).slice(-12)')).toBe(true);
@@ -166,7 +166,7 @@ describe('Assistant caller integration (source pins)', () => {
   it('Assistant still has no gateway wiring; forceActionsJake/draftWithJake call shapes untouched', () => {
     expect(assistant.includes('aiGateway')).toBe(false);
     expect(assistant.includes('forceActionsJake(text, activePack.buildContext(data))')).toBe(true);
-    expect(assistant.includes('draftWithJake(convo, withBusinessBrain(activePack.buildContext(data), text))')).toBe(true);
+    expect(assistant.includes('draftWithJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile))')).toBe(true);
   });
 
   it('the selector module is pure: no imports at all, no browser/storage/gateway surface', () => {

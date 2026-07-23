@@ -244,6 +244,70 @@ export function buildBusinessBrainContext(options = {}) {
 }
 
 // ===================================================================
+// Account-aware Business Context (S0D) — the ONLY brain used by the live
+// chat/draft path (via withBusinessBrain). It renders the SIGNED-IN
+// account's approved DURABLE profile, or a NEUTRAL "not configured" block —
+// and NEVER reads the hardcoded ArtValue BUSINESS_BRAIN profile/visual/
+// services/contentPillars. The universal system capabilities + safety
+// (product-level, tenant-agnostic) are always kept. buildBusinessBrainContext
+// (above) stays byte-identical for the frozen legacy button/handoff/planner
+// consumers — this is a NEW, additive brain, not a change to that one.
+// ===================================================================
+export const BUSINESS_CONTEXT_UNCONFIGURED = 'ההקשר העסקי עדיין לא הוגדר על ידי המשתמש';
+
+// A durable profile is usable only when it carries a business name (rows are
+// normalized/nulled at the API boundary, so malformed → null → neutral here).
+function hasDurableProfile(p) {
+  return Boolean(p && typeof p === 'object' && !Array.isArray(p) && String(p.businessName || '').trim());
+}
+
+// The account's approved business facts → bounded Hebrew lines. Reads ONLY the
+// durable profile (never BUSINESS_BRAIN). Optionals are omitted when empty;
+// differentiators ≤4 and services ≤6 bound the size.
+function accountProfileLines(p) {
+  const lines = [`- שם העסק: ${str(p.businessName)}`];
+  if (str(p.positioning)) lines.push(`- מיצוב: ${str(p.positioning)}`);
+  if (Array.isArray(p.audiences) && p.audiences.length) lines.push(`- קהלים: ${p.audiences.join(' · ')}`);
+  if (Array.isArray(p.tone) && p.tone.length) lines.push(`- טון: ${p.tone.join(', ')}`);
+  if (Array.isArray(p.differentiators) && p.differentiators.length) lines.push(`- בידול: ${p.differentiators.slice(0, 4).join(' · ')}`);
+  if (Array.isArray(p.services) && p.services.length) {
+    lines.push(`- שירותים: ${p.services.slice(0, 6).map((s) => (str(s.pitch) ? `${str(s.name)}: ${str(s.pitch)}` : str(s.name))).join(' | ')}`);
+  }
+  const pal = p.brandPalette;
+  if (pal && str(pal.primary)) {
+    const roles = [`primary ${pal.primary}`];
+    if (str(pal.secondary)) roles.push(`secondary ${pal.secondary}`);
+    if (str(pal.accent)) roles.push(`accent ${pal.accent}`);
+    const neutrals = [pal.neutral1, pal.neutral2].map(str).filter(Boolean);
+    if (neutrals.length) roles.push(`ניטרליים ${neutrals.join(' ')}`);
+    lines.push(`- צבעי מותג: ${roles.join(' · ')}`);
+  }
+  return lines;
+}
+
+// Build the account-aware brain. `profile` = the durable Business Context (or
+// null/undefined when unconfigured). NEVER emits ArtValue-specific business
+// facts. Always ends with the universal capabilities + safety block.
+export function buildAccountBusinessContext(profile, options = {}) {
+  const maxCapabilities = clampInt(options.maxCapabilities, 1, 24, 8);
+  const parts = [];
+  if (hasDurableProfile(profile)) {
+    parts.push('הקשר עסקי — פרופיל העסק (מאושר ע״י המשתמש):', '', ...accountProfileLines(profile));
+  } else {
+    parts.push(
+      `הקשר עסקי — ${BUSINESS_CONTEXT_UNCONFIGURED}.`,
+      'אם נשאלת על שם העסק, מיצוב, קהלים, שירותים או צבעי מותג ואין הקשר עסקי מוגדר — אמור בכנות שההקשר העסקי עדיין לא הוגדר, ואל תמציא פרטים.',
+    );
+  }
+  parts.push('', 'יכולות המערכת (לשימוש כהצעות ביצוע ידניות):');
+  for (const c of systemCapabilities().slice(0, maxCapabilities)) {
+    parts.push(`- ${c.title}${c.mode ? ` [מצב: ${c.mode}]` : ''}: ${c.description}`);
+  }
+  parts.push('', safetyBlock());
+  return parts.join('\n');
+}
+
+// ===================================================================
 // Builder 2 — poster brief seed ("ג׳יק, תכין לי פוסטר על ...")
 // ===================================================================
 const POSTER_SECTIONS = [

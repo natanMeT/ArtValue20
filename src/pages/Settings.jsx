@@ -6,6 +6,7 @@ import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
 import { SectionHeader } from '../components/ui/atoms.jsx';
 import { buildDemoSeed } from '../data/seed.js';
 import AiGatewaySmoke from '../components/dev/AiGatewaySmoke.jsx';
+import BusinessContextEditor from '../components/settings/BusinessContextEditor.jsx';
 
 export default function Settings() {
   const {
@@ -111,6 +112,11 @@ export default function Settings() {
             </div>
           </ScrollReveal>
         )}
+
+        {/* Business Context (S0D) — per-account business facts Jake uses */}
+        <ScrollReveal delay={0.01}>
+          <BusinessContextEditor />
+        </ScrollReveal>
 
         {/* Appearance */}
         <ScrollReveal delay={0.02}>

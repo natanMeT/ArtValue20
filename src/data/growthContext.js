@@ -12,7 +12,12 @@
 
 import { CALENDAR_DEFAULTS, CALENDAR_DISCLAIMER, CALENDAR_ACTIONS, planFromTargets, rankCategoryFocus } from './growthCalendar.js';
 import { buildCallPrep } from './growthCalls.js';
-import { POSITIONING } from './growthContentAds.js';
+// S0D containment: the hardcoded "ArtValue" business name/positioning is
+// removed from every seed below so these mapped Growth Ask-Jake prompts do not
+// send hardcoded ArtValue business facts to any signed-in account. The Growth
+// planning content (lead categories, monthly-plan math, call prep) is generic
+// methodology and is unchanged. Full account-aware Growth is the deferred
+// "Account-aware Growth & Creative Context" follow-up.
 
 // Bounded output — keeps a future prompt comfortably small.
 const DEFAULTS = {
@@ -62,10 +67,10 @@ export function buildGrowthContext(options = {}) {
     .join('\n');
 
   return [
-    'הקשר Growth OS של ArtValue:',
+    'הקשר Growth OS:',
     '',
     'מטרת המערכת:',
-    `ArtValue בונה לעסקים מערכות דיגיטליות (${POSITIONING.services}). Growth OS הוא מרכז הצמיחה הפנימי: מיפוי קטגוריות לידים, לוח פעולה חודשי, הכנת שיחות וספריית תוכן.`,
+    'Growth OS הוא מרכז הצמיחה הפנימי של העסק: מיפוי קטגוריות לידים, לוח פעולה חודשי, הכנת שיחות וספריית תוכן.',
     '',
     `תוכנית חודשית (יעד ₪${plan.inputs.target.toLocaleString('en-US')}, עסקה ממוצעת ₪${plan.inputs.avgDeal.toLocaleString('en-US')} — ${CALENDAR_DISCLAIMER}):`,
     `- עסקאות נדרשות: ${plan.dealsNeeded} · לידים לפנייה: ${plan.leadsToApproach} · ~${plan.perDay} פעולות ביום`,
@@ -84,7 +89,7 @@ export function buildGrowthDailyFocusContext(options = {}) {
   const top = rankCategoryFocus(1)[0];
 
   return [
-    'מוקד פעולה יומי — Growth OS של ArtValue:',
+    'מוקד פעולה יומי — Growth OS:',
     `- קצב נדרש: ~${plan.perDay} פעולות ביום (וואטסאפ ${plan.actions.whatsapp}, שיחות ${plan.actions.calls}, פולואפים ${plan.actions.followUps} בחודש).`,
     top ? `- קטגוריית המיקוד המובילה: ${top.label} — ${top.whyFit} הצעה: ${top.offerName}.` : '',
     `- ${CALENDAR_DISCLAIMER}.`,
@@ -100,7 +105,7 @@ export function buildGrowthCategoryContext(categoryId, options = {}) {
   const prep = buildCallPrep(categoryId);
   if (!prep) {
     return [
-      'הקשר קטגוריה — Growth OS של ArtValue:',
+      'הקשר קטגוריה — Growth OS:',
       'הקטגוריה המבוקשת לא נמצאה במיפוי הלידים. אפשר לעבוד לפי קטגוריות המיקוד הכלליות.',
       '',
       safetyBlock(),
@@ -113,7 +118,7 @@ export function buildGrowthCategoryContext(categoryId, options = {}) {
     : '- אין תבניות מותאמות — אפשר להשתמש בתבניות הפולואפ הכלליות.';
 
   return [
-    `הקשר קטגוריה — ${prep.label} (Growth OS של ArtValue):`,
+    `הקשר קטגוריה — ${prep.label} (Growth OS):`,
     '',
     `מי הלקוח: ${prep.who}`,
     `כאבים מרכזיים: ${prep.pains.join(' · ')}`,

@@ -899,13 +899,18 @@ export default function Assistant() {
       setLoading(true);
       try {
         const convo = next.filter((mm) => mm.text && !mm.system).slice(-12);
-        const { text: draft } = await draftWithJake(convo, withBusinessBrain(activePack.buildContext(data), text));
+        const { text: draft } = await draftWithJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile));
         const clean = extractActions(draft).clean || draft; // strip any stray actions block
         setMessages((m) => [...m, { role: 'assistant', text: clean }]);
         speak(clean);
         // Studio handoff card (deterministic, model-free): appended AFTER the
         // answer, only when the request resolves to a studio-target payload.
-        const handoff = studioHandoffFor(text);
+        // S0D containment: the Studio handoff resolves ArtValue-seeded prompts
+        // (buildPosterBrief / buildStudioPromptSeed) via the frozen planner/handoff
+        // lane. Suppress it in authenticated cloud beta so no signed-in account
+        // receives hardcoded ArtValue business facts. Direct /studio + the
+        // ImageStudio lane are untouched; local/demo behavior is preserved.
+        const handoff = isSupabaseConfigured ? null : studioHandoffFor(text);
         if (handoff) setMessages((m) => [...m, { role: 'assistant', handoff }]);
       } catch (e) {
         setMessages((m) => [...m, { role: 'assistant', system: true, text: gentleError(e) }]);
@@ -960,7 +965,7 @@ export default function Assistant() {
       // (the deployed server chat contract requires user-first; chatJake maps
       // whatever it receives byte-exactly and repairs nothing).
       const convo = selectJakeChatHistory(next);
-      const { text: reply } = await chatJake(convo, withBusinessBrain(activePack.buildContext(data), text));
+      const { text: reply } = await chatJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile));
       let { clean, actions } = extractActions(reply); // eslint-disable-line prefer-const
 
       // Talked about doing something but emitted no block → force a proposal (2nd pass).
@@ -1017,7 +1022,10 @@ export default function Assistant() {
 
       // Studio handoff card (deterministic, model-free): appended AFTER the
       // answer, only when the request resolves to a studio-target payload.
-      const handoff = studioHandoffFor(text);
+      // S0D containment: suppressed in authenticated cloud beta (the handoff
+      // prompt is ArtValue-seeded via the frozen planner/handoff lane). Direct
+      // /studio + ImageStudio are untouched; local/demo behavior is preserved.
+      const handoff = isSupabaseConfigured ? null : studioHandoffFor(text);
       if (handoff) setMessages((m) => [...m, { role: 'assistant', handoff }]);
 
       // Compound "command + number-question": append the authoritative store figure.

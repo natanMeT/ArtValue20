@@ -40,10 +40,12 @@ describe('growthContext — full context', () => {
     expect(HEBREW.test(ctx)).toBe(true);
   });
 
-  it('states the ArtValue / Growth OS purpose', () => {
-    expect(ctx).toContain('ArtValue');
+  it('states the Growth OS purpose WITHOUT sending the hardcoded ArtValue brand (S0D containment)', () => {
     expect(ctx).toContain('Growth OS');
     expect(ctx).toContain('מטרת המערכת');
+    // S0D: the hardcoded "ArtValue" business name/positioning is neutralized at
+    // the seed source so this mapped Growth seed sends no ArtValue business facts.
+    expect(ctx).not.toContain('ArtValue');
   });
 
   it('includes calendar/action-plan volumes from the default plan', () => {
@@ -133,11 +135,14 @@ describe('growthContext — prompt builders', () => {
     expect(p).toContain('שאלה: איך לענות להתנגדות של יקבים?');
   });
 
-  it('embeds Growth context (general or per-category)', () => {
-    expect(buildGrowthAskPrompt('מה היום?')).toContain('הקשר Growth OS של ArtValue');
+  it('embeds Growth context (general or per-category), brand-neutral (S0D)', () => {
+    const general = buildGrowthAskPrompt('מה היום?');
+    expect(general).toContain('הקשר Growth OS');
+    expect(general).not.toContain('ArtValue');
     const withCat = buildGrowthAskPrompt('מה היום?', { categoryId: 'car_agencies' });
     expect(withCat).toContain('הקשר קטגוריה');
     expect(withCat).toContain(categoryById('car_agencies').label);
+    expect(withCat).not.toContain('ArtValue');
   });
 
   it('instructs Hebrew, practical, manual-only answers', () => {

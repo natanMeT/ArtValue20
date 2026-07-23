@@ -7,6 +7,7 @@
 // Only this file knows about snake_case columns and the quote_items table.
 // ===================================================================
 import { supabase } from './supabase.js';
+import { validateBusinessProfile, normalizeBusinessProfile } from './businessProfile.js';
 
 const uuid = () =>
   (crypto?.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -39,6 +40,14 @@ const TASK_FIELDS = {
   title: 'title', projectId: 'project_id', clientId: 'client_id',
   status: 'status', priority: 'priority', deadline: 'deadline',
   assignee: 'assignee', linkRef: 'link_ref', notes: 'notes',
+};
+// S0D: business_profile write map (camel → snake). user_id is the PK (from the
+// session), created_at/updated_at are server-managed. Values arrive already
+// normalized by businessProfile.js (arrays/jsonb passed straight through).
+const BUSINESS_PROFILE_FIELDS = {
+  businessName: 'business_name', positioning: 'positioning',
+  audiences: 'audiences', tone: 'tone', differentiators: 'differentiators',
+  services: 'services', brandPalette: 'brand_palette',
 };
 
 function mapToRow(obj, fieldMap) {
@@ -100,6 +109,23 @@ function rowToTask(r) {
     notes: r.notes || '', createdAt: r.created_at || null, updatedAt: r.updated_at || null,
   };
 }
+// S0D: hydrate a business_profile row THROUGH the shared validator, so a
+// malformed / legacy / partial cloud row → null (treated as unconfigured →
+// neutral brain), never a misleading configured profile. IDs/timestamps are
+// intentionally dropped (not business context). Returns the canonical camelCase
+// shape or null.
+function rowToBusinessProfile(r) {
+  if (!r) return null;
+  return normalizeBusinessProfile({
+    businessName: r.business_name || '',
+    positioning: r.positioning || '',
+    audiences: Array.isArray(r.audiences) ? r.audiences : [],
+    tone: Array.isArray(r.tone) ? r.tone : [],
+    differentiators: Array.isArray(r.differentiators) ? r.differentiators : [],
+    services: Array.isArray(r.services) ? r.services : [],
+    brandPalette: r.brand_palette || null,
+  });
+}
 
 function guard(error) {
   if (error) throw error;
@@ -109,15 +135,17 @@ function guard(error) {
 // Read everything for the signed-in user (RLS scopes to their rows).
 // ===================================================================
 export async function fetchAll() {
-  const [clientsRes, quotesRes, itemsRes, txRes, leadsRes, tasksRes] = await Promise.all([
+  const [clientsRes, quotesRes, itemsRes, txRes, leadsRes, tasksRes, bpRes] = await Promise.all([
     supabase.from('clients').select('*').order('created_at', { ascending: false }),
     supabase.from('quotes').select('*').order('created_at', { ascending: false }),
     supabase.from('quote_items').select('*').order('position', { ascending: true }),
     supabase.from('transactions').select('*').order('date', { ascending: false }),
     supabase.from('outreach_leads').select('*').order('created_at', { ascending: true }),
     supabase.from('tasks').select('*').order('created_at', { ascending: false }),
+    // S0D: one row per user (user_id PK); RLS scopes to the signed-in account.
+    supabase.from('business_profile').select('*').limit(1),
   ]);
-  guard(clientsRes.error); guard(quotesRes.error); guard(itemsRes.error); guard(txRes.error); guard(leadsRes.error); guard(tasksRes.error);
+  guard(clientsRes.error); guard(quotesRes.error); guard(itemsRes.error); guard(txRes.error); guard(leadsRes.error); guard(tasksRes.error); guard(bpRes.error);
 
   const itemsByQuote = {};
   for (const it of itemsRes.data) (itemsByQuote[it.quote_id] ||= []).push(rowToItem(it));
@@ -130,6 +158,8 @@ export async function fetchAll() {
     transactions: txRes.data.map(rowToTx),
     outreachLeads: leadsRes.data.map(rowToLead),
     tasks: tasksRes.data.map(rowToTask),
+    // S0D: durable per-account Business Context (null when unconfigured/malformed).
+    businessProfile: rowToBusinessProfile((bpRes.data && bpRes.data[0]) || null),
     meta: { source: 'supabase' },
   };
 }
@@ -203,6 +233,22 @@ export async function deleteTask(id) {
   guard((await supabase.from('tasks').delete().eq('id', id)).error);
 }
 
+// ---- business profile (S0D) ----
+// Validate AT THE BOUNDARY (defense in depth — the editor validates too), then
+// upsert on the user_id PK. Throws on invalid input (persist-first caller shows
+// no false success). Returns the normalized value that was written.
+export async function upsertBusinessProfile(userId, profile) {
+  const { ok, value, errors } = validateBusinessProfile(profile);
+  if (!ok || !value) {
+    const err = new Error('פרופיל עסקי לא תקין');
+    err.details = errors;
+    throw err;
+  }
+  const row = { user_id: userId, ...mapToRow(value, BUSINESS_PROFILE_FIELDS) };
+  guard((await supabase.from('business_profile').upsert(row, { onConflict: 'user_id' })).error);
+  return value;
+}
+
 // S0B: build task rows for bulkUpload — fresh TEXT id, client_id remapped
 // through clientIdMap, project_id retained (nullable text, no FK), blank
 // deadline → null. Pure + exported for focused tests. Empty/missing → [].
@@ -252,8 +298,20 @@ export async function bulkUpload(userId, data) {
   const taskRows = buildBulkTaskRows(data.tasks, userId, clientIdMap);
   if (taskRows.length) guard((await supabase.from('tasks').insert(taskRows)).error);
 
-  return { clients: clientRows.length, quotes: quoteRows.length, transactions: txRows.length, leads: leadRows.length, tasks: taskRows.length };
+  // S0D: business profile (one row per user) — import through the SAME validator
+  // as a direct save; invalid or absent → skipped (never a partial/silent write).
+  let businessProfile = 0;
+  if (data.businessProfile) {
+    const { ok, value } = validateBusinessProfile(data.businessProfile);
+    if (ok && value) {
+      guard((await supabase.from('business_profile')
+        .upsert({ user_id: userId, ...mapToRow(value, BUSINESS_PROFILE_FIELDS) }, { onConflict: 'user_id' })).error);
+      businessProfile = 1;
+    }
+  }
+
+  return { clients: clientRows.length, quotes: quoteRows.length, transactions: txRows.length, leads: leadRows.length, tasks: taskRows.length, businessProfile };
 }
 
-// Pure mapping helpers exported for focused unit tests (S0B).
-export { uuid, mapToRow, rowToClient, rowToTask, CLIENT_FIELDS, TASK_FIELDS, nullifyBlankDates };
+// Pure mapping helpers exported for focused unit tests (S0B + S0D).
+export { uuid, mapToRow, rowToClient, rowToTask, rowToBusinessProfile, CLIENT_FIELDS, TASK_FIELDS, BUSINESS_PROFILE_FIELDS, nullifyBlankDates };

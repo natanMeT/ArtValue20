@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Icon from '../ui/Icon.jsx';
 import { askJake } from '../../lib/askJake.js';
+import { isSupabaseConfigured } from '../../lib/supabase.js';
 import {
   BUSINESS_BRAIN, buildPosterBrief, buildMonthlyContentPlanSeed,
   buildServiceCampaignSeed, buildStudioPromptSeed,
@@ -22,6 +23,26 @@ const SERVICE_ENTRIES = Object.entries(BUSINESS_BRAIN.services);
 
 export default function BusinessBrainPanel() {
   const [serviceId, setServiceId] = useState('crm');
+
+  // S0D containment: in authenticated cloud beta this panel would SHOW (copy +
+  // ArtValue service list) and SEND (Ask-Jake brand seeds) hardcoded ArtValue
+  // business facts to ANY signed-in account. Until the account-aware Growth
+  // follow-up, render a truthful neutral note instead — no ArtValue values, no
+  // active brand-seed actions. Local/demo (single-tenant ArtValue rig) is
+  // unchanged (full panel below).
+  if (isSupabaseConfigured) {
+    return (
+      <div className="card panel" style={{ marginBottom: 18 }}>
+        <div className="panel-title row gap-2" style={{ marginBottom: 6 }}>
+          <Icon name="spark" size={18} style={{ color: 'var(--lime-deep)' }} /> המוח העסקי של ג׳יק
+        </div>
+        <p className="muted" style={{ margin: 0, lineHeight: 1.7 }}>
+          הכלי הזה עדיין אינו זמין בגרסת הבטא. בקרוב הוא יעבוד לפי ההקשר העסקי שתגדיר
+          ב<strong>הגדרות → הקשר עסקי</strong>, כדי שג׳יק יכין בריפים, קמפיינים ותוכן לפי העסק שלך.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="card panel" style={{ marginBottom: 18 }}>

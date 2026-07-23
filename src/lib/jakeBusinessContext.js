@@ -14,7 +14,7 @@
 // sentinel and never double-pay.
 // ===================================================================
 
-import { buildBusinessBrainContext } from '../data/businessBrain.js';
+import { buildAccountBusinessContext } from '../data/businessBrain.js';
 
 // Dedupe sentinel: the first Business Brain safety rule, present in EVERY
 // brain builder output (buildPosterBrief / campaign / plan / studio seeds).
@@ -46,14 +46,20 @@ const ANTI_CLAIM = [
   'היכולות למעלה הן הצעות בלבד — אל תטען שיצרת תמונה, פרסמת פוסט או שלחת הודעה; הצע את הצעד ותן למשתמש לבצע/לאשר.',
 ].join('\n');
 
-// Append the compact Business Brain AFTER the live CRM context (which stays
-// first — it is the accuracy-critical source of truth). Returns the original
-// context unchanged when the router says no, or when the user message already
-// carries a brain-built prompt (button seeds — the sentinel dedupe).
-export function withBusinessBrain(contextText, userText) {
+// Append the ACCOUNT-AWARE Business Context AFTER the live CRM context (which
+// stays first — it is the accuracy-critical source of truth). Returns the
+// original context unchanged when the router says no, or when the user message
+// already carries a brain-built prompt (button seeds — the sentinel dedupe).
+//
+// S0D: the third argument is the signed-in account's DURABLE business profile
+// (or null when unconfigured). It is threaded into the account-aware brain, so
+// this path renders THAT account's approved facts — or a neutral "not
+// configured" block — and NEVER the hardcoded ArtValue BUSINESS_BRAIN. There is
+// exactly one business block; no ArtValue fallback can reach another account.
+export function withBusinessBrain(contextText, userText, businessProfile = null) {
   const base = String(contextText ?? '');
   if (!shouldIncludeBusinessBrain(userText)) return base;
   if (String(userText).includes(BUSINESS_CONTEXT_MARKER)) return base;
-  const brain = buildBusinessBrainContext({ maxServices: 6, maxCapabilities: 8 });
+  const brain = buildAccountBusinessContext(businessProfile, { maxCapabilities: 8 });
   return `${base}\n\n${brain}\n\n${ANTI_CLAIM}`;
 }

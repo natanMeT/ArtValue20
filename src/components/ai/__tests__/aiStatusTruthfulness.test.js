@@ -83,9 +83,9 @@ describe('S1 · Diagnose + Outreach demo wording keys on the Gateway transport',
 
 describe('S1 · locked compatibility — released Gateway calls byte-identical', () => {
   it('the three Assistant lane call expressions are unchanged', () => {
-    expect(assistant.includes('chatJake(convo, withBusinessBrain(activePack.buildContext(data), text))')).toBe(true);
+    expect(assistant.includes('chatJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile))')).toBe(true);
     expect(assistant.includes('forceActionsJake(text, activePack.buildContext(data))')).toBe(true);
-    expect(assistant.includes('draftWithJake(convo, withBusinessBrain(activePack.buildContext(data), text))')).toBe(true);
+    expect(assistant.includes('draftWithJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile))')).toBe(true);
   });
 
   it('Diagnose/Outreach lane call expressions are unchanged and stay off the gateway client', () => {

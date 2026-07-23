@@ -12,6 +12,7 @@ const EMPTY = {
   clients: [], quotes: [], transactions: [], outreachLeads: [],
   projects: [], tasks: [], plinks: [], pfiles: [], comms: [], inventory: [],
   activity: [], // audit log / memory — append-only event trail (last 200)
+  businessProfile: null, // S0D: durable per-account Business Context (null = unconfigured)
   meta: {},
 };
 
@@ -237,6 +238,10 @@ export function reducer(state, action) {
     case 'DELETE_ITEM':
       return { ...state, inventory: (state.inventory || []).filter((i) => i.id !== action.id) };
 
+    // ---- business profile (S0D) ----
+    case 'SAVE_BUSINESS_PROFILE':
+      return { ...state, businessProfile: action.payload };
+
     // ---- communication ----
     case 'ADD_COMM':
       return { ...state, comms: [{ ...action.payload, id: action.payload.id || uid('cm') }, ...(state.comms || [])] };
@@ -389,6 +394,20 @@ export function StoreProvider({ children }) {
         return persist(act, userId).then(
           () => { setData((d) => reducer(d, act)); return { ok: true }; },
           async (e) => { console.error(e); toast('שגיאה בשמירת המשימה לשרת', 'error'); await refetch(); return { ok: false, error: e }; }
+        );
+      }
+
+      // S0D truthful write for the durable Business Context: persist BEFORE the
+      // reducer applies. This is a single-row upsert (not entity CRUD), so it
+      // calls the api directly rather than the persist() entity router — the
+      // editor commits to the store only on { ok: true }; on failure nothing is
+      // applied and we refetch the authoritative state (no false "saved"
+      // profile, no silent local fallback).
+      if (act.type === 'SAVE_BUSINESS_PROFILE') {
+        if (!userId) return Promise.resolve({ ok: false });
+        return api.upsertBusinessProfile(userId, act.payload).then(
+          () => { setData((d) => reducer(d, act)); return { ok: true }; },
+          async (e) => { console.error(e); toast('שגיאה בשמירת ההקשר העסקי לשרת', 'error'); await refetch(); return { ok: false, error: e }; }
         );
       }
 

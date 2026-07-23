@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   BUSINESS_CONTEXT_MARKER, shouldIncludeBusinessBrain, withBusinessBrain,
 } from '../jakeBusinessContext.js';
-import { buildPosterBrief } from '../../data/businessBrain.js';
+import { buildPosterBrief, buildAccountBusinessContext, BUSINESS_CONTEXT_UNCONFIGURED } from '../../data/businessBrain.js';
 
 // ===================================================================
 // jakeBusinessContext — conditional Business Brain grounding for Jake's
@@ -12,6 +12,12 @@ import { buildPosterBrief } from '../../data/businessBrain.js';
 // ===================================================================
 
 const CRM_CONTEXT = '- לקוחות ב-CRM: 12 סה״כ.\n- החודש: הכנסות 5,000 ₪.';
+
+// S0D: sample durable profiles for the account-aware brain, and the set of
+// hardcoded-ArtValue markers that must NEVER appear in the account/neutral brain.
+const PROFILE_A = { businessName: 'סטודיו אלפא', positioning: 'עיצוב מותגים לעסקים קטנים', audiences: ['יזמים'], tone: ['חד'], differentiators: ['מהיר ואישי'], services: [{ name: 'מיתוג', pitch: 'לוגו וזהות ויזואלית' }], brandPalette: { primary: '#112233', accent: '#00FFAA' } };
+const PROFILE_B = { businessName: 'מאפיית בטא', positioning: 'לחם מחמצת יומי טרי', audiences: ['תושבי השכונה'], tone: ['חם'], services: [{ name: 'מאפים' }], brandPalette: { primary: '#AA0000' } };
+const ARTVALUE_MARKERS = ['ArtValue', 'Business Brain', '#d4ff3f', 'השירותים שאנחנו מוכרים'];
 
 describe('shouldIncludeBusinessBrain · router', () => {
   const POSITIVE = [
@@ -74,18 +80,20 @@ describe('withBusinessBrain · append behavior', () => {
     expect(withBusinessBrain(CRM_CONTEXT, buttonPrompt)).toBe(CRM_CONTEXT);
   });
 
-  it('appends the Business Brain AFTER the original CRM context', () => {
+  it('appends the account-aware business context AFTER the original CRM context', () => {
     const out = withBusinessBrain(CRM_CONTEXT, 'תכין לי פוסט על CRM');
     expect(out.startsWith(CRM_CONTEXT)).toBe(true);
     expect(out.length).toBeGreaterThan(CRM_CONTEXT.length);
-    expect(out.indexOf('לקוחות ב-CRM')).toBeLessThan(out.indexOf('ArtValue Business Brain'));
+    expect(out.indexOf('לקוחות ב-CRM')).toBeLessThan(out.indexOf('הקשר עסקי'));
   });
 
-  it('includes the Business Brain header, services and safety block', () => {
+  it('no profile → NEUTRAL unconfigured block, universal capabilities + safety, ZERO ArtValue facts', () => {
     const out = withBusinessBrain(CRM_CONTEXT, 'תכין לי פוסט על CRM');
-    expect(out).toContain('הקשר עסקי — ArtValue Business Brain');
-    expect(out).toContain('השירותים שאנחנו מוכרים');
-    expect(out).toContain(BUSINESS_CONTEXT_MARKER);
+    expect(out).toContain('הקשר עסקי');
+    expect(out).toContain(BUSINESS_CONTEXT_UNCONFIGURED);
+    expect(out).toContain('יכולות המערכת');   // universal product capabilities kept
+    expect(out).toContain(BUSINESS_CONTEXT_MARKER); // safety kept
+    for (const m of ARTVALUE_MARKERS) expect(out, m).not.toContain(m);
   });
 
   it('includes the anti-claim rule', () => {
@@ -102,12 +110,68 @@ describe('withBusinessBrain · append behavior', () => {
     expect(withBusinessBrain(null, 'כמה לקוחות יש לי?')).toBe('');
     const out = withBusinessBrain(null, 'תכין לי פוסט על CRM');
     expect(typeof out).toBe('string');
-    expect(out).toContain('ArtValue Business Brain');
+    expect(out).toContain(BUSINESS_CONTEXT_UNCONFIGURED);
+    for (const m of ARTVALUE_MARKERS) expect(out, m).not.toContain(m);
   });
 
   it('appended brain block stays bounded (< 3500 chars)', () => {
     const out = withBusinessBrain(CRM_CONTEXT, 'תכין לי פוסט על CRM');
     expect(out.length - CRM_CONTEXT.length).toBeLessThan(3500);
+  });
+});
+
+describe('buildAccountBusinessContext · account-aware / neutral / isolation (S0D)', () => {
+  it('valid profile → only that account\'s approved facts; ZERO ArtValue facts', () => {
+    const out = buildAccountBusinessContext(PROFILE_A);
+    expect(out).toContain('פרופיל העסק (מאושר ע״י המשתמש)');
+    expect(out).toContain('סטודיו אלפא');
+    expect(out).toContain('עיצוב מותגים לעסקים קטנים');
+    expect(out).toContain('מיתוג');       // service name from the profile
+    expect(out).toContain('#112233');      // palette primary from the profile
+    expect(out).toContain('יכולות המערכת'); // universal capabilities kept
+    expect(out).not.toContain(BUSINESS_CONTEXT_UNCONFIGURED); // configured → not neutral
+    for (const m of ARTVALUE_MARKERS) expect(out, m).not.toContain(m);
+  });
+
+  it('no / malformed profile → neutral unconfigured, ZERO ArtValue facts', () => {
+    for (const bad of [null, undefined, {}, { businessName: '   ' }, { positioning: 'x' }]) {
+      const out = buildAccountBusinessContext(bad);
+      expect(out).toContain(BUSINESS_CONTEXT_UNCONFIGURED);
+      expect(out).toContain('יכולות המערכת');
+      for (const m of ARTVALUE_MARKERS) expect(out, m).not.toContain(m);
+    }
+  });
+
+  it('two different profiles → isolated output (no cross-bleed)', () => {
+    const a = buildAccountBusinessContext(PROFILE_A);
+    const b = buildAccountBusinessContext(PROFILE_B);
+    expect(a).toContain('סטודיו אלפא');
+    expect(a).not.toContain('מאפיית בטא');
+    expect(a).not.toContain('#AA0000');
+    expect(b).toContain('מאפיית בטא');
+    expect(b).not.toContain('סטודיו אלפא');
+    expect(b).not.toContain('#112233');
+  });
+
+  it('withBusinessBrain threads the profile → account facts reach chat/draft; A↔B isolated', () => {
+    const outA = withBusinessBrain(CRM_CONTEXT, 'תכין לי פוסט על CRM', PROFILE_A);
+    const outB = withBusinessBrain(CRM_CONTEXT, 'תכין לי פוסט על CRM', PROFILE_B);
+    expect(outA).toContain('סטודיו אלפא');
+    expect(outA).not.toContain('מאפיית בטא');
+    expect(outB).toContain('מאפיית בטא');
+    expect(outB).not.toContain('סטודיו אלפא');
+    for (const m of ARTVALUE_MARKERS) { expect(outA).not.toContain(m); expect(outB).not.toContain(m); }
+  });
+
+  it('exactly ONE business block (no duplicate durable + hardcoded)', () => {
+    const out = withBusinessBrain(CRM_CONTEXT, 'תכין לי פוסט על CRM', PROFILE_A);
+    expect((out.match(/הקשר עסקי —/g) || []).length).toBe(1);
+    expect(out).not.toContain('Business Brain');
+  });
+
+  it('account brain stays bounded (well under the 12,000-char context contract)', () => {
+    expect(buildAccountBusinessContext(PROFILE_A).length).toBeLessThan(3500);
+    expect(buildAccountBusinessContext(null).length).toBeLessThan(3500);
   });
 });
 
@@ -118,10 +182,15 @@ describe('Assistant wiring (source-level)', () => {
     expect(assistant).toMatch(/import\s*\{\s*withBusinessBrain\s*\}\s*from\s*'[^']*lib\/jakeBusinessContext\.js'/);
   });
 
-  it('wraps exactly the drafting lane and the default chat lane', () => {
-    expect(assistant).toContain('draftWithJake(convo, withBusinessBrain(activePack.buildContext(data), text))');
-    expect(assistant).toContain('chatJake(convo, withBusinessBrain(activePack.buildContext(data), text))');
-    // exactly 2 usages + 1 import line = 3 occurrences, no more
+  it('wraps exactly the drafting + chat lanes, threading the account profile (3-arg)', () => {
+    // S0D: the pinned call gained a 3rd argument — the signed-in account's
+    // durable profile (data.businessProfile). This STRONGER pin proves the
+    // account is threaded into the brain seam, so the account-aware brain
+    // renders THAT account's facts (or neutral) and can never regress to a
+    // hardcoded-only ArtValue brain that would leak to another account.
+    expect(assistant).toContain('draftWithJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile))');
+    expect(assistant).toContain('chatJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile))');
+    // exactly 2 usages + 1 import line = 3 occurrences, no more (3rd ARG adds no token)
     expect((assistant.match(/withBusinessBrain/g) || []).length).toBe(3);
   });
 
