@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useStore } from '../../store/store.jsx';
+import { resolveDisplayName, avatarInitial } from '../../lib/userIdentity.js';
 import Icon from '../ui/Icon.jsx';
 
 const TITLES = {
@@ -29,8 +30,11 @@ const MOTIVATIONS = [
 ];
 
 export default function Topbar({ onMenu }) {
-  const { theme, toggleTheme, supabaseEnabled, signOut, toast } = useStore();
+  const { theme, toggleTheme, supabaseEnabled, signOut, toast, session } = useStore();
   const { pathname } = useLocation();
+  // S0C: identity comes from the signed-in session, never a hardcoded person.
+  const displayName = resolveDisplayName(session);
+  const userEmail = (session && session.user && session.user.email) || '';
   const meta = TITLES[pathname] || (pathname.startsWith('/projects/') ? { title: 'תיק פרויקט', sub: 'ניהול עבודה, משימות וקבצים' } : TITLES['/']);
 
   const [motiv, setMotiv] = useState(0);
@@ -67,10 +71,10 @@ export default function Topbar({ onMenu }) {
         )}
         <div className="topbar-user">
           <div className="topbar-user-text">
-            <p className="u-name">נתן תורג׳מן</p>
-            <p className="u-role">מנהל מערכת</p>
+            <p className="u-name">{displayName}</p>
+            {userEmail ? <p className="u-role">{userEmail}</p> : null}
           </div>
-          <div className="avatar avatar-glow" title="נתן תורג'מן"><span>נ</span></div>
+          <div className="avatar avatar-glow" title={displayName}><span>{avatarInitial(session)}</span></div>
         </div>
       </div>
     </header>

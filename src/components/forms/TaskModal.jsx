@@ -4,13 +4,17 @@ import { TASK_STATUS, TASK_PRIORITY } from '../../data/studio.js';
 
 const empty = {
   title: '', projectId: '', clientId: '', status: 'new', priority: 'normal',
-  deadline: '', assignee: 'נתן', linkRef: '', notes: '',
+  deadline: '', assignee: '', linkRef: '', notes: '',
 };
 
 // S0B: a task may be project-linked, directly client-linked, or standalone.
 // `clients` is optional — the frozen ProjectDetail caller does not pass it, so
 // the client picker only appears where a clients list is provided (e.g. Tasks).
-export default function TaskModal({ open, onClose, onSave, projects, clients = [], initial, lockProjectId }) {
+// S0C: `defaultAssignee` seeds NEW tasks with the signed-in user's display name
+// (callers pass the session-resolved name); editing keeps the task's own value.
+// P2 fix: when a caller omits the prop (e.g. the frozen ProjectDetail caller),
+// fall back to the LOCKED NEUTRAL name 'משתמש' — never blank, never a person.
+export default function TaskModal({ open, onClose, onSave, projects, clients = [], initial, lockProjectId, defaultAssignee = 'משתמש' }) {
   const [form, setForm] = useState(empty);
   const [err, setErr] = useState(false);
 
@@ -21,11 +25,11 @@ export default function TaskModal({ open, onClose, onSave, projects, clients = [
       } else {
         const projectId = lockProjectId || projects[0]?.id || '';
         const proj = projects.find((p) => p.id === projectId);
-        setForm({ ...empty, projectId, clientId: proj?.clientId || '' });
+        setForm({ ...empty, assignee: defaultAssignee, projectId, clientId: proj?.clientId || '' });
       }
       setErr(false);
     }
-  }, [open, initial, lockProjectId, projects]);
+  }, [open, initial, lockProjectId, projects, defaultAssignee]);
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   // Selecting a project defaults the task's client to that project's client

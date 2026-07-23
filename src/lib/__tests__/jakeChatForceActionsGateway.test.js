@@ -332,8 +332,11 @@ describe('J2 · Assistant confirmation flow integration (source, untouched)', ()
     expect(assistant.includes('extractActions(reply)')).toBe(true);
     expect(assistant.includes('extractActions(forced)')).toBe(true);
     // S0A: the preview card is still built from the parsed actions with no auto-
-    // execution — now from the durable (allowed) subset after beta containment.
-    expect(assistant.includes('preview: { actions: allowedActions, items }')).toBe(true);
+    // execution — the durable (allowed) subset after beta containment; S0C adds
+    // only an assignee enrichment over that same subset (enrichedActions is a
+    // pure map of allowedActions — same length, same ops, still no execution).
+    expect(assistant.includes('preview: { actions: enrichedActions, items }')).toBe(true);
+    expect(assistant.includes('const enrichedActions = allowedActions.map')).toBe(true);
     expect(assistant.includes('partitionJakeActions(actions, { isCloudBeta: isSupabaseConfigured, clients: data.clients })')).toBe(true);
     // S0A finding 4 — mixed batch: model prose is suppressed when any action is
     // blocked, so a "הוספתי לקוח ומשימה" claim can't survive a blocked task.

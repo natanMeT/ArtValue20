@@ -500,7 +500,11 @@ export const ACTION_HANDLERS = {
     const title = a.title || a.name;
     if (!title) { logs.push('⚠️ לא צוין שם משימה'); return; }
     const p = a.project ? findProject(work, a.project) : null;
-    const payload = { id: genId(), title: String(title).trim(), projectId: p?.id || null, clientId: p?.clientId || null, status: normTaskStatus(a.status) || 'new', priority: normTaskPriority(a.priority) || 'normal', deadline: a.deadline || '', assignee: a.assignee || 'נתן', linkRef: '', notes: a.notes || '' };
+    // S0C: assignee normally arrives enriched with the ACTIVE account's display
+    // name (Assistant enriches un-assigned add_task actions before the proposal
+    // card). The last-resort fallback is the locked NEUTRAL name — never a
+    // hardcoded person.
+    const payload = { id: genId(), title: String(title).trim(), projectId: p?.id || null, clientId: p?.clientId || null, status: normTaskStatus(a.status) || 'new', priority: normTaskPriority(a.priority) || 'normal', deadline: a.deadline || '', assignee: a.assignee || 'משתמש', linkRef: '', notes: a.notes || '' };
     dispatch({ type: 'ADD_TASK', payload }); work.tasks.unshift(payload);
     logs.push(`✓ נוספה משימה: ${payload.title}`);
   },

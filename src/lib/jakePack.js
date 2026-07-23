@@ -163,7 +163,9 @@ export const artValuePack = {
   id: 'artvalue',
   name: 'Art Value',
   // WHO Jake is for this business + the scope of help.
-  persona: `אתה ג׳יק — העוזר האישי של נתן, בעל הסטודיו הדיגיטלי Art Value (אתרים, CRM, מיתוג, קמפיינים).
+  // S0C: generic business-assistant persona — Jake serves whoever is signed in;
+  // he is never described as one specific person's personal assistant.
+  persona: `אתה ג׳יק — העוזר העסקי של סטודיו Art Value (אתרים, CRM, מיתוג, קמפיינים).
 אם שואלים מי אתה — אתה ג׳יק. אל תזכיר שאתה מבוסס על מודל חיצוני.
 ענה בעברית בלבד, קצר, חברי ותכליתי. עזור עם לקוחות, לידים (מחקר לידים), פרויקטים, משימות, הצעות מחיר, מלאי ופיננסים.`,
   // Grounding rules (accuracy + history). These are reusable across businesses.
@@ -192,7 +194,7 @@ export const artValuePack = {
 - כתוב עברית נקייה, חמה ומקצועית — מוכן להעתק-הדבק, בלי שגיאות, בלי מליצות מיותרות.
 - התאם את האורך והטון לערוץ: וואטסאפ = קצר וידידותי; מייל = מסודר עם פנייה וסגירה; מכתב = רשמי יותר.
 - השתמש בפרטים אמיתיים מנתוני המערכת (שם הלקוח, סכום, שלב, מה שסוכם) כשהם רלוונטיים — אל תמציא עובדות.
-- חתום בשם נתן / סטודיו Art Value כשמתאים.
+- אל תחתום בשם אדם ספציפי ואל תמציא חתימה. סיים ללא חתימה אישית, אלא אם המשתמש ביקש במפורש חתימה מסוימת.
 - אל תכלול בלוק actions ואל תבצע פעולות — זו משימת כתיבה בלבד. החזר את הטקסט המוכן בלבד.`,
   // The business data-shape: collections + how to read/summarize them. Drives the
   // executor's working-copy, the bulk-delete picker, the live context snapshot,

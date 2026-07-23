@@ -22,10 +22,16 @@ import { exportPosterPng } from './posterExport.js';
 import { persistableChatMessages } from './chatPersistence.js';
 import { dashboardKpis, inventoryTotals, lowStockItems } from '../../lib/calc.js';
 import { formatCurrency } from '../../lib/format.js';
+import { resolveDisplayName, userScopeKey } from '../../lib/userIdentity.js';
 
 const GREETING = 'שלום! אני ג׳יק, העוזר האישי שלך. אני יודע כל מספר במערכת, יכול לנסח לך מכתבים והודעות, ולבצע פעולות — כל פעולה אציג לך לאישור לפני הביצוע. מה נעשה?';
 const SUGGESTIONS = ['מה חשוב היום?', 'הוסף לקוח דני כהן, ליד, 3000 ₪', 'נסח הודעת וואטסאפ ללקוח'];
-const CHAT_KEY = 'artvalue_jake_chat';
+// S0C: per-user Jake state. Keys are scoped by the stable session user.id via
+// userScopeKey — the PRE-S0C device-global keys ('artvalue_jake_chat' /
+// 'artvalue_jake_brief_date') are legacy and are never read, migrated or
+// deleted, so a shared device can never show one account's chat to another.
+const CHAT_KEY_BASE = 'artvalue_jake_chat';
+const BRIEF_DATE_KEY_BASE = 'artvalue_jake_brief_date';
 // Authorization code required before any BULK delete (e.g. "מחק את כל המלאי").
 const CONFIRM_CODE = '123456';
 
@@ -380,13 +386,17 @@ function isBriefingRequest(text) {
 
 // phases: sit (resting) → walkout → look → idle (reminder) / chatting (chat) → walkback → sit
 export default function Assistant() {
-  const { data, dispatch, toast } = useStore();
+  const { data, dispatch, toast, session } = useStore();
   const navigate = useNavigate();
+  // S0C: the active account's scoped storage keys (never the bare legacy keys).
+  const chatKey = userScopeKey(CHAT_KEY_BASE, session);
+  const briefDateKey = userScopeKey(BRIEF_DATE_KEY_BASE, session);
+  const displayName = resolveDisplayName(session);
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState('sit');
   const [messages, setMessages] = useState(() => {
     try {
-      const raw = localStorage.getItem(CHAT_KEY);
+      const raw = localStorage.getItem(chatKey);
       // Drop any transient progress card a buggy build may have persisted, so a
       // reload never restores a stuck in-progress card.
       if (raw) { const arr = persistableChatMessages(JSON.parse(raw)); if (arr.length) return arr; }
@@ -406,7 +416,7 @@ export default function Assistant() {
   const dataRef = useRef(data);
   dataRef.current = data;
   const creativeRef = useRef(null);
-  if (!creativeRef.current) creativeRef.current = createArtValueCreative({ getData: () => dataRef.current, user: 'נתן' });
+  if (!creativeRef.current) creativeRef.current = createArtValueCreative({ getData: () => dataRef.current, user: displayName });
   const timers = useRef([]);
   const dismissRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -427,12 +437,31 @@ export default function Assistant() {
   // Persist the conversation so ג'יק keeps memory across sessions (cap last 60).
   // Live progress cards are transient UI state and are excluded — persisting one
   // would restore a stuck in-progress card (no callback/interval) after reload.
+  // S0C: chatKeyRef tracks which account's key the in-memory messages belong to.
+  // The save effect is guarded by it (and MUST run before the account-switch
+  // loader below) so an account switch never writes the previous account's
+  // chat into the new account's scoped key.
+  const chatKeyRef = useRef(chatKey);
   useEffect(() => {
-    try { localStorage.setItem(CHAT_KEY, JSON.stringify(persistableChatMessages(messages).slice(-60))); } catch { /* ignore */ }
-  }, [messages]);
+    if (chatKeyRef.current !== chatKey) return; // messages belong to the previous account
+    try { localStorage.setItem(chatKey, JSON.stringify(persistableChatMessages(messages).slice(-60))); } catch { /* ignore */ }
+  }, [messages, chatKey]);
+
+  // Account switch (sign-out/in on the same device): load the NEW account's own
+  // chat bucket — never the legacy device-global key, never another account's.
+  useEffect(() => {
+    if (chatKeyRef.current === chatKey) return;
+    chatKeyRef.current = chatKey;
+    let loaded = null;
+    try {
+      const raw = localStorage.getItem(chatKey);
+      if (raw) { const arr = persistableChatMessages(JSON.parse(raw)); if (arr.length) loaded = arr; }
+    } catch { /* ignore */ }
+    setMessages(loaded || [{ role: 'assistant', text: GREETING }]);
+  }, [chatKey]);
 
   const clearChat = () => {
-    try { localStorage.removeItem(CHAT_KEY); } catch { /* ignore */ }
+    try { localStorage.removeItem(chatKey); } catch { /* ignore */ }
     setMessages([{ role: 'assistant', text: GREETING }]);
   };
 
@@ -651,17 +680,19 @@ export default function Assistant() {
     return () => { clearTimeout(first); clearInterval(iv); };
   }, [phase]);
 
-  // Proactive MORNING BRIEFING: the first time ג׳יק opens each day, he greets נתן
-  // with the deterministic briefing (overdue / money owed / today) — unprompted.
+  // Proactive MORNING BRIEFING: the first time ג׳יק opens each day, he greets the
+  // signed-in user with the deterministic briefing (overdue / money owed / today)
+  // — unprompted. S0C: the once-a-day marker is scoped per account, so each user
+  // gets their own daily brief on a shared device.
   useEffect(() => {
     if (!open) return;
     try {
       const today = new Date().toDateString();
-      if (localStorage.getItem('artvalue_jake_brief_date') === today) return;
-      localStorage.setItem('artvalue_jake_brief_date', today);
+      if (localStorage.getItem(briefDateKey) === today) return;
+      localStorage.setItem(briefDateKey, today);
       const h = new Date().getHours();
       const greet = h < 12 ? 'בוקר טוב' : h < 18 ? 'צהריים טובים' : 'ערב טוב';
-      setMessages((m) => [...m, { role: 'assistant', text: `${greet}, נתן! 👋\n\n${activePack.briefing(data)}` }]);
+      setMessages((m) => [...m, { role: 'assistant', text: `${greet}, ${displayName}! 👋\n\n${activePack.briefing(data)}` }]);
     } catch { /* ignore */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -918,8 +949,8 @@ export default function Assistant() {
     }
 
     // 5) Chat → PROPOSE → CONFIRM → EXECUTE. The model PROPOSES actions; nothing
-    // touches the store until נתן approves the card. (The frozen Creative engine is
-    // untouched — this is pure Jake orchestration.)
+    // touches the store until the user approves the card. (The frozen Creative
+    // engine is untouched — this is pure Jake orchestration.)
     setLoading(true);
     try {
       // Caller-owned conversation selection (M2 J2 hotfix): same textual/non-
@@ -947,7 +978,18 @@ export default function Assistant() {
       // never yield a fake ✓.
       const { allowed: allowedActions, blocked, message: betaMsg } = partitionJakeActions(actions, { isCloudBeta: isSupabaseConfigured, clients: data.clients });
 
-      if (allowedActions.length) {
+      // S0C: a Jake add_task with NO explicit assignee follows the ACTIVE
+      // account. Enrich ONCE here — the same enriched objects feed the
+      // proposal card (preview.actions) and, on approval, executeActions —
+      // so what the user approves is exactly what persists. An explicit
+      // assignee from the user is never overridden.
+      const enrichedActions = allowedActions.map((a) => (
+        a && a.op === 'add_task' && !(typeof a.assignee === 'string' && a.assignee.trim())
+          ? { ...a, assignee: displayName }
+          : a
+      ));
+
+      if (enrichedActions.length) {
         // MIXED-BATCH SAFETY: when the same reply also contains blocked actions,
         // suppress the model's free prose entirely — it may claim the blocked
         // action completed ("הוספתי לקוח ומשימה"). The deterministic confirm card
@@ -958,8 +1000,8 @@ export default function Assistant() {
           const proposal = (clean || '').replace(/\s*[✓✅]\s*/g, ' ').trim();
           if (proposal) { setMessages((m) => [...m, { role: 'assistant', text: proposal }]); speak(proposal); }
         }
-        const items = describeActions(allowedActions, data);
-        setMessages((m) => [...m, { role: 'assistant', preview: { actions: allowedActions, items } }]);
+        const items = describeActions(enrichedActions, data);
+        setMessages((m) => [...m, { role: 'assistant', preview: { actions: enrichedActions, items } }]);
       } else if (!blocked.length) {
         // Pure prose / info answer — no actions at all.
         const body = clean || reply;
