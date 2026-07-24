@@ -113,7 +113,23 @@ export default function Settings() {
           </ScrollReveal>
         )}
 
-        {/* Business Context (S0D) — per-account business facts Jake uses */}
+        {/* Business Context (S0D) — per-account business facts Jake uses.
+            S0E: a guided wizard is available alongside the granular editor. */}
+        {supabaseEnabled && (
+          <ScrollReveal delay={0.005}>
+            <div className="card panel">
+              <div className="row between wrap" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>אשף הקמת העסק</div>
+                  <div className="dim" style={{ fontSize: '0.84rem' }}>הגדרה מודרכת שלב-אחר-שלב. אפשר גם לערוך ידנית למטה בכל עת.</div>
+                </div>
+                <button className="btn btn-primary" onClick={() => window.dispatchEvent(new CustomEvent('onboarding:open'))}>
+                  <Icon name="spark" size={16} /> פתח אשף הקמה
+                </button>
+              </div>
+            </div>
+          </ScrollReveal>
+        )}
         <ScrollReveal delay={0.01}>
           <BusinessContextEditor />
         </ScrollReveal>

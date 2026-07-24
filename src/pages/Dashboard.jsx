@@ -10,6 +10,7 @@ import { FinancialBars, GaugeDonut, DonutChart, DONUT_COLORS } from '../componen
 import { dashboardKpis, monthlySeries, clientBreakdown, momChange, quoteTotal, financeTotals } from '../lib/calc.js';
 import { formatCurrency, formatCompact, relativeTime } from '../lib/format.js';
 import { resolveDisplayName, avatarInitial } from '../lib/userIdentity.js';
+import { shouldShowSetupBanner } from '../lib/onboarding.js';
 
 const STATUS_NAMES = { lead: 'לידים', active: 'פעילים', completed: 'הושלמו', lost: 'אבודים' };
 
@@ -34,10 +35,13 @@ function KpiRich({ label, value, money = true, decimals = 0, icon, accent, delta
 }
 
 export default function Dashboard() {
-  const { data, session } = useStore();
+  const { data, session, supabaseEnabled } = useStore();
   const navigate = useNavigate();
   // S0C: greeting + assignee identity follow the signed-in account.
   const displayName = resolveDisplayName(session);
+  // S0E: persistent setup banner while the durable business profile is
+  // incomplete (cloud mode only — a profile can only be saved when signed in).
+  const showSetup = supabaseEnabled && shouldShowSetupBanner(data.businessProfile);
 
   const kpis = useMemo(() => dashboardKpis(data), [data]);
   const series = useMemo(() => monthlySeries(data.transactions, 12), [data.transactions]);
@@ -88,6 +92,29 @@ export default function Dashboard() {
 
   return (
     <div>
+      {/* S0E: guided-onboarding setup banner — stays until the durable profile
+          passes the completion predicate; opens/resumes the wizard on click. */}
+      {showSetup && (
+        <motion.div
+          className="card panel"
+          initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
+          style={{ marginBottom: 16, borderColor: 'rgba(212,255,63,0.35)', background: 'color-mix(in srgb, var(--surface) 88%, #d4ff3f 12%)' }}
+        >
+          <div className="row between wrap" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div className="row gap-3" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span className="kpi-ico"><Icon name="spark" size={18} style={{ color: 'var(--lime-deep)' }} /></span>
+              <div>
+                <div style={{ fontWeight: 700 }}>בוא נגדיר את העסק שלך</div>
+                <div className="dim" style={{ fontSize: '0.84rem' }}>הגדרה קצרה מאפשרת לג׳יק לעבוד לפי העסק שלך. אפשר להשלים עכשיו או בהמשך.</div>
+              </div>
+            </div>
+            <button className="btn btn-primary" onClick={() => window.dispatchEvent(new CustomEvent('onboarding:open'))}>
+              <Icon name="arrow" size={16} /> להגדרת העסק
+            </button>
+          </div>
+        </motion.div>
+      )}
+
       {/* Hero greeting */}
       <motion.section className="hero-greeting" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1.44, ease: [0.16, 1, 0.3, 1] }}>
         <div>
