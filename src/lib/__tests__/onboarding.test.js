@@ -2,11 +2,13 @@ import { describe, it, expect } from 'vitest';
 import {
   ONBOARDING_STEPS, ONBOARDING_FIRST_VALUE_PROMPT,
   isOnboardingComplete, shouldShowSetupBanner, determineFirstIncompleteStep,
-  computeAutoOpen, canFinalizeSave, profileBaselineSignature,
+  computeAutoOpen, computeHydrationReady, canFinalizeSave, profileBaselineSignature,
+  stepForField, firstErrorStep,
   onboardingDraftKey, onboardingDismissKey,
   loadOnboardingDraft, saveOnboardingDraft, clearOnboardingLocal,
   isAutoOpenDismissed, setAutoOpenDismissed,
 } from '../onboarding.js';
+import { validateBusinessProfile, BUSINESS_PROFILE_LIMITS } from '../businessProfile.js';
 
 // ===================================================================
 // onboarding (S0E · M1+M2) — PURE helpers. No DOM renderer in this repo, so
@@ -258,5 +260,94 @@ describe('completion is derived from the durable profile, never from a draft', (
     saveOnboardingDraft(sessA, complete, null, s); // draft looks complete...
     expect(isOnboardingComplete(null)).toBe(false); // ...but the durable profile is null → not complete
     expect(shouldShowSetupBanner(null)).toBe(true);
+  });
+});
+
+// P2 CORRECTION 1 — require SUCCESSFUL hydration (no store error) before offering.
+describe('computeHydrationReady', () => {
+  const base = { supabaseEnabled: true, authReady: true, loading: false, session: sessA, error: null };
+  it('successful hydration → true (and auto-open allowed for an incomplete profile)', () => {
+    const ready = computeHydrationReady(base);
+    expect(ready).toBe(true);
+    expect(computeAutoOpen({ hydrationReady: ready, profile: null, dismissed: false })).toBe(true);
+  });
+  it('loading → blocked', () => { expect(computeHydrationReady({ ...base, loading: true })).toBe(false); });
+  it('auth not ready → blocked', () => { expect(computeHydrationReady({ ...base, authReady: false })).toBe(false); });
+  it('session absent → blocked', () => { expect(computeHydrationReady({ ...base, session: null })).toBe(false); });
+  it('not cloud mode → blocked', () => { expect(computeHydrationReady({ ...base, supabaseEnabled: false })).toBe(false); });
+  it('hydration error + empty profile → NOT ready → no auto-open, no banner', () => {
+    const ready = computeHydrationReady({ ...base, error: 'שגיאת טעינה' });
+    expect(ready).toBe(false);
+    expect(computeAutoOpen({ hydrationReady: ready, profile: null, dismissed: false })).toBe(false);
+  });
+  it('after the error clears → normal evaluation works again', () => {
+    expect(computeHydrationReady({ ...base, error: 'x' })).toBe(false);
+    expect(computeHydrationReady({ ...base, error: null })).toBe(true);
+  });
+  it('complete profile still bypasses even when hydrated', () => {
+    expect(computeAutoOpen({ hydrationReady: computeHydrationReady(base), profile: complete, dismissed: false })).toBe(false);
+  });
+});
+
+// P2 CORRECTION 2 — route validator errors to the owning step (unknown → Review).
+describe('stepForField', () => {
+  it('maps each validator field to its step', () => {
+    expect(stepForField('businessName')).toBe(ONBOARDING_STEPS.indexOf('identity'));
+    expect(stepForField('positioning')).toBe(ONBOARDING_STEPS.indexOf('identity'));
+    expect(stepForField('services')).toBe(ONBOARDING_STEPS.indexOf('offer'));
+    for (const k of ['audiences', 'tone', 'differentiators']) expect(stepForField(k)).toBe(ONBOARDING_STEPS.indexOf('audience'));
+    for (const r of ['primary', 'secondary', 'accent', 'neutral1', 'neutral2']) expect(stepForField(`palette.${r}`)).toBe(ONBOARDING_STEPS.indexOf('brand'));
+  });
+  it('unknown field → Review', () => { expect(stepForField('whatever')).toBe(ONBOARDING_STEPS.indexOf('review')); });
+});
+
+describe('firstErrorStep', () => {
+  it('no errors → -1', () => { expect(firstErrorStep([])).toBe(-1); expect(firstErrorStep(null)).toBe(-1); });
+  it('single field → its step', () => {
+    expect(firstErrorStep([{ field: 'businessName' }])).toBe(ONBOARDING_STEPS.indexOf('identity'));
+    expect(firstErrorStep([{ field: 'services' }])).toBe(ONBOARDING_STEPS.indexOf('offer'));
+    expect(firstErrorStep([{ field: 'tone' }])).toBe(ONBOARDING_STEPS.indexOf('audience'));
+    expect(firstErrorStep([{ field: 'palette.secondary' }])).toBe(ONBOARDING_STEPS.indexOf('brand'));
+  });
+  it('only unknown fields → Review', () => { expect(firstErrorStep([{ field: 'weird' }])).toBe(ONBOARDING_STEPS.indexOf('review')); });
+  it('the EARLIEST affected step wins', () => {
+    expect(firstErrorStep([{ field: 'palette.primary' }, { field: 'businessName' }])).toBe(ONBOARDING_STEPS.indexOf('identity'));
+    expect(firstErrorStep([{ field: 'weird' }, { field: 'services' }])).toBe(ONBOARDING_STEPS.indexOf('offer'));
+  });
+});
+
+// Reviewer's concrete cases: the REAL S0D validator + routing land on the right step.
+describe('validator error → step routing (reviewer cases)', () => {
+  const L = BUSINESS_PROFILE_LIMITS;
+  const routeOf = (raw) => firstErrorStep(validateBusinessProfile(raw).errors);
+  const IDENTITY = ONBOARDING_STEPS.indexOf('identity');
+  const OFFER = ONBOARDING_STEPS.indexOf('offer');
+  const AUDIENCE = ONBOARDING_STEPS.indexOf('audience');
+  const BRAND = ONBOARDING_STEPS.indexOf('brand');
+
+  it('81–100 char business name → Identity', () => { expect(routeOf({ businessName: 'x'.repeat(90) })).toBe(IDENTITY); });
+  it('overlong positioning → Identity', () => { expect(routeOf({ businessName: 'עסק', positioning: 'p'.repeat(L.positioning + 5) })).toBe(IDENTITY); });
+  it('overlong service name → Offer', () => { expect(routeOf({ businessName: 'עסק', services: [{ name: 'n'.repeat(L.services.name + 5) }] })).toBe(OFFER); });
+  it('overlong service pitch → Offer', () => { expect(routeOf({ businessName: 'עסק', services: [{ name: 'ok', pitch: 'p'.repeat(L.services.pitch + 5) }] })).toBe(OFFER); });
+  it('pitch-only service → Offer', () => { expect(routeOf({ businessName: 'עסק', services: [{ pitch: 'תיאור בלבד' }] })).toBe(OFFER); });
+  it('overlong audience/tone/differentiator → Customers & voice', () => {
+    expect(routeOf({ businessName: 'עסק', audiences: ['a'.repeat(L.audiences.each + 5)] })).toBe(AUDIENCE);
+    expect(routeOf({ businessName: 'עסק', tone: ['t'.repeat(L.tone.each + 5)] })).toBe(AUDIENCE);
+    expect(routeOf({ businessName: 'עסק', differentiators: ['d'.repeat(L.differentiators.each + 5)] })).toBe(AUDIENCE);
+  });
+  it('secondary/accent without primary → Brand (primary-required error)', () => {
+    const { errors } = validateBusinessProfile({ businessName: 'עסק', brandPalette: { secondary: '#123456' } });
+    expect(errors.some((e) => e.field === 'palette.primary')).toBe(true);
+    expect(firstErrorStep(errors)).toBe(BRAND);
+  });
+  it('invalid HEX → Brand (that role)', () => {
+    const { errors } = validateBusinessProfile({ businessName: 'עסק', brandPalette: { primary: 'nothex' } });
+    expect(errors.some((e) => e.field === 'palette.primary')).toBe(true);
+    expect(firstErrorStep(errors)).toBe(BRAND);
+  });
+  it('valid data → no errors → reaches the save path', () => {
+    const { ok, errors } = validateBusinessProfile({ businessName: 'עסק', positioning: 'מיצוב', services: [{ name: 'שירות' }] });
+    expect(ok).toBe(true);
+    expect(firstErrorStep(errors)).toBe(-1);
   });
 });

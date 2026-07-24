@@ -8,7 +8,8 @@ import {
 import { fromProfile } from '../settings/BusinessContextEditor.jsx';
 import {
   ONBOARDING_STEPS, ONBOARDING_FIRST_VALUE_PROMPT, isOnboardingComplete, determineFirstIncompleteStep,
-  computeAutoOpen, canFinalizeSave, loadOnboardingDraft, saveOnboardingDraft, clearOnboardingLocal,
+  computeAutoOpen, computeHydrationReady, canFinalizeSave, firstErrorStep, stepForField,
+  loadOnboardingDraft, saveOnboardingDraft, clearOnboardingLocal,
   isAutoOpenDismissed, setAutoOpenDismissed,
 } from '../../lib/onboarding.js';
 
@@ -94,16 +95,23 @@ function OnboardingWizard({ startStep, session, profile, dispatch, toast, onDism
   }, [form, done, session, profile]);
 
   const errorFor = (field) => (errors.find((e) => e.field === field) || {}).message;
+  // Clear a stale displayed validator error for a field/group when the user edits
+  // it (the authoritative re-check still happens on the next confirm()).
+  const clearError = (field) => setErrors((es) => (es.length ? es.filter((e) => e.field !== field) : es));
 
   // ---- field helpers (presentation only; validation stays in the S0D validator) ----
-  const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-  const addListItem = (k) => setForm((f) => ({ ...f, [k]: [...f[k], ''] }));
-  const setListItem = (k, i, v) => setForm((f) => ({ ...f, [k]: f[k].map((x, j) => (j === i ? v : x)) }));
-  const removeListItem = (k, i) => setForm((f) => ({ ...f, [k]: f[k].filter((_, j) => j !== i) }));
-  const addService = () => setForm((f) => ({ ...f, services: [...f.services, { name: '', pitch: '' }] }));
-  const setService = (i, key, v) => setForm((f) => ({ ...f, services: f.services.map((s, j) => (j === i ? { ...s, [key]: v } : s)) }));
-  const removeService = (i) => setForm((f) => ({ ...f, services: f.services.filter((_, j) => j !== i) }));
-  const setColor = (role, v) => setForm((f) => ({ ...f, brandPalette: { ...f.brandPalette, [role]: v } }));
+  // Editing a field clears its own stale error group: businessName/positioning
+  // individually; services as one group; each list field as its group; a palette
+  // role by its `palette.<role>` field (so correcting primary also clears the
+  // primary-required error, which the validator emits as `palette.primary`).
+  const setField = (k, v) => { setForm((f) => ({ ...f, [k]: v })); clearError(k); };
+  const addListItem = (k) => { setForm((f) => ({ ...f, [k]: [...f[k], ''] })); clearError(k); };
+  const setListItem = (k, i, v) => { setForm((f) => ({ ...f, [k]: f[k].map((x, j) => (j === i ? v : x)) })); clearError(k); };
+  const removeListItem = (k, i) => { setForm((f) => ({ ...f, [k]: f[k].filter((_, j) => j !== i) })); clearError(k); };
+  const addService = () => { setForm((f) => ({ ...f, services: [...f.services, { name: '', pitch: '' }] })); clearError('services'); };
+  const setService = (i, key, v) => { setForm((f) => ({ ...f, services: f.services.map((s, j) => (j === i ? { ...s, [key]: v } : s)) })); clearError('services'); };
+  const removeService = (i) => { setForm((f) => ({ ...f, services: f.services.filter((_, j) => j !== i) })); clearError('services'); };
+  const setColor = (role, v) => { setForm((f) => ({ ...f, brandPalette: { ...f.brandPalette, [role]: v } })); clearError(`palette.${role}`); };
 
   const identityOk = !!str(form.businessName) && !!str(form.positioning);
   const offerOk = form.services.some((s) => str(s.name));
@@ -113,12 +121,27 @@ function OnboardingWizard({ startStep, session, profile, dispatch, toast, onDism
   const back = () => { setSaveFailed(false); setStep((s) => Math.max(s - 1, 0)); };
 
   const confirm = async () => {
-    // Authoritative validation through the SAME shared S0D boundary.
+    // Authoritative validation through the SAME shared S0D boundary. On failure,
+    // keep the validator's exact {field,message} errors and jump to the first
+    // affected step so the user sees the specific message next to the field.
     const { ok, errors: errs, value } = validateBusinessProfile(form);
-    if (!ok) { setErrors(errs); toast('יש לתקן את השדות המסומנים', 'error'); return; }
-    // Truthful floor guard (also enforced by the stepped Next gates).
+    if (!ok) {
+      setErrors(errs);
+      const target = firstErrorStep(errs);
+      if (target >= 0) setStep(target);
+      toast('יש לתקן את השדות המסומנים', 'error');
+      return;
+    }
+    // Truthful floor guard (also enforced by the stepped Next gates) — mapped to
+    // the concrete field/step so the message lands where it can be fixed.
     if (!isOnboardingComplete(value)) {
-      setErrors([{ field: 'floor', message: 'צריך שם עסק, מיצוב ולפחות שירות אחד עם שם.' }]);
+      const floorErrs = [];
+      if (!str(value.positioning)) floorErrs.push({ field: 'positioning', message: 'צריך למלא מיצוב (משפט אחד).' });
+      if (!value.services.some((s) => str(s.name))) floorErrs.push({ field: 'services', message: 'צריך לפחות שירות אחד עם שם.' });
+      setErrors(floorErrs);
+      const target = firstErrorStep(floorErrs);
+      if (target >= 0) setStep(target);
+      toast('חסרים שדות חובה', 'error');
       return;
     }
     setErrors([]); setSaveFailed(false); setBusy(true);
@@ -195,13 +218,15 @@ function OnboardingWizard({ startStep, session, profile, dispatch, toast, onDism
               <label>שם העסק <span style={{ color: 'var(--danger, #e5484d)' }}>*</span></label>
               <input className="input" value={form.businessName} maxLength={L.businessName + 20}
                 onChange={(e) => setField('businessName', e.target.value)} placeholder="שם העסק שלך" />
+              {errorFor('businessName') && <div className="ai-gate-err">{errorFor('businessName')}</div>}
             </div>
             <div className="field">
               <label>מיצוב — מה העסק עושה ולמי, במשפט אחד <span style={{ color: 'var(--danger, #e5484d)' }}>*</span></label>
               <textarea className="input" rows={2} value={form.positioning}
                 onChange={(e) => setField('positioning', e.target.value)} placeholder="למשל: סטודיו מיתוג לעסקים קטנים בצפון" />
+              {errorFor('positioning') && <div className="ai-gate-err">{errorFor('positioning')}</div>}
             </div>
-            {!identityOk && <p className="dim" style={{ fontSize: '0.8rem' }}>שם העסק והמיצוב נדרשים כדי להמשיך.</p>}
+            {!identityOk && !errorFor('businessName') && !errorFor('positioning') && <p className="dim" style={{ fontSize: '0.8rem' }}>שם העסק והמיצוב נדרשים כדי להמשיך.</p>}
           </>
         )}
 
@@ -223,7 +248,8 @@ function OnboardingWizard({ startStep, session, profile, dispatch, toast, onDism
                 <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={addService}><Icon name="plus" size={14} /> הוסף שירות</button>
               )}
             </div>
-            {!offerOk && <p className="dim" style={{ fontSize: '0.8rem', marginTop: 8 }}>צריך לפחות שירות אחד עם שם כדי להמשיך.</p>}
+            {errorFor('services') && <div className="ai-gate-err" style={{ marginTop: 8 }}>{errorFor('services')}</div>}
+            {!offerOk && !errorFor('services') && <p className="dim" style={{ fontSize: '0.8rem', marginTop: 8 }}>צריך לפחות שירות אחד עם שם כדי להמשיך.</p>}
           </div>
         )}
 
@@ -246,6 +272,7 @@ function OnboardingWizard({ startStep, session, profile, dispatch, toast, onDism
                       <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => addListItem(k)}><Icon name="plus" size={14} /> הוסף</button>
                     )}
                   </div>
+                  {errorFor(k) && <div className="ai-gate-err">{errorFor(k)}</div>}
                 </div>
               );
             })}
@@ -271,6 +298,7 @@ function OnboardingWizard({ startStep, session, profile, dispatch, toast, onDism
                       style={{ width: 34, height: 30, padding: 0, border: '1px solid var(--border)', borderRadius: 6, background: 'transparent' }} aria-label={`בורר צבע ${role}`} />
                     <input className="input" style={{ width: 130 }} value={raw} placeholder="#RRGGBB" onChange={(e) => setColor(role, e.target.value)} />
                     <span className="dim" style={{ fontSize: '0.8rem', flex: 1 }}>{PALETTE_LABELS[role]}</span>
+                    {errorFor(`palette.${role}`) && <div className="ai-gate-err" style={{ width: '100%' }}>{errorFor(`palette.${role}`)}</div>}
                   </div>
                 );
               })}
@@ -278,13 +306,16 @@ function OnboardingWizard({ startStep, session, profile, dispatch, toast, onDism
           </div>
         )}
 
-        {/* Step 5 — Review & confirm */}
+        {/* Step 5 — Review & confirm. Known-field errors are shown on their own
+            steps (confirm() jumps there); only unknown validator fields surface
+            their exact message here. */}
         {meta.id === 'review' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <p className="dim" style={{ fontSize: '0.84rem', lineHeight: 1.7 }}>זה מה שג׳יק יידע על העסק שלך אחרי השמירה:</p>
             <ReviewSummary form={form} />
-            {errorFor('floor') && <div className="ai-gate-err">{errorFor('floor')}</div>}
-            {errors.length > 0 && !errorFor('floor') && <div className="ai-gate-err">יש שדות לא תקינים — חזור אחורה ותקן אותם.</div>}
+            {errors.filter((e) => stepForField(e.field) === step).map((e, i) => (
+              <div key={`${e.field}-${i}`} className="ai-gate-err">{e.message}</div>
+            ))}
             {saveFailed && <div className="ai-gate-err">השמירה לענן נכשלה — הנתונים שלך נשמרו כאן, אפשר לנסות שוב. לא נקבעה השלמה.</div>}
           </div>
         )}
@@ -325,21 +356,25 @@ function ReviewSummary({ form }) {
 // authoritative store hydration completes.
 // ===================================================================
 export function OnboardingOwner() {
-  const { data, dispatch, toast, session, authReady, loading, supabaseEnabled } = useStore();
+  const { data, dispatch, toast, session, authReady, loading, error, supabaseEnabled } = useStore();
   const profile = data.businessProfile || null;
   const [open, setOpen] = useState(false);
   const [startStep, setStartStep] = useState(0);
   const uid = session?.user?.id || null;
   const autoEvaluated = useRef(undefined); // uid we've already auto-evaluated
 
-  // Cloud mode only: onboarding writes require an authenticated session
-  // (SAVE_BUSINESS_PROFILE no-ops without a uid). Local/demo mode → nothing.
-  const hydrationReady = supabaseEnabled ? (authReady && !loading && !!session) : false;
+  // Cloud mode + SUCCESSFUL hydration only (auth ready, not loading, session,
+  // NO store error). A failed fetchAll leaves an empty fallback profile that is
+  // NOT authoritative — never offer/auto-open onboarding from a load error.
+  const hydrationReady = computeHydrationReady({ supabaseEnabled, authReady, loading, session, error });
+  const readyRef = useRef(hydrationReady);
+  readyRef.current = hydrationReady;
 
-  // Auto-open at most once per uid, AFTER authoritative hydration, only for an
-  // incomplete durable profile this uid has not dismissed.
+  // Auto-open at most once per uid, AFTER successful hydration, only for an
+  // incomplete durable profile this uid has not dismissed. During a hydration
+  // error hydrationReady is false → this returns BEFORE latching the uid, so a
+  // later successful retry re-evaluates normally.
   useEffect(() => {
-    if (!supabaseEnabled) return;
     if (!hydrationReady) return;
     if (autoEvaluated.current === uid) return;
     autoEvaluated.current = uid;
@@ -349,14 +384,16 @@ export function OnboardingOwner() {
       setOpen(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabaseEnabled, hydrationReady, uid]);
+  }, [hydrationReady, uid]);
   // NOTE: no separate latch-reset effect — the `autoEvaluated.current === uid`
   // guard above already re-evaluates on an account switch (old uid !== new uid),
   // and resetting the latch elsewhere would defeat the once-per-uid guarantee.
 
-  // External openers (Dashboard banner, Settings "open wizard").
+  // External openers (Dashboard banner, Settings "open wizard"). Ignored until
+  // hydration is healthy, so a click during a load error never opens the wizard.
   useEffect(() => {
     const onOpen = (e) => {
+      if (!readyRef.current) return;
       const s = e && e.detail && Number.isInteger(e.detail.step) ? e.detail.step : determineFirstIncompleteStep(data.businessProfile || null);
       setStartStep(s);
       setOpen(true);
@@ -365,7 +402,8 @@ export function OnboardingOwner() {
     return () => window.removeEventListener('onboarding:open', onOpen);
   }, [data.businessProfile]);
 
-  if (!supabaseEnabled || !open) return null;
+  // Never render an already-requested wizard while hydration is not healthy.
+  if (!hydrationReady || !open) return null;
 
   return (
     <OnboardingWizard

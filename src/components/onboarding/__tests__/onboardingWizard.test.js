@@ -64,8 +64,8 @@ describe('OnboardingOwner auto-open gating', () => {
   it('decides via the pure computeAutoOpen helper', () => {
     expect(wizard.includes('computeAutoOpen(')).toBe(true);
   });
-  it('only after authoritative hydration (auth ready, not loading, has session)', () => {
-    expect(wizard.includes('authReady && !loading && !!session')).toBe(true);
+  it('only after SUCCESSFUL hydration (via the pure computeHydrationReady helper)', () => {
+    expect(wizard.includes('computeHydrationReady({ supabaseEnabled, authReady, loading, session, error })')).toBe(true);
   });
   it('reads the uid-scoped dismissal flag', () => {
     expect(wizard.includes('isAutoOpenDismissed(session)')).toBe(true);
@@ -73,8 +73,8 @@ describe('OnboardingOwner auto-open gating', () => {
   it('"later"/close sets the uid-scoped dismissal (auto-open suppressed, banner remains)', () => {
     expect(wizard.includes('setAutoOpenDismissed(session)')).toBe(true);
   });
-  it('renders nothing outside cloud mode or when closed', () => {
-    expect(wizard.includes('if (!supabaseEnabled || !open) return null;')).toBe(true);
+  it('renders nothing unless hydration is healthy and the wizard is open', () => {
+    expect(wizard.includes('if (!hydrationReady || !open) return null;')).toBe(true);
   });
   it('STEP_META order matches ONBOARDING_STEPS', () => {
     const order = ['identity', 'offer', 'audience', 'brand', 'review'];
@@ -98,9 +98,10 @@ describe('App wiring + frozen Growth containment', () => {
 
 // Dashboard banner wiring.
 describe('Dashboard setup banner', () => {
-  it('is predicate-driven and cloud-only', () => {
-    expect(dashboard.includes("import { shouldShowSetupBanner } from '../lib/onboarding.js';")).toBe(true);
-    expect(dashboard.includes('supabaseEnabled && shouldShowSetupBanner(data.businessProfile)')).toBe(true);
+  it('is predicate-driven and gated on successful hydration', () => {
+    expect(dashboard.includes("import { shouldShowSetupBanner, computeHydrationReady } from '../lib/onboarding.js';")).toBe(true);
+    expect(dashboard.includes('shouldShowSetupBanner(data.businessProfile)')).toBe(true);
+    expect(dashboard.includes('computeHydrationReady({ supabaseEnabled, authReady, loading, session, error })')).toBe(true);
   });
   it('opens the wizard via the onboarding:open event', () => {
     expect(dashboard.includes("new CustomEvent('onboarding:open')")).toBe(true);
@@ -196,5 +197,65 @@ describe('Assistant jake:prefill seam (additive, no auto-send)', () => {
   });
   it('does not change the Gateway call expression (business-context injection intact)', () => {
     expect(assistant.includes('withBusinessBrain(activePack.buildContext(data), text, data.businessProfile)')).toBe(true);
+  });
+});
+
+// ===================================================================
+// P2 correction pins
+// ===================================================================
+
+// Correction 1 — hydration-error gating across all S0E surfaces.
+describe('S0E surfaces gate on successful hydration (never offer from a load error)', () => {
+  it('owner reads the store error and derives hydrationReady from it', () => {
+    expect(wizard.includes('const { data, dispatch, toast, session, authReady, loading, error, supabaseEnabled } = useStore();')).toBe(true);
+    expect(wizard.includes('const hydrationReady = computeHydrationReady({ supabaseEnabled, authReady, loading, session, error });')).toBe(true);
+  });
+  it('external onboarding:open is ignored until hydration is healthy', () => {
+    expect(wizard.includes('if (!readyRef.current) return;')).toBe(true);
+  });
+  it('the auto-open effect returns BEFORE latching the uid (no latch during an error)', () => {
+    const cIdx = wizard.indexOf('Auto-open at most once per uid');
+    const eff = wizard.slice(cIdx, cIdx + 700);
+    const guardIdx = eff.indexOf('if (!hydrationReady) return;');
+    const latchIdx = eff.indexOf('autoEvaluated.current = uid;');
+    expect(guardIdx).toBeGreaterThanOrEqual(0);
+    expect(latchIdx).toBeGreaterThan(guardIdx);
+  });
+  it('Dashboard banner is gated on computeHydrationReady (not just cloud mode)', () => {
+    expect(dashboard.includes("import { shouldShowSetupBanner, computeHydrationReady } from '../lib/onboarding.js';")).toBe(true);
+    expect(dashboard.includes('computeHydrationReady({ supabaseEnabled, authReady, loading, session, error })')).toBe(true);
+  });
+  it('Settings launcher is gated on computeHydrationReady; the S0D editor stays available', () => {
+    expect(settings.includes('const onboardingReady = computeHydrationReady({ supabaseEnabled, authReady, loading, session, error });')).toBe(true);
+    expect(settings.includes('{onboardingReady && (')).toBe(true);
+    expect(settings.includes('<BusinessContextEditor />')).toBe(true);
+  });
+});
+
+// Correction 2 — field-specific validator errors surfaced on the owning step.
+describe('validation errors routed + shown on the relevant step', () => {
+  it('confirm jumps to the first affected step and keeps the exact validator errors', () => {
+    expect(wizard.includes('setErrors(errs);')).toBe(true);
+    expect(wizard.includes('const target = firstErrorStep(errs);')).toBe(true);
+  });
+  it('each step renders its field-specific validator message', () => {
+    expect(wizard.includes("errorFor('businessName')")).toBe(true);
+    expect(wizard.includes("errorFor('positioning')")).toBe(true);
+    expect(wizard.includes("errorFor('services')")).toBe(true);
+    expect(wizard.includes('errorFor(k)')).toBe(true);
+    expect(wizard.includes('errorFor(`palette.${role}`)')).toBe(true);
+  });
+  it('review surfaces only unknown-field messages (routed to the review step)', () => {
+    expect(wizard.includes('errors.filter((e) => stepForField(e.field) === step)')).toBe(true);
+  });
+  it('editing a field clears its stale error group', () => {
+    expect(wizard.includes('const clearError = (field) =>')).toBe(true);
+    expect(wizard.includes("clearError('services')")).toBe(true);
+    expect(wizard.includes('clearError(`palette.${role}`)')).toBe(true);
+    expect(wizard.includes('clearError(k)')).toBe(true);
+  });
+  it('still uses the S0D validator + truthful save (no duplicated rules)', () => {
+    expect(wizard.includes('validateBusinessProfile(form)')).toBe(true);
+    expect(wizard.includes("dispatch({ type: 'SAVE_BUSINESS_PROFILE', payload: value });")).toBe(true);
   });
 });

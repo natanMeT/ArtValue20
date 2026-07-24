@@ -62,6 +62,47 @@ export function computeAutoOpen({ hydrationReady, profile, dismissed }) {
   return !isOnboardingComplete(profile);
 }
 
+// Hydration is "ready" only when the cloud store has SUCCESSFULLY loaded: cloud
+// mode + auth resolved + not loading + an authenticated session + NO store
+// error. A failed fetchAll sets `error` while still flipping loading→false, so
+// the empty fallback profile must NOT be treated as authoritative — onboarding
+// must never be offered/auto-opened from a load error (it could overwrite an
+// existing profile that simply could not be loaded).
+export function computeHydrationReady({ supabaseEnabled, authReady, loading, session, error } = {}) {
+  if (!supabaseEnabled) return false;
+  if (!authReady) return false;
+  if (loading) return false;
+  if (!session) return false;
+  if (error) return false;
+  return true;
+}
+
+// Which wizard step owns a given validator error field. Unknown fields (not a
+// known step field) route to Review, where the exact message is still shown.
+const FIELD_STEP = Object.freeze({
+  businessName: 'identity', positioning: 'identity',
+  services: 'offer',
+  audiences: 'audience', tone: 'audience', differentiators: 'audience',
+  'palette.primary': 'brand', 'palette.secondary': 'brand', 'palette.accent': 'brand',
+  'palette.neutral1': 'brand', 'palette.neutral2': 'brand',
+});
+export function stepForField(field) {
+  return ONBOARDING_STEPS.indexOf(FIELD_STEP[field] || 'review');
+}
+
+// The FIRST (earliest) wizard step carrying a validation error, so the wizard
+// jumps the user straight to the field to fix. Empty/no errors → -1. When every
+// error is an unknown field → the Review step index (show the exact message there).
+export function firstErrorStep(errors) {
+  if (!Array.isArray(errors) || errors.length === 0) return -1;
+  let best = Infinity;
+  for (const e of errors) {
+    const idx = stepForField(e && e.field);
+    if (idx >= 0 && idx < best) best = idx;
+  }
+  return best === Infinity ? ONBOARDING_STEPS.indexOf('review') : best;
+}
+
 // A cloud save may be finalized (advance + clear draft) ONLY on a settled
 // { ok: true } from the truthful SAVE_BUSINESS_PROFILE path.
 export function canFinalizeSave(res) {

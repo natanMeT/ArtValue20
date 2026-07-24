@@ -10,7 +10,7 @@ import { FinancialBars, GaugeDonut, DonutChart, DONUT_COLORS } from '../componen
 import { dashboardKpis, monthlySeries, clientBreakdown, momChange, quoteTotal, financeTotals } from '../lib/calc.js';
 import { formatCurrency, formatCompact, relativeTime } from '../lib/format.js';
 import { resolveDisplayName, avatarInitial } from '../lib/userIdentity.js';
-import { shouldShowSetupBanner } from '../lib/onboarding.js';
+import { shouldShowSetupBanner, computeHydrationReady } from '../lib/onboarding.js';
 
 const STATUS_NAMES = { lead: 'לידים', active: 'פעילים', completed: 'הושלמו', lost: 'אבודים' };
 
@@ -35,13 +35,14 @@ function KpiRich({ label, value, money = true, decimals = 0, icon, accent, delta
 }
 
 export default function Dashboard() {
-  const { data, session, supabaseEnabled } = useStore();
+  const { data, session, supabaseEnabled, authReady, loading, error } = useStore();
   const navigate = useNavigate();
   // S0C: greeting + assignee identity follow the signed-in account.
   const displayName = resolveDisplayName(session);
   // S0E: persistent setup banner while the durable business profile is
-  // incomplete (cloud mode only — a profile can only be saved when signed in).
-  const showSetup = supabaseEnabled && shouldShowSetupBanner(data.businessProfile);
+  // incomplete — but ONLY after a SUCCESSFUL hydration (never from the empty
+  // fallback of a failed fetchAll, which would offer setup on a load error).
+  const showSetup = computeHydrationReady({ supabaseEnabled, authReady, loading, session, error }) && shouldShowSetupBanner(data.businessProfile);
 
   const kpis = useMemo(() => dashboardKpis(data), [data]);
   const series = useMemo(() => monthlySeries(data.transactions, 12), [data.transactions]);

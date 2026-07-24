@@ -7,12 +7,17 @@ import { SectionHeader } from '../components/ui/atoms.jsx';
 import { buildDemoSeed } from '../data/seed.js';
 import AiGatewaySmoke from '../components/dev/AiGatewaySmoke.jsx';
 import BusinessContextEditor from '../components/settings/BusinessContextEditor.jsx';
+import { computeHydrationReady } from '../lib/onboarding.js';
 
 export default function Settings() {
   const {
     data, dispatch, theme, toggleTheme, toast,
-    supabaseEnabled, session, signOut, migrateFromLocal, importBackup,
+    supabaseEnabled, session, authReady, loading, error, signOut, migrateFromLocal, importBackup,
   } = useStore();
+  // S0E: only offer the guided-onboarding launcher after a SUCCESSFUL hydration
+  // (not from a failed-fetch fallback) — the granular BusinessContextEditor
+  // below stays available regardless (it is S0D and unchanged).
+  const onboardingReady = computeHydrationReady({ supabaseEnabled, authReady, loading, session, error });
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmMigrate, setConfirmMigrate] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -114,8 +119,9 @@ export default function Settings() {
         )}
 
         {/* Business Context (S0D) — per-account business facts Jake uses.
-            S0E: a guided wizard is available alongside the granular editor. */}
-        {supabaseEnabled && (
+            S0E: a guided wizard is available alongside the granular editor,
+            but only once hydration succeeded (never during a load error). */}
+        {onboardingReady && (
           <ScrollReveal delay={0.005}>
             <div className="card panel">
               <div className="row between wrap" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
