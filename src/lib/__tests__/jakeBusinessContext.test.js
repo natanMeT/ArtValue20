@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  BUSINESS_CONTEXT_MARKER, shouldIncludeBusinessBrain, withBusinessBrain,
+  BUSINESS_CONTEXT_MARKER, shouldIncludeBusinessBrain, withBusinessBrain, isBusinessContextQuestion,
 } from '../jakeBusinessContext.js';
 import { buildPosterBrief, buildAccountBusinessContext, BUSINESS_CONTEXT_UNCONFIGURED } from '../../data/businessBrain.js';
 
@@ -117,6 +117,76 @@ describe('withBusinessBrain · append behavior', () => {
   it('appended brain block stays bounded (< 3500 chars)', () => {
     const out = withBusinessBrain(CRM_CONTEXT, 'תכין לי פוסט על CRM');
     expect(out.length - CRM_CONTEXT.length).toBeLessThan(3500);
+  });
+});
+
+describe('withBusinessBrain · S0D router correction (configured always; unconfigured on context-Qs)', () => {
+  const NAME_Q = 'מה שם העסק שלי?';
+  const SERVICES_Q = 'איזה שירותים הגדרתי?';
+  const PALETTE_Q = 'מה צבעי המותג שלי?';
+  const GENERIC_DRAFT = 'תכתוב מייל תודה קצר ללקוח';
+  const ORDINARY_CRM = 'כמה לקוחות יש לי?';
+
+  it('configured A: direct "what is my business name?" → A\'s business name (not router-gated)', () => {
+    const out = withBusinessBrain(CRM_CONTEXT, NAME_Q, PROFILE_A);
+    expect(out).toContain('סטודיו אלפא');
+    expect(out).not.toContain(BUSINESS_CONTEXT_UNCONFIGURED);
+    for (const m of ARTVALUE_MARKERS) expect(out).not.toContain(m);
+  });
+
+  it('configured B: same question → only B\'s facts (A↔B isolated)', () => {
+    const out = withBusinessBrain(CRM_CONTEXT, NAME_Q, PROFILE_B);
+    expect(out).toContain('מאפיית בטא');
+    expect(out).not.toContain('סטודיו אלפא');
+  });
+
+  it('configured A: services + palette direct questions surface the durable profile', () => {
+    expect(withBusinessBrain(CRM_CONTEXT, SERVICES_Q, PROFILE_A)).toContain('מיתוג');
+    expect(withBusinessBrain(CRM_CONTEXT, PALETTE_Q, PROFILE_A)).toContain('#112233');
+  });
+
+  it('configured A: a GENERIC drafting request is grounded in the account context', () => {
+    const out = withBusinessBrain(CRM_CONTEXT, GENERIC_DRAFT, PROFILE_A);
+    expect(out.startsWith(CRM_CONTEXT)).toBe(true);
+    expect(out).toContain('סטודיו אלפא');
+  });
+
+  it('configured A: even an ordinary CRM question grounds the account (always-on when configured)', () => {
+    expect(withBusinessBrain(CRM_CONTEXT, ORDINARY_CRM, PROFILE_A)).toContain('סטודיו אלפא');
+  });
+
+  it('unconfigured: direct profile question → truthful NEUTRAL block, zero ArtValue facts', () => {
+    for (const q of [NAME_Q, SERVICES_Q, PALETTE_Q, 'מה המיצוב שלי?', 'מי קהל היעד שלי?']) {
+      const out = withBusinessBrain(CRM_CONTEXT, q, null);
+      expect(out, q).toContain(BUSINESS_CONTEXT_UNCONFIGURED);
+      for (const m of ARTVALUE_MARKERS) expect(out, `${q} · ${m}`).not.toContain(m);
+    }
+  });
+
+  it('unconfigured: ordinary CRM question stays LEAN (no block)', () => {
+    expect(withBusinessBrain(CRM_CONTEXT, ORDINARY_CRM, null)).toBe(CRM_CONTEXT);
+    expect(withBusinessBrain(CRM_CONTEXT, 'עדכן שווי ל-5000', null)).toBe(CRM_CONTEXT);
+  });
+
+  it('marker dedupe holds even when configured → exactly one block (button seed carries its own)', () => {
+    const seed = buildPosterBrief('crm'); // carries BUSINESS_CONTEXT_MARKER
+    expect(withBusinessBrain(CRM_CONTEXT, seed, PROFILE_A)).toBe(CRM_CONTEXT);
+    const out = withBusinessBrain(CRM_CONTEXT, NAME_Q, PROFILE_A);
+    expect((out.match(/הקשר עסקי —/g) || []).length).toBe(1);
+  });
+
+  it('stays within the accepted bound (configured account block < 3500 over base)', () => {
+    const out = withBusinessBrain(CRM_CONTEXT, NAME_Q, PROFILE_A);
+    expect(out.length - CRM_CONTEXT.length).toBeLessThan(3500);
+  });
+
+  it('isBusinessContextQuestion: matches profile intents, not ordinary CRM', () => {
+    for (const q of [NAME_Q, SERVICES_Q, PALETTE_Q, 'מה המיצוב שלי?', 'מה הבידול שלי?', 'business name', 'brand palette', 'my services']) {
+      expect(isBusinessContextQuestion(q), q).toBe(true);
+    }
+    for (const q of [ORDINARY_CRM, 'מה חשוב היום?', 'תוסיף לקוח חדש', 'מחק את המשימה', '', null]) {
+      expect(isBusinessContextQuestion(q), String(q)).toBe(false);
+    }
   });
 });
 

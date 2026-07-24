@@ -257,7 +257,9 @@ export const BUSINESS_CONTEXT_UNCONFIGURED = 'ההקשר העסקי עדיין �
 
 // A durable profile is usable only when it carries a business name (rows are
 // normalized/nulled at the API boundary, so malformed → null → neutral here).
-function hasDurableProfile(p) {
+// Exported so the chat/draft seam can decide when to ALWAYS append the account
+// context (configured) vs only on business-context intents (unconfigured).
+export function hasDurableProfile(p) {
   return Boolean(p && typeof p === 'object' && !Array.isArray(p) && String(p.businessName || '').trim());
 }
 
