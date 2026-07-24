@@ -347,7 +347,7 @@ describe('draftWithJake · frontend migration (source guards)', () => {
 
   it('Assistant.jsx is untouched: same draftWithJake call, no gateway wiring', () => {
     const assistant = read('../../components/ai/Assistant.jsx');
-    expect(assistant.includes('draftWithJake(convo, withBusinessBrain(activePack.buildContext(data), text))')).toBe(true);
+    expect(assistant.includes('draftWithJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile))')).toBe(true);
     expect(assistant.includes('aiGateway')).toBe(false);
   });
 

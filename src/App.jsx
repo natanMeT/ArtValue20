@@ -30,6 +30,8 @@ import Inventory from './pages/Inventory.jsx';
 import Activity from './pages/Activity.jsx';
 import Settings from './pages/Settings.jsx';
 import QuotePrint from './pages/QuotePrint.jsx';
+import BetaUnavailable from './components/ui/BetaUnavailable.jsx';
+import { isSupabaseConfigured } from './lib/supabase.js';
 
 // Growth OS — business-growth center (scaffold)
 import Growth from './pages/growth/Growth.jsx';
@@ -37,6 +39,17 @@ import GrowthLeads from './pages/growth/GrowthLeads.jsx';
 import GrowthCalendar from './pages/growth/GrowthCalendar.jsx';
 import GrowthContentAds from './pages/growth/GrowthContentAds.jsx';
 import Calls from './pages/growth/Calls.jsx';
+
+// S0D containment: centralized route gate for the entire Growth OS. In
+// authenticated cloud beta, direct navigation to ANY Growth route renders the
+// truthful BetaUnavailable state instead of the page — its datasets + Ask-Jake
+// prompt seeds are ArtValue-specific and not yet account-aware (deferred:
+// "Account-aware Growth & Creative Context"). Local/demo renders the full
+// Growth experience unchanged. Outreach is NOT part of Growth and stays LIVE.
+function GrowthBetaGate({ title, sub, children }) {
+  if (isSupabaseConfigured) return <BetaUnavailable title={title} sub={sub} />;
+  return children;
+}
 
 function AppShell() {
   const [navOpen, setNavOpen] = useState(false);
@@ -119,12 +132,12 @@ function MainRoutes() {
         <Route path="/inventory" element={<Inventory />} />
         <Route path="/activity" element={<Activity />} />
 
-        {/* Growth OS — business-growth center (scaffold) */}
-        <Route path="/growth" element={<Growth />} />
-        <Route path="/growth/leads" element={<GrowthLeads />} />
-        <Route path="/growth/calendar" element={<GrowthCalendar />} />
-        <Route path="/growth/content" element={<GrowthContentAds />} />
-        <Route path="/calls" element={<Calls />} />
+        {/* Growth OS — business-growth center (S0D: beta-contained via GrowthBetaGate) */}
+        <Route path="/growth" element={<GrowthBetaGate title="Growth OS" sub="מרכז הצמיחה העסקית — לידים, תכנון פעולה ושיחות"><Growth /></GrowthBetaGate>} />
+        <Route path="/growth/leads" element={<GrowthBetaGate title="מיפוי לידים" sub="קטגוריות לידים ותוכנית פעולה"><GrowthLeads /></GrowthBetaGate>} />
+        <Route path="/growth/calendar" element={<GrowthBetaGate title="לוח פעולה" sub="תוכנית פעולה חודשית"><GrowthCalendar /></GrowthBetaGate>} />
+        <Route path="/growth/content" element={<GrowthBetaGate title="ספריית פרסום" sub="מאגר תבניות, פרומפטים ורעיונות פרסום"><GrowthContentAds /></GrowthBetaGate>} />
+        <Route path="/calls" element={<GrowthBetaGate title="שיחות ופולואפים" sub="הכנה לשיחות מכירה"><Calls /></GrowthBetaGate>} />
 
         <Route path="/settings" element={<Settings />} />
       </Route>

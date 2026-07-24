@@ -324,7 +324,7 @@ describe('J2 · Assistant confirmation flow integration (source, untouched)', ()
   const assistant = read('../../components/ai/Assistant.jsx');
 
   it('same lane call shapes: chat wrapped with the business brain, force-actions lean', () => {
-    expect(assistant.includes('chatJake(convo, withBusinessBrain(activePack.buildContext(data), text))')).toBe(true);
+    expect(assistant.includes('chatJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile))')).toBe(true);
     expect(assistant.includes('forceActionsJake(text, activePack.buildContext(data))')).toBe(true);
   });
 

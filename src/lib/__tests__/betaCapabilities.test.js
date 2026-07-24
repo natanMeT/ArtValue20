@@ -229,7 +229,7 @@ describe('beta messages + modules', () => {
   });
 
   it('hidden modules are exactly activity/inventory/projects/templates', () => {
-    expect([...BETA_HIDDEN_MODULES].sort()).toEqual(['activity', 'inventory', 'projects', 'templates']);
+    expect([...BETA_HIDDEN_MODULES].sort()).toEqual(['activity', 'growth', 'inventory', 'projects', 'templates']);
   });
 
   it('S0B: the tasks/follow-ups beta note is gone (both are durable); module copy remains', () => {

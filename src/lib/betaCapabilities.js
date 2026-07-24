@@ -229,4 +229,9 @@ export function betaBlockedMessage(blocked, clients = []) {
 // page renders a restrained unavailable state instead of a creation UI). Activity
 // is included: its entries are reducer-generated, memory-only, absent from
 // fetchAll() — they disappear on refresh, so it must not be presented as durable.
-export const BETA_HIDDEN_MODULES = new Set(['projects', 'inventory', 'templates', 'activity']);
+// S0D: `growth` (the whole Growth OS) is included — its datasets + Ask-Jake
+// prompt seeds are ArtValue-specific and not yet account-aware, so in cloud beta
+// every Growth route renders BetaUnavailable (centralized gate in App.jsx) and
+// its GROWTH_NAV items are betaHidden. Deferred: "Account-aware Growth & Creative
+// Context". (Local/demo is unchanged.)
+export const BETA_HIDDEN_MODULES = new Set(['projects', 'inventory', 'templates', 'activity', 'growth']);
