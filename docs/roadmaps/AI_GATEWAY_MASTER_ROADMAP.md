@@ -12,7 +12,7 @@
 | מנהל ארכיטקטורה ומסמך | ChatGPT |
 | סוכן יישום | Claude / Fable לפי משימה מאושרת |
 | Repository | natanMeT/ArtValue20 |
-| Main מאומת | 22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4 |
+| עוגן קוד ההשקה הפעיל (S0D) — מקור הפרודקשן | 22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4 (repository main HEAD נפתר חי בכל preflight; עשוי לכלול commits מאוחרים של תיעוד בלבד) |
 | גרסה | 5.3 — עודכן בתאריך 24.07.2026 |
 | סטטוס נוכחי | Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED. S0D — Business Context נסגר LIVE בפרודקשן **ללא כל שינוי ב־Gateway/Edge**. ai-gateway v34 ACTIVE עם verify_jwt=true; router, contracts ו־payloads ללא שינוי. ה־Business Context של החשבון מורכב ומוזרק על ידי ה־frontend לפני קריאת ה־Gateway. הסלייס הבא ממתין להחלטת Nathan. |
 
@@ -153,7 +153,7 @@
 | CRM hotfix | #76 + #77 — MERGED / SQL EXECUTED / VERIFIED / CRUD PERSISTED |
 | S0D migration | 20260724120000_s0d_business_profile.sql — APPLIED / VERIFIED (public.business_profile) |
 | Full tests latest | 2759 passed / 1 pre-existing skipped (107 files); production build green |
-| Current main | 22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4 |
+| עוגן קוד ההשקה הפעיל (S0D) — מקור הפרודקשן | 22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4 (repository main HEAD נפתר חי בכל preflight) |
 | Release state | Production online. S0D CLOSED / LIVE VERIFIED; ai-gateway v34 ACTIVE/JWT-on **unchanged**. Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED. Frontend rollback cec116b9 נשמר. |
 
 # 3. ארכיטקטורת היעד
@@ -470,7 +470,7 @@ Fallback ייכנס רק אחרי שני adapters עובדים. הוא דורש 
 
 | שדה | מצב נוכחי |
 | --- | --- |
-| Current main | 22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4 |
+| עוגן קוד ההשקה הפעיל (S0D) — מקור הפרודקשן | 22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4 (repository main HEAD נפתר חי בכל preflight) |
 | Production frontend | Cloudflare Pages production — deploy 69f8a175-08b2-4c65-aac5-c8e4b61d7962; source 22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4; https://artvalue-product.pages.dev; HTTPS 200; bundle index-DnfLj9lz.js. |
 | Pull Request | #101 — MERGED; S0D Business Context. Head-gated to 7750bd3f; merge-commit 22ee2f3 (parents 3ee62aee S0C + 7750bd3f). |
 | Current blocker | None for S0D. Business Context durability is closed. Onboarding remains a product blocker outside the Gateway. |

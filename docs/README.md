@@ -51,6 +51,13 @@ Verification for a documentation-only change is limited to:
 4. Generated-document readability (each `.docx` opens and renders correctly, including Hebrew RTL).
 5. Confirmation that **only documentation files changed** (everything under `docs/`).
 
+## Release anchor vs repository HEAD
+
+- **Product/runtime status is anchored to the application commit and the deployment ID** (currently the S0D application release code anchor `22ee2f3` / Production `69f8a175` / `index-DnfLj9lz.js`), never to whatever the repository HEAD happens to be.
+- **Repository main may advance through documentation-only commits** (like this canonical-docs work). Such commits change the repo HEAD but not the deployed application.
+- **Every future task resolves the current repository HEAD live** (e.g. `git rev-parse origin/main`) at its own preflight, rather than trusting a SHA written into a committed file.
+- **A docs-only advance of main does not require a build, Preview, or Production deployment, and must not be reported as application/deployment drift.**
+
 ## Security rule
 
 **Never store passwords, tokens, API keys, secrets, private credentials, or sensitive customer data in documentation.** SHAs, deploy IDs, migration filenames, project identifiers, and version numbers are safe operational anchors; secrets are not.

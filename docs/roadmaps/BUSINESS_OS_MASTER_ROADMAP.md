@@ -144,7 +144,7 @@ Rollback: פריסת frontend 31cb521d-3185-4c55-ad83-1a44fe617c6d נשמרה; �
 
 ## S0D — Business Context (Durable per-account Business Profile): CLOSED / LIVE VERIFIED
 
-ראיית קוד: PR #101 מוזג; main הנוכחי הוא **22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4** (merge-commit; parents = 3ee62aee (S0C) + head 7750bd3f).
+ראיית קוד: PR #101 מוזג; **עוגן קוד ההשקה הפעיל של S0D (מקור הפרודקשן) הוא 22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4** (merge-commit; parents = 3ee62aee (S0C) + head 7750bd3f). זהו העומד בבסיס האפליקציה הפרוסה, ולא טענה שזהו לתמיד ה־HEAD של repository main — את ה־HEAD יש לפתור חי בכל preflight (main עשוי לכלול commits מאוחרים של תיעוד בלבד ללא drift אפליקטיבי).
 
 שרשרת שחרור: PR #101 → merge 22ee2f3 → migration 20260724120000_s0d_business_profile.sql **APPLIED** על weciwurjfwmqihcyexzj → **Preview f4da6153-abef-4872-8ed0-cc54b6b744ab** (branch s0d-preview-22ee2f3) + **בדיקת קבלה מאומתת עם שני חשבונות PASS** → **Production 69f8a175-08b2-4c65-aac5-c8e4b61d7962** (bundle index-DnfLj9lz.js, זהה בייטים ל־Preview — "Uploaded 0 files (12 already uploaded)") + **בדיקת prod לא־משנה על Account A PASS**. לא נלקח rollback (cec116b9 נשמר, HTTP 200).
 

@@ -27,7 +27,8 @@ Nathan passes this to ChatGPT so it can review/advise **without re-deriving or g
 
 ## Baseline (current — S0D CLOSED / LIVE in Production)
 - Repo: `C:\Users\PC\ArtValue` (origin/main). GitHub repo `natanMeT/ArtValue20`.
-- Pinned main SHA: `22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4` (S0D merge, PR #101; parents = old-main `3ee62aee` (S0C) + head `7750bd3f`). local main == origin/main.
+- **Active S0D application release code anchor:** `22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4` (S0D merge, PR #101; parents = old-main `3ee62aee` (S0C) + head `7750bd3f`). This is the commit the deployed application is built from — **not** a claim that repository HEAD is permanently this SHA.
+- **Repository main HEAD:** resolve **live** at each task's preflight (e.g. `git rev-parse origin/main`). Repository main may carry later documentation-only commits and can therefore differ from the active application release code anchor **without** indicating application or deployment drift.
 - Hosting: Cloudflare Pages `artvalue-product` — canonical https://artvalue-product.pages.dev
 - Current Production deploy: **`69f8a175-08b2-4c65-aac5-c8e4b61d7962`** (Environment Production, branch `main`, source `22ee2f3`, bundle **`index-DnfLj9lz.js`**) — **LIVE (S0D)**; canonical serves `index-DnfLj9lz.js` (HTTP 200; all JS/CSS assets 200). Deployed by reusing the exact Preview-tested `dist/` — NOT rebuilt (wrangler "Uploaded 0 files (12 already uploaded)").
 - Frontend rollback target (retained, healthy HTTP 200): **`cec116b9-4e7f-4496-9edc-12fda2279ef7`** (source `3ee62ae`, bundle `index-CE6IJ-rJ.js`, S0C). (Older `31cb521d` S0B / `4cb17aee` S0A retained historically.)
@@ -36,7 +37,7 @@ Nathan passes this to ChatGPT so it can review/advise **without re-deriving or g
 - Edge: `ai-gateway` **v34 ACTIVE, `verify_jwt=true`** — **UNCHANGED by S0D** (no Edge deploy; no router/actionType/contract/payload/routing/validation/usage/profile change). Account Business Context is assembled + injected by the **frontend chat/draft seam** before the existing Gateway call.
 - Supabase: project `weciwurjfwmqihcyexzj`; **all 5 migrations applied & matching, none pending.** S0D migration `20260724120000_s0d_business_profile.sql` **APPLIED & verified** — `public.business_profile`: PK `user_id`, FK → `auth.users(id)` ON DELETE CASCADE, RLS ON + policy `business_profile_own` (USING+WITH CHECK `auth.uid()=user_id`), trigger `trg_business_profile_updated`→`set_updated_at()`, authenticated GRANTs present. **Final DB counts: `business_profile=2, clients=3, tasks=0, outreach_leads=24, quotes=0, transactions=0, quote_items=0`; legacy `profile`=1.**
 - Tests: **107 files / 2759 passed / 1 pre-existing skip / 0 failures** (fresh run from main); production build green.
-- Working tree: clean except known untracked `dist-profile/`. (The memory-mirror of this tracker lives OUTSIDE the repo, in the memory dir, so it never shows in `git status`; this repository copy under `docs/` is the authoritative one.)
+- **Branch / HEAD / working tree are session-specific, not canonical state:** every task must verify its own branch, HEAD and working tree at preflight before acting (the pre-existing untracked `dist-profile/` is expected). Do not store a particular clean-tree snapshot as durable canonical truth. (The memory-mirror of this tracker lives OUTSIDE the repo, in the memory dir, so it never shows in `git status`; this repository copy under `docs/` is the authoritative one.)
 
 ---
 
