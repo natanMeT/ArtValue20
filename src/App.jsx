@@ -9,6 +9,7 @@ import Loader from './components/ui/Loader.jsx';
 import Background from './components/layout/Background.jsx';
 import Assistant from './components/ai/Assistant.jsx';
 import DemoMode from './components/ai/DemoMode.jsx';
+import { OnboardingOwner } from './components/onboarding/OnboardingWizard.jsx';
 
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -100,6 +101,10 @@ function AppShell() {
       </div>
       <Assistant />
       <DemoMode />
+      {/* S0E: guided business onboarding — global, cloud-only owner. Auto-opens
+          once for an unconfigured/incomplete account after authoritative
+          hydration; also opened by the Dashboard banner / Settings. */}
+      <OnboardingOwner />
     </div>
   );
 }
