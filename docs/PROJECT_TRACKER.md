@@ -1,0 +1,130 @@
+# ArtValue — Project Tracker (living cross-session handoff)
+
+> **Canonical source (authoritative from this point forward):** this file — `docs/PROJECT_TRACKER.md` in `natanMeT/ArtValue20`. The prior copy in Claude's memory directory may remain as a convenience mirror, but it is **not** an independent source of truth and must point here. Claude keeps this file current; ChatGPT reviews the diff and does not edit it.
+
+**Maintained by:** Claude Code — grounded in the real repo (reads files, runs commands).
+**Purpose:** single source of truth for state, so work continues across sessions with no loss.
+Nathan passes this to ChatGPT so it can review/advise **without re-deriving or guessing** state.
+**ChatGPT does NOT edit this document.** Only Claude updates it.
+**Last updated:** 2026-07-24 — session: **S0D Business Context — CLOSED / LIVE VERIFIED in Production** (PR #101 → merge `22ee2f3` → migration `20260724120000_s0d_business_profile.sql` APPLIED → Preview `f4da6153` + two-account authenticated acceptance PASS → **Production `69f8a175` / `index-DnfLj9lz.js`** + non-mutating Account A prod smoke PASS). Durable per-account Business Context now live; Edge `ai-gateway` v34 unchanged (no Gateway/contract change). Prior: S0C Identity & User-Isolation CLOSED / LIVE VERIFIED (Production `cec116b9`, retained as S0D frontend rollback).
+
+---
+
+## How we work (roles)
+- **Claude Code** = grounded author + executor. Reads the real code, runs commands, writes code/tests, deploys only under instruction. Authors technical briefs with real file/line/count evidence. Owns this tracker.
+- **ChatGPT** = active technical supervisor + reviewer + translator. Reviews plans/diffs, supervises the staging, and MAY author detailed step-prompts for Claude — **built on the grounded facts Claude / this tracker provide**. Must NOT invent code-level facts (file paths, line numbers, function names, schema types, test counts, token budgets); those come from Claude or are asked for. Also translates Claude's technical messages into plain language for Nathan.
+- **Nathan** = owner. Relays between the two; makes product + approval decisions. Not expected to understand the deep technical detail himself.
+
+**The loop:** Nathan states the goal → Claude produces a grounded plan/brief (+ updates this tracker) → Nathan sends it to ChatGPT → ChatGPT supervises/critiques (and may write the next detailed prompt for Claude, grounded in Claude's material) → Nathan relays back → Claude executes → Claude updates this tracker.
+
+**Message format Claude uses with Nathan (every technical message):** 🟢 a plain-language summary Nathan reads, + 🔵 a grounded block Nathan routes to ChatGPT without needing to understand it.
+
+**ChatGPT GitHub access:** ChatGPT has read access to Nathan's GitHub → it CAN read actual file contents to verify code facts. It still CANNOT run tests/builds, see live Cloudflare/Supabase state, the uncommitted working tree, or token costs — those come from Claude / this tracker.
+
+**Switching GPT chats:** when Nathan starts a fresh ChatGPT chat, Claude hands him the current tracker (paste) or points to the file source on GitHub, so the new chat knows exactly where things stand.
+
+---
+
+## Baseline (current — S0D CLOSED / LIVE in Production)
+- Repo: `C:\Users\PC\ArtValue` (origin/main). GitHub repo `natanMeT/ArtValue20`.
+- Pinned main SHA: `22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4` (S0D merge, PR #101; parents = old-main `3ee62aee` (S0C) + head `7750bd3f`). local main == origin/main.
+- Hosting: Cloudflare Pages `artvalue-product` — canonical https://artvalue-product.pages.dev
+- Current Production deploy: **`69f8a175-08b2-4c65-aac5-c8e4b61d7962`** (Environment Production, branch `main`, source `22ee2f3`, bundle **`index-DnfLj9lz.js`**) — **LIVE (S0D)**; canonical serves `index-DnfLj9lz.js` (HTTP 200; all JS/CSS assets 200). Deployed by reusing the exact Preview-tested `dist/` — NOT rebuilt (wrangler "Uploaded 0 files (12 already uploaded)").
+- Frontend rollback target (retained, healthy HTTP 200): **`cec116b9-4e7f-4496-9edc-12fda2279ef7`** (source `3ee62ae`, bundle `index-CE6IJ-rJ.js`, S0C). (Older `31cb521d` S0B / `4cb17aee` S0A retained historically.)
+- Preview (retained): **`f4da6153-abef-4872-8ed0-cc54b6b744ab`** (branch `s0d-preview-22ee2f3`, source `22ee2f3`, bundle `index-DnfLj9lz.js`) — two-account authenticated acceptance PASSED.
+- Git rollback tags: `pre-s0d-business-context` @ `3ee62aee` (S0D baseline = the S0C production commit), `pre-s0c-identity-isolation` @ `385f77874da68f905b504facf92843e7ede76d97`, `pre-s0b-cloud-persistence` @ `7066520` — all retained. S0D source branch `s0d/business-context-mvp` @ `7750bd3f` retained (local + origin).
+- Edge: `ai-gateway` **v34 ACTIVE, `verify_jwt=true`** — **UNCHANGED by S0D** (no Edge deploy; no router/actionType/contract/payload/routing/validation/usage/profile change). Account Business Context is assembled + injected by the **frontend chat/draft seam** before the existing Gateway call.
+- Supabase: project `weciwurjfwmqihcyexzj`; **all 5 migrations applied & matching, none pending.** S0D migration `20260724120000_s0d_business_profile.sql` **APPLIED & verified** — `public.business_profile`: PK `user_id`, FK → `auth.users(id)` ON DELETE CASCADE, RLS ON + policy `business_profile_own` (USING+WITH CHECK `auth.uid()=user_id`), trigger `trg_business_profile_updated`→`set_updated_at()`, authenticated GRANTs present. **Final DB counts: `business_profile=2, clients=3, tasks=0, outreach_leads=24, quotes=0, transactions=0, quote_items=0`; legacy `profile`=1.**
+- Tests: **107 files / 2759 passed / 1 pre-existing skip / 0 failures** (fresh run from main); production build green.
+- Working tree: clean except known untracked `dist-profile/`. (The memory-mirror of this tracker lives OUTSIDE the repo, in the memory dir, so it never shows in `git status`; this repository copy under `docs/` is the authoritative one.)
+
+---
+
+## Status ledger
+- **S0A False-Success Containment** — CLOSED / LIVE VERIFIED (Production `4cb17aee`, superseded by S0B then S0C; retained historically).
+- **S0B Cloud Persistence (durable Tasks + client Follow-ups)** — **CLOSED / LIVE VERIFIED** (Production `31cb521d`, now superseded by S0C `cec116b9`; `31cb521d` retained as the S0C rollback target). Delivered durable+truthful Tasks + `clients.next_action/next_action_date`; migration `20260722120000_s0b_tasks_followups` applied.
+- **S0C Identity & User-Isolation Trust Hardening** — **CLOSED / LIVE VERIFIED in Production (2026-07-24).**
+  - **Release chain:** PR [#100](https://github.com/natanMeT/ArtValue20/pull/100) merged → main `3ee62aee` → Edge `ai-gateway` **v33→v34** (2 text-only Jake constants) → Cloudflare **Preview `b69fe8a1`** (branch `s0c-preview-3ee62a`) + **two-account same-browser acceptance PASS** → **Production `cec116b9`** (reused the exact Preview-tested `dist/`, NOT rebuilt — proven by "Uploaded 0 files (12 already uploaded)" + content-hashed `index-CE6IJ-rJ.js`) + non-mutating Account A prod smoke PASS. No rollback taken.
+  - **Delivered (identity + isolation, additive over S0B):**
+    - Session-derived identity (`userIdentity.js`: full_name → name → email-prefix → neutral `'משתמש'`), replacing hardcoded Nathan/ArtValue identity.
+    - Neutral role/email presentation in the Topbar (session name + email + avatar initial; no fabricated `'מנהל מערכת'`).
+    - Per-user Jake **chat + brief** localStorage keys, scoped by stable Supabase `user.id` (`artvalue_jake_chat_<uid>` / `artvalue_jake_brief_date_<uid>`), with save-before-loader guard on account switch.
+    - Legacy device-global keys (`artvalue_jake_chat` / `artvalue_jake_brief_date`) **never read, migrated, copied or deleted** (verified with live sentinels across A→B→A).
+    - Active-account task assignee (TaskModal `defaultAssignee` + Assistant enriches un-assigned Jake `add_task` once → same enriched object feeds proposal AND execute, so approved==persisted; explicit assignee never overridden) with locked **neutral fallback `'משתמש'`**.
+    - Generic Jake **business-assistant** persona ("אתה ג׳יק — העוזר העסקי של סטודיו Art Value"), no longer "העוזר האישי של נתן".
+    - **No forced Nathan signature** in drafted messages (neutral sign-off unless the user explicitly asks for a specific signature).
+    - **Two-account same-browser isolation VERIFIED** live: A=`natanturgeman365` / B=`natanturgeman5` resolved distinctly; B never saw A's chat/brief; per-user task ownership (RLS `tasks_own`) + assignee-follows-account; proposal assignee == persisted assignee, DB row absent pre-confirm; explicit `דנה לוי` preserved.
+    - **S0A/S0B behavior + frozen LIVE lanes preserved:** Jake propose→confirm→execute + durable Tasks/Follow-ups intact; Outreach/Diagnose/ImageStudio render; Projects/Inventory/Templates/Activity remain BetaUnavailable; 0 console errors; DB baseline exact; Edge v34/JWT healthy.
+  - **Historical correction:** Production Local-engine containment is **NOT** an S0C outcome. Local paths were already gated off by default through `src/lib/localEngines.js` / PR #75, which predate S0C. S0C resolved session-derived identity and per-user Jake chat/brief isolation.
+  - **Scope discipline:** Edge diff = ONLY 2 `actionProfiles.ts` text constants (persona + draft signature); router / actionTypes / contracts / request-response payloads / provider routing / validation / budget / confirmation flow / all non-Jake profiles / JWT — **UNCHANGED**. No SQL/schema/migration. Server persona is a drift-guarded verbatim copy of the frontend pack (both edited identically).
+- **S0D Business Context (durable per-account Business Profile)** — **CLOSED / LIVE VERIFIED in Production (2026-07-24).**
+  - **Release chain:** PR [#101](https://github.com/natanMeT/ArtValue20/pull/101) → merge `22ee2f3` (head-gated to `7750bd3f`; parents `3ee62aee` S0C + `7750bd3f`) → migration `20260724120000_s0d_business_profile.sql` **APPLIED** on `weciwurjfwmqihcyexzj` → **Preview `f4da6153`** (branch `s0d-preview-22ee2f3`) + **two-account authenticated acceptance PASS** → **Production `69f8a175`** (`index-DnfLj9lz.js`, byte-identical to Preview — "Uploaded 0 files (12 already uploaded)") + **non-mutating Account A prod smoke PASS**. No rollback taken (`cec116b9` retained).
+  - **Delivered (additive over S0C):** durable per-account Business Context in `public.business_profile` (one row per user, `user_id` PK); **RLS owner isolation** (`business_profile_own`); fields = business name, positioning, audiences, tone, differentiators, services; **optional brand palette with primary REQUIRED when a palette is defined**, stored canonical **UPPERCASE `#RRGGBB`**; **shared validation across save/import/hydration**; **persist-first truthful saves** (success only after Supabase confirms; failure → visible error toast, no false success, no DB row); **authoritative editor resync while preserving dirty input**; **neutral behavior for unconfigured/malformed profiles** (never ArtValue fallback); the configured profile is available to **all free-form Jake chat/draft turns** and **direct Business Context questions** (name/services/palette) answered from the durable profile.
+  - **Acceptance evidence:** two-account isolation VERIFIED — A `natanturgeman365` = real **ArtValue** profile; B `natanturgeman5` = QA **"מאפיית בדיקה S0D"** profile (intentionally retained); each row owned by the correct account; validation (empty-name / invalid-HEX / secondary-without-primary / over-limit-not-truncated) all block with no DB row; failure-injection surfaced an error toast with no false success and no row; refresh rehydrates every field; a generic marketing draft used A's positioning/tone/services; Growth contained + LIVE lanes (Outreach/Diagnose/ImageStudio/Tasks) healthy; all REST hydration 200; **zero console errors**; Jake propose→confirm→execute intact.
+  - **Scope discipline:** **NO Gateway/Edge change** (ai-gateway v34/JWT-on unchanged; router / actionTypes / contracts / request-response payloads / provider routing / validation / usage controls / profiles all UNCHANGED). Frontend + one additive migration only; account Business Context assembled + injected by the frontend chat/draft seam before the existing Gateway call. Non-mutating smoke left final DB counts unchanged.
+
+---
+
+## S0B approved product decisions (historical — still in force)
+1. Follow-up = persist existing client fields `next_action` + `next_action_date` (NO separate follow_ups table).
+2. `tasks.project_id` nullable, no FK; a task may link to a client or be standalone. Projects stay out of scope / unavailable.
+3. Truthful success: Task + client Follow-up writes show success only AFTER Supabase confirms; failure leaves no false local state.
+4. `tasks.id` = TEXT (accepts legacy prefixed ids + uuid).
+5. `tasks.client_id` → `clients.id` ON DELETE SET NULL.
+6. One PR for Tasks + both Follow-up fields (do not split into separate releases).
+
+---
+
+## Frozen (do not touch)
+`supabase/functions/**`, Gateway/Edge/adapters/profiles/prompts/contracts, `aiGateway*.js`, `gemini.js`, Jake prompt/decision/planning/handoff contracts, Outreach, Diagnose, ImageStudio, Creative V1/V2, Projects/Inventory/Templates/Activity pages, `BetaUnavailable.jsx`, `BETA_HIDDEN_MODULES`, `sidebarNav` hidden-module behavior, quote/tx/lead/AI-usage schemas, packages/deps, env/secrets/settings, deploy config, roadmap + Release & Hosting Runbook, `dist-profile/`. (S0C touched only the identity/isolation surfaces named in its ledger entry; the server-persona text edit was the sole, approved exception inside `supabase/functions/**`. S0D touched only the Business Context frontend surfaces + one additive migration; no Gateway/Edge change.)
+
+---
+
+## Open root problems
+Durability:
+- ✅ **Tasks** — durable in cloud (S0B). Closed.
+- ✅ **Client Follow-ups** (`next_action`/`next_action_date`) — durable in cloud (S0B). Closed.
+- ✅ **Business Context** (per-account) — durable in cloud (S0D). **Closed / LIVE.**
+- ⬜ **Projects** — still non-durable / BETA-unavailable (no durable table).
+- ⬜ **Inventory** — still non-durable / BETA-unavailable.
+- ⬜ **Templates / Activity** — still non-durable / BETA-unavailable.
+
+Beta-trust blockers — RESOLVED:
+- ✅ **Hardcoded Nathan/ArtValue identity** — RESOLVED (S0C: session-derived identity, neutral fallback).
+- ✅ **Per-user Jake chat/brief history** — RESOLVED (S0C: user-id-scoped keys; legacy globals never read/migrated).
+- ✅ **Exposed Local paths** — CORRECTED / RESOLVED (gated off by `src/lib/localEngines.js`, PR #75 — predates S0C).
+- ✅ **Hardcoded cross-account business facts in Jake marketing chat/draft** — RESOLVED (S0D: Jake consumes the active account's durable Business Context; neutral when unconfigured).
+- ✅ **Absence of durable account-owned Business Context** — RESOLVED (S0D: `public.business_profile`).
+- ✅ **Absence of durable brand palette** — RESOLVED (S0D: optional palette, primary required when used, canonical uppercase `#RRGGBB`).
+- ✅ **False success on Business Context save** — RESOLVED (S0D: persist-first truthful saves; failure → error toast, no false success, no row).
+- ✅ **Cross-account Business Context exposure** — RESOLVED (S0D: RLS owner isolation; two-account isolation verified live).
+
+Still open:
+- ⬜ **Onboarding / business-setup wizard** — still open.
+- ⬜ **Account-aware Growth & Creative Context** (named S0D follow-up — see below).
+- ⬜ **Projects / Inventory / Templates / Activity durability** — still open (BETA-unavailable).
+- ⬜ **Jake conversation-refresh UX** — future improvement (nuance below; NOT a release blocker).
+
+## Growth OS status (authenticated cloud beta)
+- Growth OS is **temporarily BetaUnavailable** in the authenticated cloud beta. All **five** Growth routes (`/growth`, `/growth/leads`, `/growth/calendar`, `/growth/content`, `/calls`) **and their navigation entries are contained** (nav entries absent; direct routes → BetaUnavailable). **Outreach remains LIVE.** Local/demo Growth is **unchanged**.
+- **Reason:** Growth's current datasets and content library are **ArtValue-specific** and cannot be exposed to other accounts.
+- **Named follow-up (future, separately approved): "Account-aware Growth & Creative Context."** It must make **Growth and Creative V2 / ImageStudio consume the active account's approved Business Context and palette** before Growth is reopened.
+
+## Accepted operational nuance (NOT a release blocker)
+- After saving or materially changing Business Context, a **fresh Jake conversation is currently required** for the cleanest immediate grounding (Jake business-context is captured per-conversation). Track a **future UX improvement** to communicate or automate that refresh. **Explicitly NOT classified as an S0D release blocker.**
+
+## Open decisions awaiting Nathan
+- [ ] **Next product slice — PENDING NATHAN DECISION.** Do NOT begin/design/invent the next slice until Nathan selects one and approves a spec. Candidate open items: Onboarding/business-setup wizard; **Account-aware Growth & Creative Context**; Projects/Inventory/Templates/Activity durability; Jake conversation-refresh UX.
+
+## Next action
+S0A + S0B + S0C + **S0D are all CLOSED / LIVE**. No slice is in flight. **S0D documentation closure DONE:** this tracker updated to S0D CLOSED/LIVE VERIFIED; S0D memory files updated for continuity; the canonical Business OS + AI Gateway roadmaps advanced to **Business OS v0.7** + **AI Gateway v5.3** and are now maintained as Markdown under `docs/` (with `.docx` release exports under `docs/releases/`). Await Nathan's next-slice product decision → Claude authors a grounded spec (evidence-before-status) → review → implement. Do not start work until selected.
+
+## Change log
+- **2026-07-24** — **Canonical documentation established under `docs/`.** Business OS Master Product Roadmap advanced to **v0.7** and AI Gateway Master Roadmap advanced to **v5.3**, both as authoritative Markdown (`docs/roadmaps/`) with generated Hebrew RTL `.docx` release exports (`docs/releases/`). This tracker copied to `docs/PROJECT_TRACKER.md` as the authoritative source (memory copy demoted to mirror). Two factual corrections carried through the docs: (1) Local-engine containment predates S0C (`localEngines.js` / PR #75); (2) Word filenames use the exact `_HE` suffix. Documentation-only change; no code/runtime/infrastructure/data change.
+- **2026-07-24** — **S0D Business Context CLOSED / LIVE VERIFIED in Production.** Migration `20260724120000_s0d_business_profile.sql` APPLIED on `weciwurjfwmqihcyexzj` (public.business_profile: PK user_id, FK→auth.users(id) ON DELETE CASCADE, RLS `business_profile_own` USING+WITH CHECK `auth.uid()=user_id`, trigger→`set_updated_at()`, authenticated GRANTs). Preview `f4da6153` (branch `s0d-preview-22ee2f3`) + two-account authenticated acceptance PASS; **Production `69f8a175`** (reused Preview-tested `dist/`, `index-DnfLj9lz.js` — "Uploaded 0 files (12 already uploaded)") + non-mutating Account A prod smoke PASS; no rollback (`cec116b9` retained, HTTP 200). Final DB: business_profile=2 (A real ArtValue + B QA bakery, retained), clients=3, tasks=0, outreach_leads=24, quotes=0, transactions=0, quote_items=0, profile=1. **Edge v34/JWT unchanged; no Gateway/contract change** (context injected by frontend seam). Tests 107/2759/1skip. Resolved blockers: hardcoded cross-account business facts, durable Business Context, durable palette, false-success-on-save, cross-account exposure. Growth OS temporarily contained (ArtValue-specific datasets/content) → named follow-up "Account-aware Growth & Creative Context". Accepted nuance (not a blocker): fresh-Jake-conversation needed after saving context.
+- **2026-07-24** — **S0D Business Context MERGED to `main` (not live).** PR #101 "S0D: add durable per-account Business Context" → merge-commit `22ee2f3` (head-gated to head `7750bd3f`, no squash/rebase; first parent `3ee62aee` = S0C, second parent `7750bd3f`; merged 00:28:57Z). Merge turn was git-only: all 9 gates passed (25 files, 0 unresolved threads, tests 107/2759/1skip at head, build green); **migration `20260724120000_s0d_business_profile.sql` NOT run; no Preview/Prod/Edge deploy; no Auth/data/secret/config/doc mutation.** Rollback tag `pre-s0d-business-context` @ `3ee62aee` + source branch `s0d/business-context-mvp` retained; local main fast-forwarded to `22ee2f3`. Production still S0C `cec116b9`.
+- **2026-07-24** — **S0C roadmap docs read + verified.** Nathan/ChatGPT re-issued the two owner-owned roadmaps from Claude's drop-ins as **Business OS v0.6** + **AI Gateway v5.2**; Claude read both in full and confirmed they record the S0C closure correctly. `.docx` not edited by Claude. Next doc versions per convention = v0.7 / v5.3.
+- **2026-07-24** — **S0C Identity & User-Isolation CLOSED / LIVE VERIFIED.** PR #100 → merge `3ee62aee`; Edge `ai-gateway` v33→v34 (2 text-only Jake constants, JWT on); Preview `b69fe8a1` + two-account same-browser acceptance PASS; Production `cec116b9` (reused Preview-tested `dist/`, `index-CE6IJ-rJ.js`) + non-mutating Account A smoke PASS; no rollback. Resolved blockers: hardcoded identity, per-user Jake history, exposed-local-paths (correction). Business Context + Onboarding remain open. Tests 101/2690/1skip. Prod deploy superseded `31cb521d` (retained for rollback).
+- **2026-07-23** — S0B Cloud Persistence CLOSED/LIVE: migration `20260722120000` applied; Preview `c7750d9e` + Production `31cb521d` deployed & smoke-verified; durable+truthful Tasks and client Follow-ups; existing CRM/data and all frozen/LIVE lanes unchanged. Prod deploy superseded `4cb17aee` (retained for rollback).
+- **2026-07-22** — S0B merged (PR #99 → main `385f7787`); migration authored, not yet run.
+- **2026-07-22** — S0A False-Success Containment CLOSED/LIVE (Production `4cb17aee`).
