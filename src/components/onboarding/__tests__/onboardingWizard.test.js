@@ -17,6 +17,7 @@ const app = read('../../../App.jsx');
 const dashboard = read('../../../pages/Dashboard.jsx');
 const settings = read('../../../pages/Settings.jsx');
 const editor = read('../../settings/BusinessContextEditor.jsx');
+const assistant = read('../../ai/Assistant.jsx');
 
 // 9) Shared S0D validation + persist path are REUSED (no competing model).
 describe('reuses the S0D validator, limits and persist path', () => {
@@ -127,5 +128,73 @@ describe('BusinessContextEditor (S0D) is untouched', () => {
   it('still validates + persists through the shared S0D path', () => {
     expect(editor.includes('validateBusinessProfile(form)')).toBe(true);
     expect(editor.includes("dispatch({ type: 'SAVE_BUSINESS_PROFILE'")).toBe(true);
+  });
+});
+
+// ===================================================================
+// Milestone 2 pins
+// ===================================================================
+
+// Completion-screen first-value CTA — single jake:prefill, only after {ok:true}.
+describe('completion CTA → single jake:prefill, no auto-send', () => {
+  it('uses the single-source prompt constant', () => {
+    expect(wizard.includes('ONBOARDING_FIRST_VALUE_PROMPT')).toBe(true);
+    expect(onboardingLib.includes('export const ONBOARDING_FIRST_VALUE_PROMPT')).toBe(true);
+  });
+  it('CTA dispatches exactly one jake:prefill with source onboarding', () => {
+    expect(wizard.includes("window.dispatchEvent(new CustomEvent('jake:prefill', { detail: { text: ONBOARDING_FIRST_VALUE_PROMPT, source: 'onboarding' } }));")).toBe(true);
+    expect((wizard.match(/new CustomEvent\('jake:prefill'/g) || []).length).toBe(1); // exactly one dispatch, no open/prefill race
+    expect(wizard.includes('onClick={startWithJake}')).toBe(true);
+    expect(wizard.includes('תן לי 3 פעולות ראשונות עם ג׳יק')).toBe(true);
+  });
+  it('the CTA lives only on the completion screen (reached after {ok:true})', () => {
+    const doneIdx = wizard.indexOf('if (done) {');
+    const ctaIdx = wizard.indexOf('onClick={startWithJake}');
+    expect(doneIdx).toBeGreaterThanOrEqual(0);
+    expect(ctaIdx).toBeGreaterThan(doneIdx); // CTA is inside the done-screen return block
+  });
+  it('the ordinary close (סיום) remains', () => {
+    expect(wizard.includes('סיום')).toBe(true);
+  });
+  it('startWithJake never sends — only dispatches the prefill event + closes', () => {
+    const h = wizard.slice(wizard.indexOf('const startWithJake'), wizard.indexOf('const meta = STEP_META[step];'));
+    expect(h.includes('onDoneClose()')).toBe(true);
+    expect(h.includes('chatJake') || h.includes('draftWithJake') || h.includes('sendRef') || h.includes('SAVE_BUSINESS_PROFILE')).toBe(false);
+  });
+});
+
+// Draft ↔ authoritative-baseline precedence wiring in the wizard.
+describe('wizard uses baseline-aware draft load/save', () => {
+  it('loads the draft against the current durable-profile baseline', () => {
+    expect(wizard.includes('loadOnboardingDraft(session, profile)')).toBe(true);
+  });
+  it('stamps saves with the current durable-profile baseline', () => {
+    expect(wizard.includes('saveOnboardingDraft(session, form, profile)')).toBe(true);
+  });
+});
+
+// Assistant additive prefill seam — pins SUPPLEMENT the applyJakePrefill
+// behavioral tests (the primary no-auto-send / preserve-composer proof).
+describe('Assistant jake:prefill seam (additive, no auto-send)', () => {
+  it('imports the pure prefill helper', () => {
+    expect(assistant.includes("import { applyJakePrefill } from '../../lib/jakePrefill.js';")).toBe(true);
+  });
+  it('registers a jake:prefill listener with cleanup (no duplicate handling)', () => {
+    expect(assistant.includes("window.addEventListener('jake:prefill', onPrefill);")).toBe(true);
+    expect(assistant.includes("window.removeEventListener('jake:prefill', onPrefill);")).toBe(true);
+  });
+  it('the handler only opens + fills via a send-free ctx (open/getInput/setInput)', () => {
+    expect(assistant.includes('const onPrefill = (e) => applyJakePrefill(e && e.detail, { open: forceOpen, getInput: () => inputRef.current, setInput });')).toBe(true);
+  });
+  it('the existing jake:open / jake:ask seams remain', () => {
+    expect(assistant.includes("window.addEventListener('jake:open', onOpen);")).toBe(true);
+    expect(assistant.includes("window.addEventListener('jake:ask', onAsk);")).toBe(true);
+  });
+  it('clears the unsent composer on account switch (no A→B leak)', () => {
+    expect(assistant.includes("Account A's input can never surface for")).toBe(true);
+    expect(assistant.includes("setInput('');")).toBe(true);
+  });
+  it('does not change the Gateway call expression (business-context injection intact)', () => {
+    expect(assistant.includes('withBusinessBrain(activePack.buildContext(data), text, data.businessProfile)')).toBe(true);
   });
 });

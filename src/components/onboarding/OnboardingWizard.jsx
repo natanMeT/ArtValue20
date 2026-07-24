@@ -7,8 +7,8 @@ import {
 } from '../../lib/businessProfile.js';
 import { fromProfile } from '../settings/BusinessContextEditor.jsx';
 import {
-  ONBOARDING_STEPS, isOnboardingComplete, determineFirstIncompleteStep, computeAutoOpen,
-  canFinalizeSave, loadOnboardingDraft, saveOnboardingDraft, clearOnboardingLocal,
+  ONBOARDING_STEPS, ONBOARDING_FIRST_VALUE_PROMPT, isOnboardingComplete, determineFirstIncompleteStep,
+  computeAutoOpen, canFinalizeSave, loadOnboardingDraft, saveOnboardingDraft, clearOnboardingLocal,
   isAutoOpenDismissed, setAutoOpenDismissed,
 } from '../../lib/onboarding.js';
 
@@ -66,13 +66,14 @@ function coerceForm(o) {
   };
 }
 
-// Initial form: a confirmed cloud profile always outranks local draft data —
-// the draft is only restored to resume an INCOMPLETE profile's unfinished input.
+// Initial form: the durable profile is authoritative. A draft is restored ONLY
+// when it was created against the SAME durable-profile baseline currently
+// hydrated (loadOnboardingDraft enforces the baseline match); otherwise — stale
+// or absent — initialize from the authoritative profile. So an authoritative
+// change (Settings / import / refetch) always wins over a stale draft.
 function initialForm(profile, session) {
-  if (!isOnboardingComplete(profile)) {
-    const draft = loadOnboardingDraft(session);
-    if (draft) return coerceForm(draft);
-  }
+  const draft = loadOnboardingDraft(session, profile);
+  if (draft) return coerceForm(draft);
   return fromProfile(profile);
 }
 
@@ -84,12 +85,13 @@ function OnboardingWizard({ startStep, session, profile, dispatch, toast, onDism
   const [saveFailed, setSaveFailed] = useState(false);
   const [done, setDone] = useState(false);
 
-  // Persist the in-progress draft (uid-scoped, UX-only) as the user edits.
-  // Never runs after completion (the local draft is cleared on a confirmed save).
+  // Persist the in-progress draft (uid-scoped, UX-only) as the user edits,
+  // stamped with the CURRENT durable-profile baseline so a later authoritative
+  // change invalidates it. Never runs after completion (draft cleared on save).
   useEffect(() => {
     if (done) return;
-    saveOnboardingDraft(session, form);
-  }, [form, done, session]);
+    saveOnboardingDraft(session, form, profile);
+  }, [form, done, session, profile]);
 
   const errorFor = (field) => (errors.find((e) => e.field === field) || {}).message;
 
@@ -136,6 +138,15 @@ function OnboardingWizard({ startStep, session, profile, dispatch, toast, onDism
     }
   };
 
+  // Completion-screen first-value CTA: fire exactly ONE additive jake:prefill
+  // event (the Assistant listener opens Jake + fills the EMPTY composer WITHOUT
+  // sending), then close. No auto-send, no history change, no separate open
+  // event (the prefill handler opens Jake itself — avoids an ordering race).
+  const startWithJake = () => {
+    window.dispatchEvent(new CustomEvent('jake:prefill', { detail: { text: ONBOARDING_FIRST_VALUE_PROMPT, source: 'onboarding' } }));
+    onDoneClose();
+  };
+
   const meta = STEP_META[step];
   const isReview = meta.id === 'review';
 
@@ -143,13 +154,18 @@ function OnboardingWizard({ startStep, session, profile, dispatch, toast, onDism
   if (done) {
     return (
       <Modal open onClose={onDoneClose} title="הכול מוכן" subtitle="ההקשר העסקי נשמר בענן" maxWidth={560}
-        footer={<button className="btn ai-confirm-yes" onClick={onDoneClose}><Icon name="check" size={16} /> סיום</button>}>
+        footer={(
+          <div className="row gap-2 wrap" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button className="btn ai-confirm-yes" onClick={startWithJake}><Icon name="spark" size={16} /> תן לי 3 פעולות ראשונות עם ג׳יק</button>
+            <button className="btn btn-ghost" onClick={onDoneClose}>סיום</button>
+          </div>
+        )}>
         <div dir="rtl" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <p className="muted" style={{ fontSize: '0.95rem', lineHeight: 1.7 }}>
             מעולה! שמרנו את פרטי העסק שלך. מעכשיו ג׳יק ישתמש בהם כשהוא כותב עבורך תוכן שיווקי וטיוטות — לפי העסק שלך בלבד.
           </p>
           <p className="dim" style={{ fontSize: '0.84rem', lineHeight: 1.7 }}>
-            אפשר לערוך את ההקשר העסקי בכל עת דרך <strong>הגדרות</strong>.
+            לחיצה על הכפתור תפתח את ג׳יק עם הצעה מוכנה לעריכה — לא יישלח דבר עד שתאשרו. אפשר גם לערוך את ההקשר בכל עת דרך <strong>הגדרות</strong>.
           </p>
         </div>
       </Modal>

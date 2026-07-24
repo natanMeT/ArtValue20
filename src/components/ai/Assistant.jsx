@@ -12,6 +12,7 @@ import { extractActions, executeActions, describeActions, detectBulkDelete, buil
 import { partitionJakeActions } from '../../lib/betaCapabilities.js';
 import { activePack } from '../../lib/jakePack.js';
 import { withBusinessBrain } from '../../lib/jakeBusinessContext.js';
+import { applyJakePrefill } from '../../lib/jakePrefill.js';
 import { selectJakeChatHistory } from '../../lib/jakeChatHistory.js';
 import { studioHandoffFor } from '../../lib/assistantStudioHandoff.js';
 import { createArtValueCreative } from '../../creative/v2/createArtValueCreative.js';
@@ -452,6 +453,10 @@ export default function Assistant() {
   useEffect(() => {
     if (chatKeyRef.current === chatKey) return;
     chatKeyRef.current = chatKey;
+    // S0E M2: clear any UNSENT transient composer text (e.g. an onboarding
+    // prefill or a typed draft) so Account A's input can never surface for
+    // Account B. Chat history itself stays per-account (loaded below).
+    setInput('');
     let loaded = null;
     try {
       const raw = localStorage.getItem(chatKey);
@@ -1046,13 +1051,28 @@ export default function Assistant() {
   // to pop the chat and `jake:ask` (detail = prompt) to run a live example.
   const sendRef = useRef(send);
   sendRef.current = send;
+  // S0E M2: live composer value for the additive jake:prefill seam (read without
+  // a stale closure). inputRef never sends — the prefill handler can only open
+  // Jake and set the EMPTY composer.
+  const inputRef = useRef(input);
+  inputRef.current = input;
   useEffect(() => {
     const forceOpen = () => { clearTimers(); setBubble(null); setReminderOpen(false); setOpen(true); setPhase('chatting'); };
     const onOpen = () => forceOpen();
     const onAsk = (e) => { forceOpen(); const q = e?.detail; if (q) after(360, () => sendRef.current(q)); };
+    // S0E M2: additive editable prefill — opens Jake + fills the EMPTY composer
+    // WITHOUT sending (no send/chatJake/draftWithJake/forceActionsJake/dispatch/
+    // fetch, no message append, no history change). Existing non-empty composer
+    // text is preserved verbatim. Exactly one seam; the handler opens Jake itself.
+    const onPrefill = (e) => applyJakePrefill(e && e.detail, { open: forceOpen, getInput: () => inputRef.current, setInput });
     window.addEventListener('jake:open', onOpen);
     window.addEventListener('jake:ask', onAsk);
-    return () => { window.removeEventListener('jake:open', onOpen); window.removeEventListener('jake:ask', onAsk); };
+    window.addEventListener('jake:prefill', onPrefill);
+    return () => {
+      window.removeEventListener('jake:open', onOpen);
+      window.removeEventListener('jake:ask', onAsk);
+      window.removeEventListener('jake:prefill', onPrefill);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

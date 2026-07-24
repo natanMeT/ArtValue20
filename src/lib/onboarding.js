@@ -18,6 +18,11 @@ const str = (v) => (v == null ? '' : String(v)).trim();
 // wizard UI's STEP_META must line up with this (asserted by a focused test).
 export const ONBOARDING_STEPS = Object.freeze(['identity', 'offer', 'audience', 'brand', 'review']);
 
+// The default first-value prompt seeded into Jake's composer after onboarding
+// (S0E M2). SINGLE source of truth — UI + tests import this exact string. It is
+// advisory: it explicitly asks Jake NOT to act without approval.
+export const ONBOARDING_FIRST_VALUE_PROMPT = 'בהתבסס על העסק שהגדרתי, הצע לי 3 פעולות עסקיות ראשונות לפי סדר עדיפות, עם הסבר קצר. אל תבצע דבר בלי אישור.';
+
 // -------------------------------------------------------------------
 // Completion predicate (LOCKED product floor, Milestone 1):
 //   valid businessName (via the shared S0D validator) + non-empty
@@ -112,28 +117,69 @@ function pickDraftFields(form) {
   };
 }
 
-// Safe load: returns a plain object of wizard fields, or null. NEVER throws;
-// a missing key / bad JSON / non-object / array payload → null (ignored).
-export function loadOnboardingDraft(session, storage) {
+// A deterministic, sanitized signature of the durable profile a draft was
+// created against. Used to reject a STALE draft when the authoritative profile
+// changed underneath it (Settings / import / refetch). Canonical + stable key
+// order; contains NO uid / email / session / token — only the seven business
+// fields. An unconfigured (no business name) profile → the stable 'none'
+// baseline, so a brand-new account's draft still resumes across refresh.
+export function profileBaselineSignature(profile) {
+  const p = profile && typeof profile === 'object' && !Array.isArray(profile) ? profile : null;
+  if (!p || !str(p.businessName)) return 'none';
+  const canon = {
+    businessName: str(p.businessName),
+    positioning: str(p.positioning),
+    audiences: Array.isArray(p.audiences) ? p.audiences.map(str).filter(Boolean) : [],
+    tone: Array.isArray(p.tone) ? p.tone.map(str).filter(Boolean) : [],
+    differentiators: Array.isArray(p.differentiators) ? p.differentiators.map(str).filter(Boolean) : [],
+    services: Array.isArray(p.services)
+      ? p.services.map((sv) => ({ name: str(sv && sv.name), pitch: str(sv && sv.pitch) })).filter((sv) => sv.name || sv.pitch)
+      : [],
+    brandPalette: p.brandPalette && typeof p.brandPalette === 'object' && !Array.isArray(p.brandPalette) ? p.brandPalette : null,
+  };
+  try { return JSON.stringify(canon); } catch { return 'none'; }
+}
+
+// Draft envelope version — bump to invalidate all older drafts safely.
+const DRAFT_ENVELOPE_VERSION = 2;
+
+// Safe load: returns the whitelisted wizard-field object, or null. NEVER throws.
+// Returns null when: no key/storage, missing/bad JSON, wrong envelope version,
+// malformed shape, OR the stored baseline no longer matches the CURRENT durable
+// profile (a stale draft must never override an authoritative change).
+export function loadOnboardingDraft(session, profileForBaseline, storage) {
   const key = onboardingDraftKey(session);
   const s = getStorage(storage);
   if (!key || !s) return null;
   try {
     const raw = s.getItem(key);
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-    return parsed;
+    const env = JSON.parse(raw);
+    if (!env || typeof env !== 'object' || Array.isArray(env)) return null;
+    if (env.v !== DRAFT_ENVELOPE_VERSION) return null;            // old/unrecognized → ignore safely
+    if (typeof env.baseline !== 'string') return null;
+    if (!env.form || typeof env.form !== 'object' || Array.isArray(env.form)) return null;
+    if (env.baseline !== profileBaselineSignature(profileForBaseline)) return null; // stale → authoritative wins
+    return env.form;
   } catch {
     return null;
   }
 }
 
-export function saveOnboardingDraft(session, form, storage) {
+// Persist the in-progress draft as a versioned envelope stamped with the durable
+// profile baseline it was created against (so a later authoritative change can
+// invalidate it). Stores ONLY the seven whitelisted fields + a sanitized
+// baseline signature — never uid / session / secret / Auth data.
+export function saveOnboardingDraft(session, form, profileForBaseline, storage) {
   const key = onboardingDraftKey(session);
   const s = getStorage(storage);
   if (!key || !s) return;
-  try { s.setItem(key, JSON.stringify(pickDraftFields(form))); } catch { /* ignore quota/serialization */ }
+  const envelope = {
+    v: DRAFT_ENVELOPE_VERSION,
+    baseline: profileBaselineSignature(profileForBaseline),
+    form: pickDraftFields(form),
+  };
+  try { s.setItem(key, JSON.stringify(envelope)); } catch { /* ignore quota/serialization */ }
 }
 
 export function isAutoOpenDismissed(session, storage) {

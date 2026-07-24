@@ -1,18 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ONBOARDING_STEPS,
+  ONBOARDING_STEPS, ONBOARDING_FIRST_VALUE_PROMPT,
   isOnboardingComplete, shouldShowSetupBanner, determineFirstIncompleteStep,
-  computeAutoOpen, canFinalizeSave,
+  computeAutoOpen, canFinalizeSave, profileBaselineSignature,
   onboardingDraftKey, onboardingDismissKey,
   loadOnboardingDraft, saveOnboardingDraft, clearOnboardingLocal,
   isAutoOpenDismissed, setAutoOpenDismissed,
 } from '../onboarding.js';
 
 // ===================================================================
-// onboarding (S0E · M1) — PURE helpers. No DOM renderer in this repo, so
-// every guarantee is proven at the pure-logic boundary. Storage is
-// injected (a Map-backed fake) so draft/dismissal isolation is testable
-// without jsdom. NO real account identifiers appear here — synthetic uids.
+// onboarding (S0E · M1+M2) — PURE helpers. No DOM renderer in this repo, so
+// every guarantee is proven at the pure-logic boundary. Storage is injected
+// (a Map-backed fake) so draft/dismissal isolation + baseline precedence are
+// testable without jsdom. NO real account identifiers — synthetic uids.
 // ===================================================================
 
 function memStorage() {
@@ -52,8 +52,15 @@ describe('isOnboardingComplete · locked floor', () => {
 // 10) Palette optional + existing S0D validation intact (delegation).
 describe('shared S0D validation is used (palette rule still enforced)', () => {
   it('an invalid palette (secondary without primary) makes the profile not complete', () => {
-    // isOnboardingComplete runs validateBusinessProfile, so S0D palette rules apply.
     expect(isOnboardingComplete({ ...complete, brandPalette: { secondary: '#123456' } })).toBe(false);
+  });
+});
+
+// The default first-value prompt is an explicit non-executing constant.
+describe('ONBOARDING_FIRST_VALUE_PROMPT', () => {
+  it('is a single-source-of-truth string that forbids acting without approval', () => {
+    expect(typeof ONBOARDING_FIRST_VALUE_PROMPT).toBe('string');
+    expect(ONBOARDING_FIRST_VALUE_PROMPT).toContain('אל תבצע דבר בלי אישור.');
   });
 });
 
@@ -93,21 +100,21 @@ describe('uid-scoped keys (stable user.id only, never name/email)', () => {
 describe('cross-account isolation', () => {
   it('B cannot read A draft or dismissal', () => {
     const s = memStorage();
-    saveOnboardingDraft(sessA, { businessName: 'A-סוד' }, s);
+    saveOnboardingDraft(sessA, { businessName: 'A-סוד' }, null, s);
     setAutoOpenDismissed(sessA, s);
-    expect(loadOnboardingDraft(sessA, s)).toEqual(expect.objectContaining({ businessName: 'A-סוד' }));
-    expect(loadOnboardingDraft(sessB, s)).toBe(null);
+    expect(loadOnboardingDraft(sessA, null, s)).toEqual(expect.objectContaining({ businessName: 'A-סוד' }));
+    expect(loadOnboardingDraft(sessB, null, s)).toBe(null);
     expect(isAutoOpenDismissed(sessA, s)).toBe(true);
     expect(isAutoOpenDismissed(sessB, s)).toBe(false);
   });
   it('clearing A never touches B', () => {
     const s = memStorage();
-    saveOnboardingDraft(sessA, { businessName: 'A' }, s);
-    saveOnboardingDraft(sessB, { businessName: 'B' }, s);
+    saveOnboardingDraft(sessA, { businessName: 'A' }, null, s);
+    saveOnboardingDraft(sessB, { businessName: 'B' }, null, s);
     setAutoOpenDismissed(sessB, s);
     clearOnboardingLocal(sessA, s);
-    expect(loadOnboardingDraft(sessA, s)).toBe(null);
-    expect(loadOnboardingDraft(sessB, s)).toEqual(expect.objectContaining({ businessName: 'B' }));
+    expect(loadOnboardingDraft(sessA, null, s)).toBe(null);
+    expect(loadOnboardingDraft(sessB, null, s)).toEqual(expect.objectContaining({ businessName: 'B' }));
     expect(isAutoOpenDismissed(sessB, s)).toBe(true);
   });
 });
@@ -117,19 +124,19 @@ describe('malformed draft fails safely (never throws)', () => {
   it('bad JSON → null', () => {
     const s = memStorage();
     s.setItem(onboardingDraftKey(sessA), '{not json');
-    expect(loadOnboardingDraft(sessA, s)).toBe(null);
+    expect(loadOnboardingDraft(sessA, null, s)).toBe(null);
   });
   it('non-object payloads → null', () => {
     const s = memStorage();
     for (const bad of ['123', '"str"', '[1,2]', 'null', 'true']) {
       s.setItem(onboardingDraftKey(sessA), bad);
-      expect(loadOnboardingDraft(sessA, s)).toBe(null);
+      expect(loadOnboardingDraft(sessA, null, s)).toBe(null);
     }
   });
-  it('a valid object payload is returned', () => {
+  it('a valid envelope round-trips its form', () => {
     const s = memStorage();
-    saveOnboardingDraft(sessA, { businessName: 'x', positioning: 'y' }, s);
-    expect(loadOnboardingDraft(sessA, s)).toEqual(expect.objectContaining({ businessName: 'x', positioning: 'y' }));
+    saveOnboardingDraft(sessA, { businessName: 'x', positioning: 'y' }, null, s);
+    expect(loadOnboardingDraft(sessA, null, s)).toEqual(expect.objectContaining({ businessName: 'x', positioning: 'y' }));
   });
 });
 
@@ -137,13 +144,63 @@ describe('malformed draft fails safely (never throws)', () => {
 describe('draft payload sanitization', () => {
   it('stores only known wizard fields — no uid/session/extra keys leak in', () => {
     const s = memStorage();
-    saveOnboardingDraft(sessA, { businessName: 'x', secret: 'TOKEN', user: { id: 'z' }, accessToken: 'zzz' }, s);
-    const raw = JSON.parse(s.getItem(onboardingDraftKey(sessA)));
-    expect(raw.businessName).toBe('x');
-    expect(raw).not.toHaveProperty('secret');
-    expect(raw).not.toHaveProperty('user');
-    expect(raw).not.toHaveProperty('accessToken');
-    expect(Object.keys(raw).sort()).toEqual(['audiences', 'brandPalette', 'businessName', 'differentiators', 'positioning', 'services', 'tone']);
+    saveOnboardingDraft(sessA, { businessName: 'x', secret: 'TOKEN', user: { id: 'z' }, accessToken: 'zzz' }, null, s);
+    const env = JSON.parse(s.getItem(onboardingDraftKey(sessA)));
+    expect(env.form.businessName).toBe('x');
+    expect(env.form).not.toHaveProperty('secret');
+    expect(env.form).not.toHaveProperty('user');
+    expect(env.form).not.toHaveProperty('accessToken');
+    expect(Object.keys(env.form).sort()).toEqual(['audiences', 'brandPalette', 'businessName', 'differentiators', 'positioning', 'services', 'tone']);
+    // whole envelope carries no secret / uid
+    const whole = JSON.stringify(env);
+    expect(whole).not.toContain('TOKEN');
+    expect(whole).not.toContain('uid-aaaa');
+  });
+});
+
+// A) Draft / authoritative-baseline precedence (M2 correction).
+describe('draft ↔ authoritative-baseline precedence', () => {
+  const partial = { businessName: 'סטודיו', positioning: 'עיצוב' };
+
+  it('unchanged baseline → draft restored', () => {
+    const s = memStorage();
+    saveOnboardingDraft(sessA, { businessName: 'טיוטה', positioning: 'בעבודה' }, partial, s);
+    expect(loadOnboardingDraft(sessA, partial, s)).toEqual(expect.objectContaining({ businessName: 'טיוטה' }));
+  });
+  it('newer/changed durable profile → stale draft rejected (authoritative wins)', () => {
+    const s = memStorage();
+    saveOnboardingDraft(sessA, { businessName: 'טיוטה' }, null, s); // stamped against unconfigured
+    const changed = { businessName: 'סטודיו', positioning: 'חדש' }; // durable changed via Settings
+    expect(loadOnboardingDraft(sessA, changed, s)).toBe(null);
+  });
+  it('null durable profile → draft resumes (matching empty baseline)', () => {
+    const s = memStorage();
+    saveOnboardingDraft(sessA, { businessName: 'טיוטה' }, null, s);
+    expect(loadOnboardingDraft(sessA, null, s)).toEqual(expect.objectContaining({ businessName: 'טיוטה' }));
+  });
+  it('legacy raw / old-version / broken envelope → ignored safely', () => {
+    const s = memStorage();
+    s.setItem(onboardingDraftKey(sessA), JSON.stringify({ businessName: 'legacy-no-envelope' }));
+    expect(loadOnboardingDraft(sessA, null, s)).toBe(null);
+    s.setItem(onboardingDraftKey(sessA), JSON.stringify({ v: 1, baseline: 'none', form: { businessName: 'old' } }));
+    expect(loadOnboardingDraft(sessA, null, s)).toBe(null);
+    s.setItem(onboardingDraftKey(sessA), '{broken');
+    expect(loadOnboardingDraft(sessA, null, s)).toBe(null);
+  });
+  it('Account A draft never loads for Account B', () => {
+    const s = memStorage();
+    saveOnboardingDraft(sessA, { businessName: 'A' }, null, s);
+    expect(loadOnboardingDraft(sessB, null, s)).toBe(null);
+  });
+  it('profileBaselineSignature is deterministic, changes with the profile, and carries no identifiers', () => {
+    expect(profileBaselineSignature(null)).toBe('none');
+    expect(profileBaselineSignature({})).toBe('none');
+    const a = profileBaselineSignature({ businessName: 'x', positioning: 'y', services: [{ name: 'z' }] });
+    const a2 = profileBaselineSignature({ businessName: 'x', positioning: 'y', services: [{ name: 'z' }] });
+    const b = profileBaselineSignature({ businessName: 'x', positioning: 'CHANGED', services: [{ name: 'z' }] });
+    expect(a).toBe(a2);
+    expect(a).not.toBe(b);
+    expect(a).not.toContain('uid');
   });
 });
 
@@ -198,7 +255,7 @@ describe('canFinalizeSave · truthful completion', () => {
 describe('completion is derived from the durable profile, never from a draft', () => {
   it('a "complete-looking" local draft does not make an unconfigured account complete', () => {
     const s = memStorage();
-    saveOnboardingDraft(sessA, complete, s); // draft looks complete...
+    saveOnboardingDraft(sessA, complete, null, s); // draft looks complete...
     expect(isOnboardingComplete(null)).toBe(false); // ...but the durable profile is null → not complete
     expect(shouldShowSetupBanner(null)).toBe(true);
   });
