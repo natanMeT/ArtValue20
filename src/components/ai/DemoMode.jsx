@@ -4,16 +4,29 @@
 // the system to a new user or client: it explains each area in plain Hebrew and
 // lets them fire real ג'יק commands (propose→confirm→execute) from inside the tour.
 //
-// Self-contained: auto-opens once per browser (localStorage), and re-opens on the
-// global `artvalue:demo:open` event (the Dashboard button dispatches it). Driving
-// ג'יק is done via the `jake:ask` / `jake:open` window events the Assistant listens to.
+// Availability: in LOCAL/demo mode it auto-opens once per browser (localStorage);
+// in authenticated cloud mode it is MANUAL-ONLY (see shouldAutoOpenDemo below).
+// In both modes it opens on the global `artvalue:demo:open` event (the Dashboard
+// "מצב הדגמה" button dispatches it). Driving ג'יק is done via the `jake:ask` /
+// `jake:open` window events the Assistant listens to.
 // ===================================================================
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import Icon from '../ui/Icon.jsx';
+import { isSupabaseConfigured } from '../../lib/supabase.js';
 
 const SEEN_KEY = 'artvalue_demo_seen_v1';
+
+// Pure: may this tour open itself on a first visit? In authenticated cloud mode
+// the S0E guided business onboarding is the ONLY automatic first-run flow — on a
+// fresh browser both would otherwise open at once over each other — so the legacy
+// tour is manual-only there and its seen key is never consulted or written
+// implicitly. Local/demo keeps the original once-per-browser behavior exactly.
+export function shouldAutoOpenDemo({ cloudMode, seen } = {}) {
+  if (cloudMode) return false;
+  return !seen;
+}
 
 // Each step: what it explains, where to look, and (optionally) live ג'יק examples.
 const STEPS = [
@@ -79,9 +92,14 @@ export default function DemoMode() {
   const [step, setStep] = useState(0);
   const navigate = useNavigate();
 
-  // Auto-open once per browser, and on the global open event (Dashboard button).
+  // Auto-open once per browser (local/demo only — see shouldAutoOpenDemo), and on
+  // the global open event (Dashboard button) in BOTH modes. The listener is
+  // registered unconditionally and outside the try, so the manual opener stays
+  // available in cloud mode and survives a throwing localStorage.
   useEffect(() => {
-    try { if (!localStorage.getItem(SEEN_KEY)) { setStep(0); setOpen(true); } } catch { /* ignore */ }
+    try {
+      if (shouldAutoOpenDemo({ cloudMode: isSupabaseConfigured, seen: !!localStorage.getItem(SEEN_KEY) })) { setStep(0); setOpen(true); }
+    } catch { /* ignore */ }
     const onOpen = () => { setStep(0); setOpen(true); };
     window.addEventListener('artvalue:demo:open', onOpen);
     return () => window.removeEventListener('artvalue:demo:open', onOpen);
