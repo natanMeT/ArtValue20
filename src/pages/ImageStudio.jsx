@@ -11,9 +11,9 @@ import MaskCanvas from '../components/ui/MaskCanvas.jsx';
 import { callAiGateway } from '../lib/aiGatewayClient.js';
 import {
   generateImage, generateImg2Img, editImage, inpaintImage, animateImage, ltxVideo, flfVideo, montageFromImages, downloadImage,
-  isImageAiConfigured, hasFluxModel, hasLocalComfy, hasVideoModel, hasLtxVideo, hasKontextModel,
-  checkLocalEngine, localEngineUrl, listImageModels, characterPack, characterPackPulid, hasPulidNode,
-  generateModelAlbum, onComfyJob, markNextComfyJob, hasQwenEditNode, qwenCompose, productLockBlend,
+  isImageAiConfigured, hasLocalComfy, hasVideoModel, hasLtxVideo, hasKontextModel,
+  localEngineUrl, characterPack, characterPackPulid, hasPulidModel,
+  generateModelAlbum, onComfyJob, markNextComfyJob, hasQwenEdit, qwenCompose, productLockBlend,
 } from '../lib/geminiImage.js';
 import { watchJob, cancelJob } from '../lib/comfyProgress.js';
 import { createGalleryStore, srcToBlob, GALLERY_MAX, filterGalleryItems } from '../lib/galleryStore.js';
@@ -22,7 +22,6 @@ import { AI_GATEWAY_INPUT_LIMITS } from '../lib/aiGatewayInput.js';
 import { CREATIVE_PRESETS, isTextImagePreset } from '../data/creativePresets.js';
 import PosterEditor from '../components/studio/PosterEditor.jsx';
 import MockupStudio from '../components/studio/MockupStudio.jsx';
-import CreativeWorkflowMap from '../components/studio/CreativeWorkflowMap.jsx';
 import ProductPlacer from '../components/studio/ProductPlacer.jsx';
 import { readStudioHandoff } from '../lib/studioHandoff.js';
 
@@ -85,14 +84,6 @@ function studioDownloadName(r) {
   return 'artvalue-image.png';
 }
 
-// Display labels for the business preset recipe card (presentational only).
-const PRESET_PROVIDER_LABEL = {
-  'local-flux': 'FLUX מקומי',
-  'local-sdxl': 'SDXL מקומי',
-  'local-qwen-edit': 'Qwen-Edit מקומי',
-  'local-ltx-video': 'LTX וידאו מקומי',
-  'gpt-image-2': 'GPT Image 2',
-};
 const PRESET_TAB_LABEL = { text: 'טקסט → תמונה', img2img: 'עריכה חכמה', video: 'תמונה → וידאו' };
 
 const EDIT_IDEAS = [
@@ -208,53 +199,19 @@ const VID_LENGTHS = [
   { sec: 8, frames: 201 },
 ];
 
-function EngineStatus() {
-  const [status, setStatus] = useState('checking'); // checking | up | down
-  const [open, setOpen] = useState(false);
-  const [checking, setChecking] = useState(false);
-
-  const ping = async () => {
-    setChecking(true);
-    const up = await checkLocalEngine();
-    setStatus(up ? 'up' : 'down');
-    setChecking(false);
-    if (up) setOpen(false);
-  };
-
-  useEffect(() => {
-    ping();
-    const t = setInterval(ping, 15000);
-    return () => clearInterval(t);
-  }, []);
-
-  if (!localEngineUrl) return null;
-
-  return (
-    <div className={`engine-status engine-${status}`}>
-      <div className="engine-row">
-        <span className="engine-dot" />
-        <span className="engine-label">
-          {status === 'up' ? 'מנוע התמונות פעיל' : status === 'checking' ? 'בודק מנוע…' : 'מנוע התמונות כבוי'}
-        </span>
-        {status === 'down' && (
-          <>
-            <button className="btn btn-ghost btn-sm" onClick={ping} disabled={checking}>{checking ? 'בודק…' : 'בדוק שוב'}</button>
-            <button className="btn btn-primary btn-sm" onClick={() => setOpen((o) => !o)}><Icon name="spark" size={14} /> איך מפעילים</button>
-          </>
-        )}
-      </div>
-      {open && status === 'down' && (
-        <div className="engine-help">
-          <p style={{ margin: '0 0 6px' }}>הפעל את המנוע באחת מהדרכים, והמתן ~30 שניות (האינדיקטור יתעדכן לבד):</p>
-          <ol style={{ margin: 0, paddingInlineStart: 18, lineHeight: 1.8 }}>
-            <li>לחיצה כפולה על <b>«Start ArtValue Image Engine»</b> בשולחן העבודה</li>
-            <li>או: <code>C:\AI\ComfyUI_windows_portable\start_engine.bat</code></li>
-          </ol>
-        </div>
-      )}
-    </div>
-  );
-}
+// ===================================================================
+// Studio local-engine UI containment
+// -------------------------------------------------------------------
+// The former <EngineStatus /> panel lived here: a local-GPU availability +
+// setup screen ("מנוע התמונות כבוי" / "איך מפעילים" / the ComfyUI
+// start_engine.bat path) driven by a 15-second checkLocalEngine() poll
+// against the local engine. It was an implementation-operations surface, not
+// a business capability, so it is removed together with its polling loop.
+// The engine's *availability* still governs which creative modes are offered
+// — but only through configuration-derived flags (hasLocalComfy / hasLtxVideo
+// / hasKontextModel / hasPulidModel / hasQwenEdit), never through a request
+// made because the user opened the Studio.
+// ===================================================================
 
 // Elapsed-time readout for the live job card. Owns its own 1s interval and
 // derives elapsed from the seam timestamp (robust to background-tab throttling).
@@ -331,6 +288,18 @@ export function imagePromptTooLongMessage({ length, limit }, paletteApplied) {
   return `${head}${how} לא נשלחה בקשה ליצירה.`;
 }
 
+// The model FAMILY an applied preset was authored for, as a pure exported
+// decision so it can be executed against the real generation seam rather than
+// pinned as source text. This is the PRESET's own business metadata — the user
+// picks "ויזואל עסקי פרימיום", not a checkpoint — so the routing survives the
+// removal of the technical picker without exposing any engine detail.
+// Returns undefined for no preset, a non-text preset, or a non-FLUX family,
+// which lets the engine apply its own default (identical to today's behavior).
+export function presetModelFamily(preset) {
+  if (!preset || !isTextImagePreset(preset)) return undefined;
+  return preset.modelFamily === 'flux' ? 'flux' : undefined;
+}
+
 export default function ImageStudio() {
   const { toast, data, session } = useStore();
   const location = useLocation();
@@ -351,14 +320,9 @@ export default function ImageStudio() {
   const [lockBusy, setLockBusy] = useState(false); // Product Lock composite export in progress
   const [lockBlendBusy, setLockBlendBusy] = useState(false); // B2 AI seam/shadow blend in progress
   const placerRef = useRef(null);                  // ProductPlacer imperative handle
-  const [models, setModels] = useState([]);     // local image checkpoints (auto-detected)
-  const [modelFile, setModelFile] = useState('');
   const [packCount, setPackCount] = useState(6);  // consistent-character pack size
   const [pack, setPack] = useState([]);            // streamed character variations
   const [packBusy, setPackBusy] = useState(false);
-  const [pulidReady, setPulidReady] = useState(false); // PuLID-Flux node installed?
-  const [qwenReady, setQwenReady] = useState(false);   // Qwen-Image-Edit stack installed?
-  const [packEngine, setPackEngine] = useState('kontext'); // 'kontext' | 'pulid'
   const [clothing, setClothing] = useState(''); // model-album clothing/style prompt
   const [aspect, setAspect] = useState('square');
   const [hd, setHd] = useState(false);
@@ -414,13 +378,16 @@ export default function ImageStudio() {
     const off = onComfyJob((ev) => {
       if (ev.tag !== 'studio-run') return;
       if (watchStopRef.current) watchStopRef.current();
-      setJob({ ...ev, phase: 'queued', node: '', value: 0, max: 0, position: 0 });
+      setJob({ ...ev, phase: 'queued', value: 0, max: 0, position: 0 });
+      // Containment: the job card used to display the executing engine NODE
+      // (its ComfyUI class_type, e.g. "KSampler") next to the progress bar.
+      // Progress/queue position/elapsed time stay — the engine's internal graph
+      // node names do not.
       watchStopRef.current = watchJob(localEngineUrl, ev.clientId, ev.promptId, (u) => {
         setJob((j) => {
           if (!j || j.promptId !== ev.promptId) return j;
-          const nodeName = (id) => (id && ev.graph?.[id]?.class_type) || j.node;
-          if (u.kind === 'progress') return { ...j, phase: 'running', node: nodeName(u.node), value: u.value, max: u.max };
-          if (u.kind === 'running') return { ...j, phase: 'running', node: nodeName(u.node) };
+          if (u.kind === 'progress') return { ...j, phase: 'running', value: u.value, max: u.max };
+          if (u.kind === 'running') return { ...j, phase: 'running' };
           if (u.kind === 'queued') return { ...j, phase: 'queued', position: u.position || 0 };
           if (u.kind === 'interrupted') return { ...j, phase: 'cancelled' };
           if (u.kind === 'error') return { ...j, phase: 'failed' };
@@ -452,6 +419,16 @@ export default function ImageStudio() {
       toast('הביטול נכשל — המנוע לא הגיב', 'error');
     }
   };
+
+  // Containment: mounting the Studio previously fired three local-engine
+  // discovery requests — listImageModels() (/object_info/CheckpointLoaderSimple,
+  // to populate a checkpoint picker), hasPulidNode() and hasQwenEditNode().
+  // All three are gone: the picker was removed and these two capability flags
+  // are now configuration-derived (see geminiImage.js). Opening the Studio
+  // therefore issues NO local-engine request at all.
+  // NOTE: these MUST stay above `modes` below — it reads them during render.
+  const pulidReady = hasPulidModel;
+  const qwenReady = hasQwenEdit;
 
   const modes = MODES.filter((m) => !m.needs || (m.needs === 'comfy' && hasLocalComfy) || (m.needs === 'video' && (hasVideoModel || hasLtxVideo)) || (m.needs === 'ltx' && hasLtxVideo) || (m.needs === 'kontext' && hasKontextModel) || (m.needs === 'character' && (hasKontextModel || pulidReady)) || (m.needs === 'pulid' && pulidReady) || (m.needs === 'qwen' && qwenReady));
 
@@ -497,41 +474,23 @@ export default function ImageStudio() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.key]);
 
-  // Load the local image models from ComfyUI (so the user can pick per need).
-  useEffect(() => {
-    let alive = true;
-    listImageModels().then((m) => {
-      if (!alive || !m.length) return;
-      setModels(m);
-      setModelFile((cur) => cur || (m.find((x) => /juggernaut/i.test(x.file)) || m.find((x) => x.arch === 'sdxl') || m[0]).file);
-    });
-    hasPulidNode().then((ok) => { if (alive && ok) { setPulidReady(true); setPackEngine('pulid'); } });
-    hasQwenEditNode().then((ok) => { if (alive && ok) setQwenReady(true); });
-    return () => { alive = false; };
-  }, []);
-
-  const selModel = models.find((m) => m.file === modelFile) || null;
-  const isFluxModel = Boolean(selModel?.flux);
-
   const activePreset = CREATIVE_PRESETS.find((p) => p.id === activePresetId) || null;
+
+  // Family of the applied preset (pure decision, exported + execution-tested).
+  // The hosted Gateway ignores it entirely — its payload is prompt + aspectRatio.
+  const presetArch = presetModelFamily(activePreset);
 
   // Apply a business preset into the existing Text-to-Image controls. Explicit
   // user click only — NEVER generates. Always fills the prompt scaffold; for
-  // text-image presets it also selects a compatible aspect + local model where
-  // those controls exist. Never touches uploaded images, HD, strength, gallery.
+  // text-image presets it also selects a compatible aspect. (Containment: the
+  // preset no longer steers a local checkpoint — that picker was removed.)
+  // Never touches uploaded images, HD, strength, gallery.
   const applyPreset = (p) => {
     setActivePresetId(p.id);
     setPrompt(p.promptScaffold);
     if (isTextImagePreset(p)) {
       const asp = (p.aspectRatios || []).find((id) => ASPECTS.some((a) => a.id === id));
       if (asp) setAspect(asp);
-      if (models.length) {
-        const wantFlux = p.modelFamily === 'flux';
-        const exact = models.find((m) => m.file === p.recommendedModel);
-        const family = models.find((m) => (wantFlux ? m.flux : m.arch === 'sdxl'));
-        const pick = exact || family;
-        if (pick) setModelFile(pick.file);
-      }
     }
   };
 
@@ -623,11 +582,14 @@ export default function ImageStudio() {
       let r;
       if (mode === 'text') {
         const asp = ASPECTS.find((a) => a.id === aspect) || ASPECTS[0];
-        const arch = isFluxModel ? 'flux' : 'sdxl';
         // `aspect` (the preset id) is the ONLY field the hosted Gateway path reads —
         // it maps to an exact ratio server-side; local engines keep using width/height.
-        r = await generateImage(p, { model: selModel?.file, arch, width: asp.w, height: asp.h, hd: !isFluxModel && hd, aspect });
-        r = { ...r, quality: isFluxModel ? 'max' : 'fast', modelLabel: selModel?.label };
+        // Containment: no checkpoint FILENAME is ever sent from the UI (that picker
+        // is gone). But an applied business preset still carries the model family it
+        // was authored for, so that routing is preserved — the user expresses a
+        // business goal ("ויזואל עסקי פרימיום") and the family follows from the
+        // preset, not from a technical control. No preset → engine default.
+        r = await generateImage(p, { arch: presetArch, width: asp.w, height: asp.h, hd, aspect });
       }
       else if (mode === 'img2img') { r = hasKontextModel ? await editImage(file, p) : await generateImg2Img(file, p, { strength }); }
       else if (mode === 'presenter') { r = await qwenCompose(file, endFile, p, presenterQuality === 'quality' ? { lightning: false } : {}); r = { ...r, presenterQuality }; }
@@ -664,11 +626,12 @@ export default function ImageStudio() {
         setPack((p) => [...p, r]);
         try { await galleryStore.add(await srcToBlob(r.src), galleryMeta(r, 'pack')); } catch { /* noop */ }
       };
-      const usePulid = pulidReady && packEngine === 'pulid';
-      if (usePulid) await characterPackPulid(file, packCount, onResult, { portrait: true });
+      // Containment: no engine toggle any more — prefer the stronger
+      // identity-lock path when it is configured, else the edit path.
+      if (pulidReady) await characterPackPulid(file, packCount, onResult, { portrait: true });
       else await characterPack(file, packCount, onResult);
       await refreshGallery();
-      toast(`ערכת הדמות מוכנה ✓ (${usePulid ? 'PuLID' : 'Kontext'}) — נשמרה לגלריה`);
+      toast('ערכת הדמות מוכנה ✓ — נשמרה לגלריה');
     } catch (e) {
       setError(e.message || 'שגיאה ביצירת ערכת הדמות');
     } finally {
@@ -910,7 +873,7 @@ export default function ImageStudio() {
     <div className="studio-hf">
       <SectionHeader
         title={<span className="row gap-2" style={{ display: 'inline-flex', alignItems: 'center' }}><Icon name="wand" size={22} style={{ color: 'var(--lime-deep)' }} /> סטודיו תמונות AI</span>}
-        sub="צור תמונות, ערוך תמונות קיימות, והפוך תמונות לאנימציה — מקומי על ה-GPU שלך."
+        sub="צור תמונות לעסק, ערוך תמונות קיימות, והפוך תמונות לסרטון קצר."
         action={(
           <div className="row gap-2 wrap">
             <button className="btn btn-ghost btn-sm" onClick={() => setMockupOpen(true)}><Icon name="image" size={15} style={{ color: 'var(--lime-deep)' }} /> סטודיו מוקאפים</button>
@@ -919,14 +882,12 @@ export default function ImageStudio() {
         )}
       />
 
-      <EngineStatus />
-
-      {/* Creative Workflow Map — presentational catalog; live cards jump to the
-          matching existing mode/route, coming-soon cards are disabled. */}
-      <CreativeWorkflowMap
-        activeMode={mode}
-        onSelectMode={(m) => { setMode(m); setResult(null); setError(''); }}
-      />
+      {/* Containment: the "מפת ה־Workflows" catalog was removed from the Studio.
+          It presented the creative tools as engine-badged workflows (ComfyUI /
+          Fooocus / Mixed) — a workflow-management surface. The mode tiles below
+          are the single business-facing way to choose what to create. The
+          underlying catalog DATA stays (creativeWorkflows.js) because Jake's
+          decision engine, the business brain and the Studio hand-off read it. */}
 
       {/* Mode tiles (Higgsfield-style) */}
       <div className="hf-modes">
@@ -1032,12 +993,16 @@ export default function ImageStudio() {
                 <div className="card" style={{ marginTop: 10, padding: 12, fontSize: '0.8rem', lineHeight: 1.7 }}>
                   <div className="row between wrap" style={{ gap: 8, alignItems: 'center' }}>
                     <b>{activePreset.title}</b>
+                    {/* Containment: the badge used to name the engine/checkpoint
+                        behind the preset ("FLUX מקומי" / "SDXL מקומי" / …), and a
+                        line below printed the recommended checkpoint FILENAME.
+                        Both are gone — a preset is now described by what it is
+                        for, and readiness is stated in plain business terms. */}
                     <span className={`badge ${activePreset.localReady ? 'badge-active' : 'badge-neutral'}`}>
-                      <span className="dot" /> {activePreset.localReady ? PRESET_PROVIDER_LABEL[activePreset.provider] : 'עתידי · GPT Image 2'}
+                      <span className="dot" /> {activePreset.localReady ? 'זמין' : 'בקרוב'}
                     </span>
                   </div>
                   <p className="dim" style={{ margin: '4px 0' }}>{activePreset.useCase}</p>
-                  {activePreset.recommendedModel && <div>מודל מומלץ: <code>{activePreset.recommendedModel}</code></div>}
                   {activePreset.targetTab !== 'text' && (
                     <div className="muted" style={{ marginTop: 2 }}>↳ הרץ בלשונית: <b>{PRESET_TAB_LABEL[activePreset.targetTab] || activePreset.targetTab}</b></div>
                   )}
@@ -1150,30 +1115,16 @@ export default function ImageStudio() {
             </div>
           )}
 
-          {/* Model picker (text mode) — auto-detected local checkpoints */}
-          {mode === 'text' && models.length > 0 && (
-            <div className="field" style={{ marginTop: 14 }}>
-              <label>מודל ({models.length} מקומיים)</label>
-              <div className="row gap-2 wrap" style={{ display: 'flex' }}>
-                {models.map((m) => (
-                  <button
-                    key={m.file}
-                    type="button"
-                    className={`idea-chip ${modelFile === m.file ? 'idea-chip-active' : ''}`}
-                    style={{ flex: '1 1 132px', textAlign: 'center', lineHeight: 1.3, minWidth: 120 }}
-                    onClick={() => setModelFile(m.file)}
-                    title={m.file}
-                  >
-                    {m.flux ? '✨' : '⚡'} {m.label}
-                    <span className="dim" style={{ display: 'block', fontSize: '0.68rem' }}>{m.flux ? 'FLUX · איכות מקס (~30ש\')' : 'SDXL · מהיר (~10ש\')'}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Containment: the checkpoint picker ("מודל (N מקומיים)" — FLUX/SDXL
+              chips whose tooltips were .safetensors filenames) was removed. It
+              was technical model selection with no business meaning, and it was
+              populated by a local-engine request fired on mount. */}
 
-          {/* HD (hires) toggle — SDXL only; Flux is already high quality */}
-          {mode === 'text' && !isFluxModel && (
+          {/* HD (hires) toggle — only meaningful on the local hires pass. It was
+              previously rendered whenever no FLUX checkpoint was selected, which
+              in a hosted build meant it was ALWAYS shown while doing nothing
+              (the Gateway lane ignores it). Now it appears only where it acts. */}
+          {mode === 'text' && hasLocalComfy && (
             <button
               type="button"
               className={`idea-chip ${hd ? 'idea-chip-active' : ''}`}
@@ -1184,7 +1135,7 @@ export default function ImageStudio() {
             </button>
           )}
 
-          {mode === 'img2img' && hasKontextModel && <p className="muted" style={{ fontSize: '0.82rem', lineHeight: 1.6, marginTop: 6 }}><Icon name="spark" size={13} style={{ color: 'var(--lime-deep)' }} /> מודל עריכה חכם — מבצע רק את השינוי שתבקש ושומר על הדמות, הפנים והקומפוזיציה המקוריים.</p>}
+          {mode === 'img2img' && hasKontextModel && <p className="muted" style={{ fontSize: '0.82rem', lineHeight: 1.6, marginTop: 6 }}><Icon name="spark" size={13} style={{ color: 'var(--lime-deep)' }} /> עריכה חכמה — מבצעת רק את השינוי שתבקש ושומרת על הדמות, הפנים והקומפוזיציה המקוריים.</p>}
 
           {mode === 'presenter' && (
             <>
@@ -1201,11 +1152,11 @@ export default function ImageStudio() {
                 </div>
               </div>
               <p className="muted" style={{ fontSize: '0.82rem', lineHeight: 1.6, marginTop: 6 }}>
-                <Icon name="spark" size={13} style={{ color: 'var(--lime-deep)' }} /> שלב תמונת מוצר עם פרזנטור ליצירת ויזואל שיווקי (Qwen ריבוי-תמונות). הקומפוזיציה מבוססת AI ועשויה להיות מקורבת; לשמירה מדויקת של מוצר נדרש בהמשך Workflow ייעודי.
+                <Icon name="spark" size={13} style={{ color: 'var(--lime-deep)' }} /> שלב תמונת מוצר עם פרזנטור ליצירת ויזואל שיווקי. הקומפוזיציה מבוססת AI ועשויה להיות מקורבת; לשמירה מדויקת של פרטי המוצר השתמש/י במצב «מוצר מדויק».
               </p>
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>המצב הנוכחי הוא יצירתי/מקורב: הוא עשוי לשפר את הנראות, אבל שימור מדויק של לוגו, טקסט, סימני מותג או פרטי מוצר קטנים אינו מובטח. מצב Product Lock לשימור מדויק — בהמשך.</p>
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>לשימוש בתמונות שיש לך הרשאה להשתמש בהן בלבד.</p>
-              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>הערה: בהרצה הראשונה Qwen טוען מודל גדול וייתכן שהתהליך יימשך כמה דקות. זה תקין בזמן טעינת המנוע.</p>
+              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>הערה: היצירה הראשונה עשויה להימשך כמה דקות. זה תקין.</p>
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>טיפ: בחר תמונת פרזנטור שבה אזור היעד — פרק יד, יד או צוואר — גלוי וברור, ותמונת מוצר על רקע נקי. התוצאה הראשונה עשויה להיות מקורבת; אפשר לחדד את ההוראה וליצור שוב.</p>
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>אפשר ליצור קודם סדרת דמות או אלבום דוגמנית, לבחור מהגלריה את הזווית הטובה ביותר, ואז ללחוץ «השתמש כפרזנטור» כדי לחבר אותה למוצר.</p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
@@ -1227,11 +1178,11 @@ export default function ImageStudio() {
             </>
           )}
 
-          {mode === 'inpaint' && <p className="muted" style={{ fontSize: '0.82rem', lineHeight: 1.6, marginTop: 6 }}><Icon name="spark" size={13} style={{ color: 'var(--lime-deep)' }} /> מודל ריאליסטי לא-מוגבל (SDXL) — משנה רק את האזור שסימנת, השאר נשאר מדויק. מתאים לאופנה, בגדי ים והחלפת רקע.</p>}
+          {mode === 'inpaint' && <p className="muted" style={{ fontSize: '0.82rem', lineHeight: 1.6, marginTop: 6 }}><Icon name="spark" size={13} style={{ color: 'var(--lime-deep)' }} /> עריכה ריאליסטית — משנה רק את האזור שסימנת, השאר נשאר מדויק. מתאים לאופנה, בגדי ים והחלפת רקע.</p>}
 
-          {mode === 'video' && <p className="muted" style={{ fontSize: '0.84rem', lineHeight: 1.6 }}>{hasLtxVideo ? 'מנוע LTX-Video — סרטון ~4 שניות מהתמונה, עם תנועה לפי התיאור שתכתוב. (~1-2 דק׳ עיבוד)' : 'המודל ייצור תנועה קולנועית עדינה מהתמונה (~25 פריימים).'}</p>}
+          {mode === 'video' && <p className="muted" style={{ fontSize: '0.84rem', lineHeight: 1.6 }}>{hasLtxVideo ? 'סרטון ~4 שניות מהתמונה, עם תנועה לפי התיאור שתכתוב. (~1-2 דק׳ עיבוד)' : 'תיווצר תנועה קולנועית עדינה מהתמונה (~25 פריימים).'}</p>}
 
-          {mode === 'flf' && <p className="muted" style={{ fontSize: '0.84rem', lineHeight: 1.6 }}><Icon name="spark" size={13} style={{ color: 'var(--lime-deep)' }} /> מנוע LTX «לפני/אחרי» — הסרטון מתחיל בתמונה הראשונה ומסתיים בשנייה, עם מעבר חלק ביניהן. מושלם לסרטוני שינוי/טרנספורמציה. (~1-2 דק׳ עיבוד)</p>}
+          {mode === 'flf' && <p className="muted" style={{ fontSize: '0.84rem', lineHeight: 1.6 }}><Icon name="spark" size={13} style={{ color: 'var(--lime-deep)' }} /> «לפני/אחרי» — הסרטון מתחיל בתמונה הראשונה ומסתיים בשנייה, עם מעבר חלק ביניהן. מושלם לסרטוני שינוי/טרנספורמציה. (~1-2 דק׳ עיבוד)</p>}
 
           {/* Model album — clothing/style prompt + 8-angle generator */}
           {mode === 'album' && (
@@ -1255,15 +1206,10 @@ export default function ImageStudio() {
           {/* Character pack — engine toggle + count selector */}
           {mode === 'character' && (
             <>
-              {pulidReady && hasKontextModel && (
-                <div className="field" style={{ marginTop: 12 }}>
-                  <label>מנוע עקביות</label>
-                  <div className="row gap-2" style={{ display: 'flex' }}>
-                    <button type="button" className={`idea-chip ${packEngine === 'pulid' ? 'idea-chip-active' : ''}`} style={{ flex: 1, textAlign: 'center' }} onClick={() => setPackEngine('pulid')}>✨ PuLID · פנים מדויקות</button>
-                    <button type="button" className={`idea-chip ${packEngine === 'kontext' ? 'idea-chip-active' : ''}`} style={{ flex: 1, textAlign: 'center' }} onClick={() => setPackEngine('kontext')}>🎨 Kontext · עריכה</button>
-                  </div>
-                </div>
-              )}
+              {/* Containment: the "מנוע עקביות" toggle (PuLID vs Kontext) was
+                  removed — picking between two engine implementations is not a
+                  business decision. The stronger identity-lock path is used
+                  whenever it is available; otherwise the edit path is used. */}
               <div className="field" style={{ marginTop: 12 }}>
                 <label>כמה וריאציות</label>
                 <div className="row gap-2" style={{ display: 'flex' }}>
@@ -1274,9 +1220,9 @@ export default function ImageStudio() {
               </div>
               <p className="muted" style={{ fontSize: '0.84rem', lineHeight: 1.6 }}>
                 <Icon name="spark" size={13} style={{ color: 'var(--lime-deep)' }} />{' '}
-                {(pulidReady && packEngine === 'pulid')
-                  ? <>PuLID-Flux ייצר {packCount} סצנות חדשות עם <b>אותם הפנים בדיוק</b> (נעילת זהות חזקה) ויישמור בגלריה — משם אפשר להפוך כל אחת לסרטון. כל תמונה ~30-60 שניות.</>
-                  : <>FLUX Kontext ייצר {packCount} וריאציות של <b>אותה דמות</b> (זוויות, תנוחות, רקעים) ויישמור אותן בגלריה — משם אפשר להפוך כל אחת לסרטון. כל וריאציה ~30-60 שניות.</>}
+                {pulidReady
+                  ? <>ייווצרו {packCount} סצנות חדשות עם <b>אותם הפנים בדיוק</b> (נעילת זהות חזקה) ויישמרו בגלריה — משם אפשר להפוך כל אחת לסרטון. כל תמונה ~30-60 שניות.</>
+                  : <>ייווצרו {packCount} וריאציות של <b>אותה דמות</b> (זוויות, תנוחות, רקעים) ויישמרו בגלריה — משם אפשר להפוך כל אחת לסרטון. כל וריאציה ~30-60 שניות.</>}
               </p>
               {qwenReady && <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>טיפ: אחרי יצירת סדרה, בחר תמונה מוצלחת מהגלריה והשתמש בה כפרזנטור לקמפיין מוצר.</p>}
             </>
@@ -1342,7 +1288,6 @@ export default function ImageStudio() {
                     <span className={`badge ${job.phase === 'running' ? 'badge-active' : 'badge-neutral'}`}>
                       <span className="dot" /> {job.phase === 'queued' ? (job.position > 1 ? `בתור (${job.position})` : 'בתור') : 'רץ'}
                     </span>
-                    {job.node && <span className="dim job-node"><bdi>{job.node}</bdi></span>}
                     <JobElapsed at={job.at} />
                   </div>
                   {job.max > 0 && (
@@ -1396,7 +1341,7 @@ export default function ImageStudio() {
           {!isPack && !isLock && !result && !loading && (
             <div className="diag-empty">
               <div className="diag-empty-ico"><Icon name="image" size={30} /></div>
-              <h3>{isVideoMode ? 'מנוע הווידאו מוכן' : 'המעבד הגרפי מוכן לפעולה'}</h3>
+              <h3>{isVideoMode ? 'מוכן ליצירת סרטון' : 'מוכן ליצירת תמונה'}</h3>
               <p className="muted">{mode === 'flf' ? 'העלה תמונת «לפני» ו«אחרי» משמאל ולחץ על הכפתור.' : needsImage ? 'העלה תמונה משמאל ולחץ על הכפתור.' : 'הזן תיאור משמאל ולחץ «צור תמונה עם AI».'}</p>
             </div>
           )}
@@ -1411,7 +1356,6 @@ export default function ImageStudio() {
                     <span className={`badge ${job.phase === 'running' ? 'badge-active' : 'badge-neutral'}`}>
                       <span className="dot" /> {job.phase === 'queued' ? (job.position > 1 ? `בתור (${job.position})` : 'בתור') : 'רץ'}
                     </span>
-                    {job.node && <span className="dim job-node"><bdi>{job.node}</bdi></span>}
                     <JobElapsed at={job.at} />
                   </div>
                   {job.max > 0 && (
@@ -1456,8 +1400,13 @@ export default function ImageStudio() {
                 />
               </div>
               <div className="row between wrap" style={{ gap: 10 }}>
+                {/* Containment: this badge used to name the engine and the model
+                    that produced the result ("מקומי · FLUX.1", "מקומי · עריכה
+                    (Kontext)", "Pollinations · Flux", …). It now states WHAT was
+                    produced, plus the one distinction that is truthful and
+                    meaningful to the user: demo output vs real output. */}
                 <span className={`badge ${result.demo ? 'badge-neutral' : 'badge-active'}`}>
-                  <span className="dot" />{result.isVideo ? (result.flf ? 'מקומי · לפני/אחרי (LTX)' : result.montage ? 'מקומי · מונטאז׳' : result.ltx ? 'מקומי · וידאו (LTX)' : 'מקומי · אנימציה (SVD)') : result.presenter ? `מקומי · פרזנטור (Qwen)${result.presenterQuality === 'quality' ? ' · איכות' : ''}` : result.inpaint ? 'מקומי · עריכת אזור' : result.kontext ? 'מקומי · עריכה (Kontext)' : result.engine === 'gateway' ? 'AI מאובטח' : result.engine === 'local' ? `מקומי · ${result.modelLabel || (result.quality === 'max' ? 'FLUX.1' : 'SDXL')}` : 'Pollinations · Flux'}
+                  <span className="dot" />{result.demo ? 'מצב הדגמה' : result.isVideo ? (result.flf ? 'סרטון לפני/אחרי' : result.montage ? 'מונטאז׳' : 'סרטון') : result.presenter ? `ויזואל מוצר${result.presenterQuality === 'quality' ? ' · איכות' : ''}` : result.inpaint ? 'עריכת אזור' : result.kontext ? 'עריכה חכמה' : 'תמונה'}
                 </span>
                 <div className="row gap-2 wrap">
                   {!result.isVideo && (

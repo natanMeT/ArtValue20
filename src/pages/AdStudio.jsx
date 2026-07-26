@@ -172,13 +172,17 @@ export default function AdStudio() {
     <div className="ad-studio">
       <SectionHeader
         title={<span className="row gap-2" style={{ display: 'inline-flex', alignItems: 'center' }}><Icon name="spark" size={22} style={{ color: 'var(--lime-deep)' }} /> סטודיו פרסום</span>}
-        sub="במאי קריאייטיב מקומי: אתר → מוח העסק → אסטרטגיה → גלים של קונספטים מנוקדים → פוסטרים מוגמרים."
+        sub="במאי קריאייטיב: אתר → מוח העסק → אסטרטגיה → גלים של קונספטים מנוקדים → פוסטרים מוגמרים."
         action={brand && (<button className="btn btn-ghost btn-sm" onClick={reset} disabled={busy}><Icon name="refresh" size={14} /> עסק חדש</button>)}
       />
 
+      {/* Containment: an "engine off — start Ollama (aya-expanse:8b)" warning bar
+          used to render here. Naming a local LLM and telling the user to start it
+          is local-engine operations, not product. The truthful part of that
+          signal — that output is demo output — is kept as a neutral badge. */}
       {!isGeminiConfigured && (
-        <div className="engine-status engine-down" style={{ marginBottom: 14 }}>
-          <div className="engine-row"><span className="engine-dot" /><span className="engine-label">מנוע הטקסט כבוי — הפעל את Ollama (aya-expanse:8b). אחרת רץ מצב הדגמה.</span></div>
+        <div style={{ marginBottom: 14 }}>
+          <span className="badge badge-neutral"><Icon name="spark" size={12} /> מצב הדגמה</span>
         </div>
       )}
 

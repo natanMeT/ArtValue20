@@ -62,13 +62,13 @@ async function localChat(messages, opts = {}) {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
     if (!res.ok) {
-      const err = new Error(res.status === 404 ? 'המודל המקומי לא זמין — ודא ש-Ollama רץ' : `שגיאת מודל מקומי (${res.status})`);
+      const err = new Error(res.status === 404 ? 'השירות אינו זמין כרגע' : `שגיאת שירות (${res.status})`);
       err.status = res.status;
       throw err;
     }
     const j = await res.json();
     const text = j?.choices?.[0]?.message?.content?.trim();
-    if (!text) throw new Error('לא התקבלה תשובה מהמודל המקומי');
+    if (!text) throw new Error('לא התקבלה תשובה מהשירות');
     return text;
   };
   try {
@@ -78,7 +78,7 @@ async function localChat(messages, opts = {}) {
     if (e.status === 500) { await freeImageVram(); return await call(); }
     // No HTTP status = network error → Ollama isn't reachable (often right after a reboot).
     if (!e.status) {
-      throw new Error('המנוע המקומי (Ollama) לא פעיל או עדיין עולה אחרי הפעלת המחשב. ודא ש-Ollama רץ (אייקון בשורת המשימות) והמתן ~30 שניות, ואז נסה שוב.');
+      throw new Error('השירות עדיין מתאתחל או אינו זמין כרגע. נסה/י שוב בעוד כ-30 שניות.');
     }
     throw e;
   }
@@ -697,7 +697,7 @@ function demoExpand(idea) {
 
 function demoBusiness(url) {
   return new Promise((resolve) => setTimeout(() => resolve({
-    business: 'עסק לדוגמה', positioning: 'מצב הדגמה — הפעל Ollama לניתוח אמיתי', audience: 'לקוחות פרימיום מקומיים',
+    business: 'עסק לדוגמה', positioning: 'מצב הדגמה — הנתונים אינם אמיתיים', audience: 'לקוחות פרימיום מקומיים',
     industry: '', differentiators: ['ייחוד'], emotional_triggers: ['אמון'], tone: ['פרימיום'], trust_signals: [],
     luxury_level: 'premium', weaknesses: ['נוכחות דיגיטלית'], do_not: [], palette: [],
     cards: [

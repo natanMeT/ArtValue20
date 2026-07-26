@@ -233,12 +233,26 @@ describe('S4.2 · direct-browser-Gemini retirement + Gateway wiring (source guar
     }
   });
 
-  it('the Gateway result label is the neutral "AI מאובטח" — no browser/model/provider name (#13)', () => {
-    expect(STUDIO.includes("result.engine === 'gateway' ? 'AI מאובטח'")).toBe(true);
+  // Strengthened by the Studio local-engine UI containment slice. The result
+  // badge used to branch on the ENGINE that produced the image (…'AI מאובטח'
+  // for the Gateway, 'מקומי · FLUX.1' / 'Pollinations · Flux' otherwise). It
+  // now names only WHAT was produced, plus demo-vs-real — so the original
+  // guarantee (no browser/model/provider name) holds for every lane, not just
+  // the Gateway lane.
+  it('the result label names no engine, model or provider on ANY lane (#13)', () => {
+    const badge = STUDIO.slice(STUDIO.indexOf('<span className={`badge ${result.demo'));
+    const label = badge.slice(0, badge.indexOf('</span>'));
+    for (const banned of [
+      'gateway', 'gemini', 'Nano Banana', 'Pollinations', 'FLUX', 'SDXL',
+      'Kontext', 'Qwen', 'LTX', 'SVD', 'מקומי', 'modelLabel',
+    ]) {
+      expect(label.includes(banned), banned).toBe(false);
+    }
+    // it still tells the truth about demo output and about what was made
+    expect(label.includes('result.demo')).toBe(true);
+    expect(label.includes('מצב הדגמה')).toBe(true);
     expect(STUDIO.includes("result.engine === 'gemini'")).toBe(false);
     expect(STUDIO.includes('Nano Banana')).toBe(false);
-    // the Pollinations demo keeps its own truthful label
-    expect(STUDIO.includes("'Pollinations · Flux'")).toBe(true);
   });
 
   it('download filename: Gateway JPEG → .jpg, local video → .webp, local image → .png (#14)', () => {

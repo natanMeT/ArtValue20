@@ -6,7 +6,7 @@
 **Purpose:** single source of truth for state, so work continues across sessions with no loss.
 Nathan passes this to ChatGPT so it can review/advise **without re-deriving or guessing** state.
 **ChatGPT does NOT edit this document.** Only Claude updates it.
-**Last updated:** 2026-07-26 — session: **P1 Atomic Quote Persistence — CLOSED / LIVE VERIFIED in Production.** PRs [#108](https://github.com/natanMeT/ArtValue20/pull/108) → [#109](https://github.com/natanMeT/ArtValue20/pull/109) → [#110](https://github.com/natanMeT/ArtValue20/pull/110) → [#111](https://github.com/natanMeT/ArtValue20/pull/111) → docs [#112](https://github.com/natanMeT/ArtValue20/pull/112) merged to `main` (`7e30199`); migration `20260726120000_atomic_quote_persistence.sql` **APPLIED & verified**; `public.save_quote_atomic` **live**; failure-injection acceptance **13/13** and Preview UI acceptance PASSED; **Production `476830a2-f8ea-45dc-b0ce-a71876bc48dd` / `index-BrR14XIC.js`** deployed by reusing the accepted artifact (12/12 served files byte-match). Rollback `e63198b7` retained. **Recorded limitation: the authenticated Production smoke was NOT run** (no live Account A session; login out of scope) — see the section below. Prior closed session: **S0F.1 Creative Trust, Account Isolation & Brand-Palette Consumption — CLOSED / LIVE VERIFIED in Production** (PR [#106](https://github.com/natanMeT/ArtValue20/pull/106) → main `983f489` → Edge `ai-gateway` **v34→v35** (Jake persona text only) → Preview `0760f00e` + three-account (A/B/D) acceptance PASS → **Production `e63198b7` / `index-lvfFFwEn.js`** + authenticated non-mutating Account A smoke PASS). Truthful cloud containment of the creative/campaign lanes, account-aware Outreach and quote issuer, per-account device-local creative/gallery isolation, and account brand-palette consumption in ImageStudio are now live; **no migration**. Prior: S0E Guided Business Onboarding CLOSED / LIVE VERIFIED (Production `4b86993d`, retained as the S0F.1 frontend rollback).
+**Last updated:** 2026-07-26 — session: **Studio / Local-Engine UI Containment — IN FLIGHT / NOT RELEASED** (implementation PR open; not merged, not deployed; Production unchanged at `476830a2` / `index-BrR14XIC.js`). Prior closed session: **P1 Atomic Quote Persistence — CLOSED / LIVE VERIFIED in Production.** PRs [#108](https://github.com/natanMeT/ArtValue20/pull/108) → [#109](https://github.com/natanMeT/ArtValue20/pull/109) → [#110](https://github.com/natanMeT/ArtValue20/pull/110) → [#111](https://github.com/natanMeT/ArtValue20/pull/111) → docs [#112](https://github.com/natanMeT/ArtValue20/pull/112) merged to `main` (`7e30199`); migration `20260726120000_atomic_quote_persistence.sql` **APPLIED & verified**; `public.save_quote_atomic` **live**; failure-injection acceptance **13/13** and Preview UI acceptance PASSED; **Production `476830a2-f8ea-45dc-b0ce-a71876bc48dd` / `index-BrR14XIC.js`** deployed by reusing the accepted artifact (12/12 served files byte-match). Rollback `e63198b7` retained. **Recorded limitation: the authenticated Production smoke was NOT run** (no live Account A session; login out of scope) — see the section below. Prior closed session: **S0F.1 Creative Trust, Account Isolation & Brand-Palette Consumption — CLOSED / LIVE VERIFIED in Production** (PR [#106](https://github.com/natanMeT/ArtValue20/pull/106) → main `983f489` → Edge `ai-gateway` **v34→v35** (Jake persona text only) → Preview `0760f00e` + three-account (A/B/D) acceptance PASS → **Production `e63198b7` / `index-lvfFFwEn.js`** + authenticated non-mutating Account A smoke PASS). Truthful cloud containment of the creative/campaign lanes, account-aware Outreach and quote issuer, per-account device-local creative/gallery isolation, and account brand-palette consumption in ImageStudio are now live; **no migration**. Prior: S0E Guided Business Onboarding CLOSED / LIVE VERIFIED (Production `4b86993d`, retained as the S0F.1 frontend rollback).
 
 ---
 
@@ -176,7 +176,143 @@ Recorded here only as a **planned future product slice / candidate**, not as an 
 - **Not implemented. Not required for S0F.1. Not automatically selected as the next slice.**
 
 ## Open decisions awaiting Nathan
-- [ ] **Next product slice — PENDING NATHAN DECISION.** Do NOT begin/design/invent the next slice until Nathan selects one and approves a spec. Candidate open items: durable **Asset Library**; durable **Campaigns** + account-aware Growth data model (the Growth reopening prerequisites); **Products / Projects / Inventory / Templates / Activity durability**; **organization boundaries**; **credits / cost controls**; **Website Scanner** (per the section above); Jake conversation-refresh UX. **NOT a candidate: the Quote cloud-save source-label correction — it is already RESOLVED and LIVE in Production (implemented in merged PR #108, shipped in deployment `476830a2`), so it must never be selected or re-implemented as a new slice.**
+- [x] **Next product slice — SELECTED by Nathan: Studio / local-engine UI containment.** IN FLIGHT / NOT RELEASED — see its section below. The candidate list below is preserved for the slice AFTER this one.
+- [ ] **Slice after this one — PENDING NATHAN DECISION.** Do NOT begin/design/invent the next slice until Nathan selects one and approves a spec. Candidate open items: durable **Asset Library**; durable **Campaigns** + account-aware Growth data model (the Growth reopening prerequisites); **Products / Projects / Inventory / Templates / Activity durability**; **organization boundaries**; **credits / cost controls**; **Website Scanner** (per the section above); Jake conversation-refresh UX. **NOT a candidate: the Quote cloud-save source-label correction — it is already RESOLVED and LIVE in Production (implemented in merged PR #108, shipped in deployment `476830a2`), so it must never be selected or re-implemented as a new slice.**
+
+## Studio / Local-Engine UI Containment — **IN FLIGHT / NOT RELEASED** (2026-07-26)
+
+**Status: implementation PR open and REVIEW-CLEAN; NOT merged, NOT built for release, NOT deployed to Preview or Production, NOT live.** Codex round 2 found no major issues (`bb8e955ef2`); 0 unresolved review threads. Merge-ready from a code-review standpoint — **authenticated cloud acceptance on Preview is still outstanding and remains a release gate.**
+Production remains **`476830a2-f8ea-45dc-b0ce-a71876bc48dd` / `index-BrR14XIC.js`** (source `7e30199`), unchanged by this slice.
+Rollback tag `pre-studio-local-engine-containment` @ `4f4180b`; branch `studio/local-engine-ui-containment`.
+
+### Approved product boundary
+Remove or contain user-facing local-engine / provider / tool complexity from the Studio experience for **every** user
+(authenticated cloud *and* local/demo), while preserving the business-facing creative product.
+**This is cleanup and containment — NOT provider replacement. No new managed image/video provider is introduced.**
+
+### Inventory actually found (reachability proven, not keyword-guessed)
+- `/workflow` and `/fooocus` were **already** retired in R4.1 — they redirect to `/studio`. Nothing further was needed.
+- **`EngineStatus`** (ImageStudio) — a local-GPU availability + setup panel ("מנוע התמונות כבוי", "איך מפעילים",
+  the desktop shortcut and the `start_engine.bat` path) driven by a **15-second `checkLocalEngine()` poll**.
+- **Mount-time local-engine discovery** — opening the Studio fired `listImageModels()`
+  (`/object_info/CheckpointLoaderSimple`), `hasPulidNode()` and `hasQwenEditNode()`.
+- **`CreativeWorkflowMap`** ("מפת ה־Workflows") — a workflow-management surface whose cards carried
+  **ComfyUI / Fooocus / Mixed** engine badges.
+- **Checkpoint picker** — "מודל (N מקומיים)" FLUX/SDXL chips whose tooltips were `.safetensors` filenames.
+- **Engine names in copy** — the result badge ("מקומי · FLUX.1", "מקומי · עריכה (Kontext)", "Pollinations · Flux"),
+  the job card's ComfyUI **graph node** (`class_type`, e.g. `KSampler`), the "מנוע עקביות" PuLID/Kontext toggle,
+  mode help text (LTX / SDXL / Qwen / PuLID / Kontext), the "מקומי על ה-GPU שלך" header and preset recipe labels.
+- **AdStudio** — an "engine off — start Ollama (aya-expanse:8b)" warning bar.
+- **Jake** — "צור פוסטר עם ComfyUI", "נוצר מקומית · ComfyUI", and local-engine start-it-yourself error copy.
+- **Thrown generation errors** naming ComfyUI / Kontext / Stable Diffusion, surfaced in the Studio error banner.
+- **Leak path found by tracing, not by grep:** live workflow-catalog **descriptions/tags** (PuLID, Kontext, Qwen, LTX,
+  SDXL/FLUX, LoRA) flow into `systemCapabilities()` → **Jake's system prompt**, so the assistant could speak engine
+  names back to the user. The catalog also advertised the workflow-map screen as a capability.
+
+### What this PR removes / contains
+Deletes `CreativeWorkflowMap.jsx`, the `EngineStatus` panel and its poll, the checkpoint picker, the three mount-time
+probes, the PuLID/Kontext engine toggle and the job card's engine-node readout. Replaces the two probe-derived
+capability flags with configuration-derived constants (`hasPulidModel`, `hasQwenEdit`) that mirror the existing
+`hasKontextModel` pattern. Rewrites every user-visible engine string across ImageStudio, AdStudio, Jake, the preset
+pack, the workflow catalog and the thrown generation errors. Gates the HD toggle on `hasLocalComfy` (it previously
+rendered in hosted builds where it did nothing).
+
+### What business-facing Studio functionality REMAINS
+All nine creative modes (text→image, smart edit, area edit, image→video, before/after, product presenter, Product Lock,
+character set, model album), business preset recipes, quick ideas, aspect ratio, brand-palette consumption (S0F.1),
+gallery + filters + montage + batch animate, Poster Editor, Mockup Studio, Product Placer, the Jake→Studio hand-off and
+the protected AI-Gateway prompt enhancement. `/studio` and `/adstudio` still render; `/workflow` and `/fooocus` still
+redirect to `/studio`.
+
+### Deliberately RETAINED (narrower cleanup than expected — with the reason)
+- **`src/data/creativeWorkflows.js` (the catalog DATA) was NOT deleted.** Its user-facing renderer was, but
+  `studioHandoff.js`, `jakeDecisionEngine.js` and `businessBrain.js` all consume `liveWorkflows()` / `CREATIVE_WORKFLOWS`.
+  Deleting it would have broken Jake. Only the user-reachable text inside it was cleaned; the internal `engine` field stays.
+- **`src/lib/localEngines.js` stays** — it is the production safety gate, not a UI surface.
+- **Local-engine implementation in `geminiImage.js` / `comfyProgress.js` / `comfyPoster.js` stays.** It is still the
+  local development path and still hosts the Gateway lane. It is unreachable in any hosted build (gate closed).
+- **Non-rendered internals stay:** ComfyUI graph `class_type` names, model filename constants, env defaults, and the
+  Jake error-matcher regex that recognises legacy local-engine error text without displaying any engine name.
+
+### Verification performed
+- **Runtime (real behaviour, with a positive control):** dev server in local/demo mode with the local-engine gate
+  **OPEN** (`localEngineUrl` = `http://127.0.0.1:8188`). A `window.fetch` spy recorded, on opening `/studio`:
+  **baseline `main` → 4 local-engine requests** (`/system_stats` ×2, `/object_info/CheckpointLoaderSimple` ×2);
+  **this branch → 0**. Idle for 18s on `/studio` (the old poll was 15s) → **0** further requests.
+  `#/workflow` and `#/fooocus` both landed on `#/studio` with no engine screen. Live DOM check: **0** of 18 engine terms
+  present, all 9 mode tiles and every retained surface rendering, **0** console errors across five route transitions.
+- **This runtime smoke caught a real regression that 3,094 source-level tests did not:** moving the capability flags from
+  `useState` to plain `const` placed them *after* the `modes` list that reads them → a temporal-dead-zone
+  `ReferenceError` that blanked the entire Studio. Fixed, and the declaration order is now pinned by a test.
+- **Tests (first head):** 121 files / 3,098 passed, 1 skipped, 0 failed. **After the fail-closed correction the FOCUSED affected surface was run** — every test file touching `geminiImage` / the changed flags / the Studio pages: **27 files / 1,608 passed / 0 failed** — plus a green production build. The full suite was last green at the previous head; it was not rerun, because the changed exports have exactly two production consumers (`geminiImage.js`, `ImageStudio.jsx`) and every test file importing them was included. New suite
+  `src/pages/__tests__/studioLocalEngineContainment.test.js` (30 cases). Three pre-existing assertions were updated to
+  the new, stronger guarantees (the result badge now names no engine on *any* lane, not just the Gateway lane).
+- **Build:** green. **Built-artifact scan:** `ComfyUI`, `Fooocus`, `PuLID`, `start_engine`, and every removed Hebrew
+  label are **0 occurrences**. Remaining `Qwen` / `LTX` / `Kontext` / `SDXL` / `Ollama` hits were each opened and confirmed
+  to be graph node names, model filename constants, non-rendered preset `qualityNotes`, or the error-matcher regex.
+- **Artifact-level proof the gate is closed in a production build:** `VITE_ENABLE_LOCAL_ENGINES` is absent from the baked
+  env object, so `resolveLocalEngineUrl()` returns `''` unconditionally and no local URL can be requested — regardless of
+  the `127.0.0.1` literals Vite bakes in from the build machine's env.
+
+### Unchanged by this slice
+AI Gateway contracts and cloud routing, Edge `ai-gateway` **v35** (not redeployed), Auth, database schema, migrations
+(none added), Production deployment, Growth containment (still fully `BetaUnavailable`), and all user data — nothing
+migrated, deleted or rewritten. No new provider.
+
+### Review findings (Codex) — round 1 (2 x P2), plus a follow-up correction
+Codex reviewed the first commit and raised **2 P2 findings**. Both were verified against the code before acting.
+
+**Finding 1 — optional stacks were no longer gated by anything.** `COMFY_PULID_MODEL` / `QWEN_UNET` / `QWEN_CLIP` /
+`QWEN_VAE` all carry a non-empty `||` default, so `hasPulidModel` / `hasQwenEdit` collapsed to `Boolean(COMFY_URL)`: a rig
+with ComfyUI but without those optional custom nodes would have shown the album/presenter modes and always routed
+character packs through PuLID instead of the Kontext fallback.
+- **First attempt (`b807fa1`) was INSUFFICIENT and is superseded.** It added an opt-*out*
+  (`VITE_COMFYUI_PULID=0`), which still treated **missing/undefined configuration as available** — i.e. fail **open**.
+  Nathan's review caught that it did not satisfy the capability invariant.
+- **Corrected (`ff5a42e`): optional capabilities now FAIL CLOSED.** A capability is unavailable unless **positively
+  declared** (`1`/`true`/`on`/`yes`); missing, undefined, empty, unknown or malformed configuration => **unavailable**.
+  The Kontext fallback is preserved rather than routed into, and the Studio still performs no discovery request on open
+  or while idle. **Stated limitation:** this is a positive *declaration*, not runtime discovery — it cannot detect a stack
+  that is installed but undeclared (that rig declares it once, in `.env`), which is the safe direction to be wrong in.
+
+**Finding 2 — FLUX presets silently fell back to the SDXL graph.** Dropping `arch` with the picker made `useFlux` false
+for every local render. Fixed by deriving the family from the applied **preset's own metadata** via the exported pure
+`presetModelFamily()`; no checkpoint filename returns and the Gateway payload is unchanged.
+
+### Evidence for the correction — execution-level, with negative controls
+`src/pages/__tests__/studioCapabilityAndRouting.test.js` (15 cases) proves behaviour, not source text:
+- **Capability matrix (executed):** engine configured + undeclared -> **unavailable**; positively declared
+  (`1`/`true`/`on`/`yes`) -> available; explicitly `0`/`false`/`off`/`no` -> unavailable; malformed
+  (`maybe`, `2`, whitespace, `undefined`) -> unavailable; no engine -> unavailable even if declared.
+- **Dependent modes + fallback (executed):** undeclared stacks do not expose album/presenter; character series stays
+  available via Kontext and `usePulid` is false, so work is never routed into an absent stack.
+- **FLUX routing (executed through the REAL call seam):** `presetModelFamily(preset)` -> `generateImage()` -> `comfyUI()`
+  -> `comfySubmit()` -> `fetch('/prompt')`, with the submitted **graph** inspected. A FLUX business preset produces a
+  graph containing `FluxGuidance` + `EmptySD3LatentImage`; a non-FLUX preset and "no preset" produce the SDXL graph
+  (`EmptyLatentImage`, no `FluxGuidance`). Family is read from graph structure, so no label is trusted.
+- **Negative controls run (both bite):** forcing `presetModelFamily` to return `undefined` fails the FLUX execution test;
+  restoring the fail-open predicate fails 6 capability tests. A green result here is therefore meaningful.
+- **Browser re-verification at the corrected head (`bb8e955`), engine gate OPEN (`127.0.0.1:8188`) — both directions:**
+  with the stacks **undeclared**, the Studio offered **7** modes — album and presenter correctly absent — while character
+  series stayed available (Kontext fallback preserved) and `hasPulidModel`/`hasQwenEdit` read `false` despite
+  `hasLocalComfy === true`; with the stacks **declared** (`VITE_COMFYUI_PULID=1`, `VITE_COMFYUI_QWEN_EDIT=1`) the same
+  build offered **9** modes with album and presenter present. **Both runs: 0 local-engine fetches on open, 0 console
+  errors, 0 engine terms in the DOM**, and 0 further requests after idling 18s on `/studio`.
+
+### Review outcome — round 2: CLEAN
+Codex re-reviewed the corrected head and reported **"Didn't find any major issues"** — **reviewed commit `bb8e955ef2`**. Both original P2 threads were answered with the corrected evidence and are now **RESOLVED; 0 unresolved threads remain**.
+
+The only commit after the reviewed one (`c6871ab`) is **documentation-only**: 6 added lines in this file recording the browser re-verification, 0 deletions, no code. Independently confirmed — the `src/` tree hash is **identical** at both commits (`255bd4c7edb0aa2fbd181a1b22cb528fa6de9aee`), and a diff over `src/ .env.example supabase/ package.json vite.config.js index.html` between them is **empty**. The technical head is therefore the reviewed head; tests and build were not rerun because no code changed.
+
+### Verification still required before Preview and Production
+1. ~~A fresh Codex review of the corrected head~~ — **DONE, clean (`bb8e955ef2`), 0 unresolved threads.**
+2. Preview deploy and **authenticated cloud acceptance** — the runtime smoke above was local/demo only; the
+   authenticated cloud path (where the engine gate is closed and the local-only modes are hidden) has **not** been
+   exercised in a browser.
+3. Confirm on Preview that `/studio` issues **zero** requests to any local address and that no engine terminology
+   appears for an authenticated account, including in Jake's replies.
+4. Confirm `/adstudio` still renders `BetaUnavailable` and Growth remains contained for an authenticated account.
+5. Only then a Production deploy, reusing the Preview-accepted artifact, with the current Production retained as rollback.
 
 ## P1 Atomic Quote Persistence — **CLOSED / LIVE IN PRODUCTION** (2026-07-26)
 
@@ -243,9 +379,23 @@ Every stage below is **done**; nothing here is an outstanding instruction.
 10. ✅ **Documentation closure** — this section.
 
 ## Next action
-S0A + S0B + S0C + S0D + S0E + S0F.1 + **P1 Atomic Quote Persistence are all CLOSED / LIVE**. No slice is in flight. P1 is live in Production as **`476830a2-f8ea-45dc-b0ce-a71876bc48dd` / `index-BrR14XIC.js`** (source `7e30199`), with migration `20260726120000` applied and `public.save_quote_atomic` verified; rollback `e63198b7` / `index-lvfFFwEn.js` retained. **Open item carried forward: the authenticated Production smoke for P1 was not performed** (no live Account A session at verification time) — worth a one-off authenticated check on Production at Nathan's convenience. **S0F.1 documentation closure DONE:** this tracker updated to S0F.1 CLOSED/LIVE VERIFIED; the canonical Business OS + AI Gateway roadmaps advanced to **Business OS v0.9** + **AI Gateway v5.5** (Markdown under `docs/roadmaps/`, `.docx` release exports under `docs/releases/`; v0.8 / v5.4 preserved). The next **product** slice remains PENDING NATHAN DECISION and must not be started until selected.
+**A slice IS in flight: Studio / Local-Engine UI Containment — IN FLIGHT / NOT RELEASED.** Its implementation PR is open
+and must not be merged or deployed until reviewed. Production is still **`476830a2-f8ea-45dc-b0ce-a71876bc48dd` /
+`index-BrR14XIC.js`** (source `7e30199`) — this slice has changed nothing that is live.
+
+S0A + S0B + S0C + S0D + S0E + S0F.1 + **P1 Atomic Quote Persistence all remain CLOSED / LIVE**; P1 is live with migration
+`20260726120000` applied and `public.save_quote_atomic` verified, rollback `e63198b7` / `index-lvfFFwEn.js` retained.
+**Open item carried forward: the authenticated Production smoke for P1 was not performed** (no live Account A session at
+verification time) — worth a one-off authenticated check on Production at Nathan's convenience.
+
+Immediate next steps for the in-flight slice: review the PR, then Preview + **authenticated cloud acceptance** (the
+completed smoke was local/demo only), then a Production deploy reusing the accepted artifact. The versioned roadmaps
+(Business OS v0.9 / AI Gateway v5.5) and the `.docx` exports are **deliberately NOT updated by this PR** — release
+closure will update this tracker again after Production acceptance. The slice AFTER this one remains PENDING NATHAN
+DECISION.
 
 ## Change log
+- **2026-07-26** — **Studio / Local-Engine UI Containment — IN FLIGHT / NOT RELEASED.** Nathan selected Studio / local-engine UI cleanup as the active slice. Branch `studio/local-engine-ui-containment`, rollback tag `pre-studio-local-engine-containment` @ `4f4180b`. Implementation PR opened (**not merged, not deployed**); Production unchanged at `476830a2` / `index-BrR14XIC.js`. Removes the local-GPU status/setup panel and its 15s poll, the ComfyUI/Fooocus-badged workflow map (`CreativeWorkflowMap.jsx` deleted), the `.safetensors` checkpoint picker, the PuLID/Kontext engine toggle, the job card's engine graph-node readout, and every user-visible engine name across ImageStudio, AdStudio, Jake, the preset pack and the thrown generation errors; replaces three mount-time local-engine probes with configuration-derived flags. **Runtime-proven with a positive control:** with the engine gate OPEN, a fetch spy recorded 4 local-engine requests on opening `/studio` on `main` and **0** on this branch (and 0 while idle for 18s). That smoke caught a temporal-dead-zone `ReferenceError` — introduced by the flag refactor — that blanked the Studio and which no source-level test detected; fixed and pinned. **Narrower than expected:** `creativeWorkflows.js` could not be deleted because `studioHandoff.js`, `jakeDecisionEngine.js` and `businessBrain.js` consume it — its user-reachable text (which reaches Jake's system prompt) was cleaned instead. Tests 121/3094/1skip; build green; artifact scan clean for every removed label. **No migration, no Gateway/Edge/Auth/schema change, no new provider, no data touched; Growth containment unchanged.** Preview + authenticated cloud acceptance still required.
 - **2026-07-26** — **P1 Atomic Quote Persistence CLOSED / LIVE VERIFIED in Production.** Chain: PR #108 (truthful Quotes/Finance saves + duplicate-submit guards + quote-to-project cloud containment) → `716da1b`; PR #109 (one `SECURITY INVOKER` `save_quote_atomic` RPC + `api.js` single-RPC rewire) → `f7ff9fa`; PR #110 (live/canonical `quotes.date` + `quotes.created_at` compatibility variants + `coalesce(…, current_date)` create fallback, **no table altered**) → `2e1b137`; **first authorized apply FAILED SAFELY** with `42883: operator does not exist: name[] = text[]` in the migration's initial fail-loud catalog preflight block (read-only *operations*, but inside the full migration transaction — **not** a declared READ ONLY transaction), aborting before creating or altering anything; PR #111 (both PK checks → `array_agg(a.attname::text order by k.ord) = array['id']::text[]`, regression coverage, complete corrected preflight PASSED against live catalogs inside one `BEGIN TRANSACTION READ ONLY` / `SHOW transaction_read_only`=`on` / DO / `ROLLBACK` session, negative control still reproducing `42883`) → `a098b0b`; docs PR #112 → `7e30199`. **Migration `20260726120000` APPLIED (retry) & verified**; `public.save_quote_atomic` live (SECURITY INVOKER, empty `search_path`; **`authenticated` is the only client-facing EXECUTE role, `anon`/PUBLIC denied — proven `42501`/HTTP 401 over real HTTP — while `service_role` also holds EXECUTE via Supabase defaults, server-side only**). **Failure-injection acceptance 13/13** (fault injected after the parent insert → **no partial quote**; failed replacement left original items and parent intact; foreign-owner update `P0002` + invisible under RLS); QA records cleaned, DB back to baseline. **Preview `c999988e` UI acceptance PASSED** (exactly one `save_quote_atomic` 204 per save; truthful "נשמר במערכת" toasts). **Production `476830a2-f8ea-45dc-b0ce-a71876bc48dd` / `index-BrR14XIC.js`** deployed by reusing the accepted `dist/` ("Uploaded 0 files (12 already uploaded)"), **12/12 served files byte-match**; rollback `e63198b7` retained and reachable; Edge `ai-gateway` v35 / `verify_jwt=true` unchanged; DB unchanged by the deploy (quotes 0 / quote_items 0, no QA or business record created). Tests 120/3065/1skip; build green. **Recorded limitation: the authenticated Production smoke was NOT performed** — no live Account A session existed and signing in was out of scope; unauthenticated Production load verified clean (correct bundle, all assets 200, zero console errors, zero Supabase requests). Also recorded: filtered DevTools Network views cannot prove the *absence* of direct table writes — that assurance comes from artifact/code evidence (`writeItems` 0 occurrences in the shipped bundle).
 - **2026-07-26** — **S0F.1 Creative Trust, Account Isolation & Brand-Palette Consumption CLOSED / LIVE VERIFIED in Production.** Release chain: PR #106 → main `983f489` → Edge `ai-gateway` **v34→v35** (Jake persona text constant + its related comment only; ACTIVE, `verify_jwt=true`; persona smoke PASS) → Preview `0760f00e` (branch `s0f1-preview-983f489`) + three-account (A/B/D) acceptance PASS → **Production `e63198b7`** (reused Preview-tested `dist/`, `index-lvfFFwEn.js` — "Uploaded 0 files (12 already uploaded)") + authenticated non-mutating Account A smoke PASS; no rollback (`4b86993d` retained, HTTP 200). Delivered truthful cloud containment of the Jake campaign lane and AdStudio (nothing run, nothing claimed, nothing saved, zero Gateway calls), the hidden ArtValue offer-brief chip, a Jake persona in which **ArtValue is the product/system brand** and Jake works only from the active account's approved Business Context, account-aware **Outreach** and **quote issuer** (truthful setup-required / neutral presentation when unconfigured), **ImageStudio brand-palette consumption** (exact approved uppercase HEX unchanged, ON by default with per-generation OFF, never recolouring the app theme, final prompt validated against the canonical 2,000-character Gateway limit and blocked truthfully before the Gateway when over), and **per-account uid-scoped device-local** creative/package/gallery storage with the account-switch race closed and legacy globals never read, migrated, copied or deleted. **Local creative/gallery stores are per-account isolated device-local storage — NOT durable; a durable Asset Library remains open.** Growth remains fully BetaUnavailable; no Product/Inventory/Campaign/Asset-Library schema, no public/guest Growth Console and no Website Scanner were added. **No migration.** Tests 118/2978/1skip; build green. Rollback tag `pre-s0f-creative-trust-brand-palette` @ `5efbeb91` retained. Recorded non-blocking follow-up: **Quote cloud-save source label truthfulness** (wording only; persistence is correct). Next slice remains PENDING NATHAN DECISION.
 - **2026-07-26** — **S0E Guided Business Onboarding CLOSED / LIVE VERIFIED in Production (incl. dual-tour cloud correction).** Release chain: PR #103 → main `c10ac55` → corrective PR #104 → active release source `272fc14` → corrected Preview `ea0dcc02` (branch `s0e-preview-272fc14`) + acceptance PASS on an unconfigured account → **Production `4b86993d`** (reused Preview-tested `dist/`, `index-DRaTE7f5.js` — "Uploaded 0 files (12 already uploaded)") + non-mutating Account A prod smoke PASS; no rollback (`69f8a175` retained, HTTP 200). Delivered a five-step guided Hebrew RTL setup over the durable S0D Business Context with hydration-gated auto-open, configured-account bypass, uid-scoped draft/dismissal, versioned draft baseline, step-routed validation errors, persist-first truthful save and an editable non-auto-sending Jake first-value prefill. **DemoMode correction:** manual-only in authenticated cloud mode, unchanged in local/demo, so the two first-run tours can no longer open together. **No migration; Edge `ai-gateway` v34/JWT unchanged; no Gateway/contract change.** Tests 111/2885/1skip; build green. Rollback tags `pre-s0e-demo-tour-containment` @ `c10ac55` and `pre-s0e-guided-onboarding` @ `becd070` retained. Resolved blockers: Onboarding/business-setup wizard; overlapping first-run tours. Next slice remains PENDING NATHAN DECISION.
