@@ -14,26 +14,105 @@
 // proving the assertion discriminates.
 // ===================================================================
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 import {
   STUDIO_MODE_REQUIREMENTS, STUDIO_FALLBACK_MODE,
   isStudioModeAvailable, availableStudioModeIds, resolveStudioMode,
-  studioAvailability,
+  studioAvailability, STUDIO_SUBFEATURES, SUBFEATURE_TEXT_FIELDS,
+  isStudioSubfeatureAvailable, studioSubfeature, studioSubfeatureSnapshot,
 } from '../../lib/studioModes.js';
+import {
+  PRESET_REQUIREMENT_FIELDS, PRESET_DESCRIPTIVE_FIELDS, SUPPORTED_API_PROVIDERS,
+  isPresetAvailable, presetUnavailableReason, availablePresets,
+} from '../../lib/presetAvailability.js';
+import {
+  moduleGraph, readSource, isComponent, rel as relTo, gatedRegions, insideAny, callsOf,
+} from './support/moduleGraph.js';
 import { readStudioHandoff, workflowIdToMode } from '../../lib/studioHandoff.js';
 import { userFacingError, userError, engineError } from '../../lib/userFacingError.js';
 import { qwenCompose, gatewayImageErrorToThrow } from '../../lib/geminiImage.js';
 import { systemCapabilities, buildAccountBusinessContext } from '../../data/businessBrain.js';
 import { CREATIVE_WORKFLOWS } from '../../data/creativeWorkflows.js';
 import { CREATIVE_PRESETS } from '../../data/creativePresets.js';
+import { posterExportErrorText, POSTER_EXPORT_FALLBACK } from '../../components/studio/PosterEditor.jsx';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (rel) => readFileSync(resolve(here, rel), 'utf8');
 const IMAGE_STUDIO = read('../ImageStudio.jsx');
 const GEMINI_IMAGE = read('../../lib/geminiImage.js');
+
+// ===================================================================
+// Round 4 — MECHANICALLY DERIVED BOUNDARIES.
+//
+// Rounds 1-3 each widened the list of instances while keeping the same frame:
+// the surfaces I had thought of, the gate I had thought of, the one capability
+// axis the original bug used. Three siblings survived all three passes. The
+// scope of verification is therefore no longer written by hand.
+//
+// ROOTS are the creative route entry points. Everything else — which children
+// they render, which helpers they pull in — is derived from the imports those
+// roots actually declare, so a new creative child enters verification without
+// anyone editing a list.
+// ===================================================================
+const REPO = resolve(here, '../../..');
+const CREATIVE_ROUTE_ROOTS = [
+  'src/pages/ImageStudio.jsx',
+  'src/pages/AdStudio.jsx',
+  'src/pages/Diagnose.jsx',
+  'src/pages/Outreach.jsx',
+].map((p) => resolve(REPO, p));
+const GRAPH = moduleGraph(CREATIVE_ROUTE_ROOTS);
+const relative = (f) => relTo(REPO, f);
+
+// ---- the CLASS A predicate, applied to source text -------------------
+// A violation is a value read off a caught error that reaches a RENDER SINK
+// (alert/confirm/a set*State call/a toast) or becomes a thrown Error MESSAGE,
+// without passing through the declared boundary. Reading `.message` for
+// diagnostics (console.*) or into a data-contract field is not a violation —
+// those never render. Extraction is by BALANCED ARGUMENT LIST, not by a
+// character window, so "near a sink" is never mistaken for "inside a sink".
+const SINK_CALL = /\balert|\bconfirm|\bset[A-Z]\w*|\btoast[A-Za-z]*|\bthrow new Error/g;
+const READS_ERR_MESSAGE = /\b(?:e|err|error|ex|_e|e2|cause)\s*\??\s*\.\s*(?:\w+\s*\??\s*\.\s*)?message\b/;
+const SANCTIONED = /userFacingError\s*\(|console\s*\.|engineError\s*\(|userError\s*\(/;
+
+function sinkViolations(src) {
+  const out = [];
+  for (const call of callsOf(src, SINK_CALL)) {
+    if (!READS_ERR_MESSAGE.test(call.args)) continue;
+    if (SANCTIONED.test(call.args)) continue;
+    out.push(`${call.name}${call.args.slice(0, 60)}`);
+  }
+  // JSX interpolation straight into the tree. The lookbehind excludes `${…}`
+  // template slots, which the balanced-call scan above already covers.
+  for (const m of src.matchAll(/(?<!\$)\{\s*(?:e|err|error)\s*\??\s*\.\s*message\b[^}]*\}/g)) out.push(m[0]);
+  return out;
+}
+
+// Every project source file (excluding tests and their support code). Used by
+// the single-authority invariant: a subfeature's user-visible text must exist in
+// exactly one file, so the scan cannot be limited to files I remembered.
+function allProjectSources(dir = resolve(REPO, 'src'), out = []) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = resolve(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === '__tests__' || entry.name === 'node_modules') continue;
+      allProjectSources(full, out);
+    } else if (/\.(js|jsx)$/.test(entry.name)) out.push(full);
+  }
+  return out;
+}
+
+function rawErrorSinks() {
+  const out = [];
+  for (const file of GRAPH) {
+    if (file.endsWith('/userFacingError.js')) continue; // the boundary itself
+    for (const v of sinkViolations(readSource(file))) out.push(`${relative(file)} :: ${v}`);
+  }
+  return out;
+}
 
 // A hosted build: the local-engine gate is closed, so every engine-backed
 // capability is false. This is exactly what liveStudioCapabilities() returns
@@ -343,8 +422,8 @@ describe('P2-b · static Studio capabilities respect the same authority', () => 
   });
 
   it('NEGATIVE CONTROL: unfiltered statics would advertise the local-only enhancement hosted', () => {
-    const unfiltered = systemCapabilities({ modes: ['text', 'lock'], capabilities: { comfy: true } });
-    expect(unfiltered.map((c) => c.id)).toContain('product-lock-blend'); // comfy declared -> shown
+    const unfiltered = systemCapabilities(studioAvailability(DECLARED));
+    expect(unfiltered.map((c) => c.id)).toContain('product-lock-blend'); // genuinely declared -> shown
     expect(ids(HOSTED)).not.toContain('product-lock-blend');             // hosted -> hidden
   });
 });
@@ -354,25 +433,20 @@ describe('P2-b · static Studio capabilities respect the same authority', () => 
 // this round covers the classes themselves, so a sibling path cannot survive.
 // ===================================================================
 describe('CLASS A · no uncontrolled or technical error value can render', () => {
-  const SURFACES = [
-    ['ImageStudio', '../ImageStudio.jsx'],
-    ['AdStudio', '../AdStudio.jsx'],
-    ['Diagnose', '../Diagnose.jsx'],
-    ['Outreach', '../Outreach.jsx'],
-    ['MockupStudio', '../../components/studio/MockupStudio.jsx'],
-  ];
-
-  it('NO creative surface assigns a caught error message straight into a rendered value', () => {
-    for (const [name, rel] of SURFACES) {
-      const src = read(rel);
-      const raw = src.match(/(?:setError|setGenError|toast|alert|imgError:)\s*\(?[^;\n]*\b(?:e|err|error)\.message/g) || [];
-      expect(raw, `${name} renders a raw error message`).toEqual([]);
-    }
+  // Round 4: the surface list is DERIVED (see the mechanical-boundaries suite).
+  // The hand-written array this used to hold is exactly why PosterEditor escaped.
+  it('NO module reachable from the creative routes pipes a caught error message into a sink', () => {
+    expect(rawErrorSinks()).toEqual([]);
   });
 
-  it('every creative surface routes its rendered errors through the boundary', () => {
-    for (const [name, rel] of SURFACES) {
-      expect(read(rel), name).toMatch(/userFacingError\(/);
+  it('every creative RENDER surface routes its rendered errors through the boundary', () => {
+    for (const file of GRAPH.filter(isComponent)) {
+      const src = readSource(file);
+      // Only surfaces that actually BIND a caught error and have a render sink.
+      // A bare `catch { /* ignore */ }` has no value to route (ProductPlacer).
+      if (!/\bcatch\s*\(/.test(src)) continue;
+      if (!/\bset[A-Z]\w*\s*\(|\balert\s*\(/.test(src)) continue;
+      expect(src, relative(file)).toMatch(/userFacingError\(/);
     }
   });
 
@@ -385,9 +459,15 @@ describe('CLASS A · no uncontrolled or technical error value can render', () =>
     expect(gemini).not.toMatch(/throw new Error\(/);
   });
 
-  it('NEGATIVE CONTROL: a raw-render pattern is what this class test detects', () => {
-    const sample = "setError(e.message || 'x');";
-    expect(sample.match(/setError\s*\(?[^;\n]*\be\.message/g)).not.toEqual([]);
+  it('NEGATIVE CONTROL: the three shapes that actually shipped are all detected', () => {
+    // the exact pre-fix lines from PosterEditor, store.jsx and geminiImage.js
+    expect(sinkViolations("alert('יצוא נכשל: ' + (e?.message || e));")).toHaveLength(1);   // optional chaining
+    expect(sinkViolations("setError(e.message || 'שגיאת טעינה');")).toHaveLength(1);
+    expect(sinkViolations('throw new Error(`היצירה נכשלה: ${e.message}. נסה/י שוב.`);')).toHaveLength(1);
+    // and the sanctioned shapes are NOT flagged
+    expect(sinkViolations("setError(userFacingError(e, 'גנרי'));")).toEqual([]);
+    expect(sinkViolations('console.error(e.message);')).toEqual([]);
+    expect(sinkViolations("message: error.message || 'AI Gateway error.',")).toEqual([]); // contract field, not a sink
   });
 });
 
@@ -412,9 +492,11 @@ describe('CLASS B · nothing promises or routes to an unavailable capability', (
     }
   });
 
-  it('presets are filtered by their TARGET MODE, not merely listed', () => {
+  it('presets are filtered by the FULL requirement contract, not merely listed', () => {
     const studio = read('../ImageStudio.jsx');
-    expect(studio).toMatch(/CREATIVE_PRESETS\.filter\(\(p\) => isStudioModeAvailable\(p\.targetTab, studioCaps\)\)/);
+    // Round 4: the tab-only filter this used to pin was itself the defect —
+    // see the "complete preset requirement schema" suite below.
+    expect(studio).toMatch(/const presets = availablePresets\(CREATIVE_PRESETS, studioCaps\)/);
     expect(studio).not.toMatch(/\{CREATIVE_PRESETS\.map\(/);      // no unfiltered render
     expect(studio).toMatch(/const activePreset = presets\.find/); // selection cannot outlive availability
   });
@@ -443,8 +525,300 @@ describe('CLASS B · nothing promises or routes to an unavailable capability', (
   });
 
   it('NEGATIVE CONTROL: an ungated subfeature would leak into the hosted description', () => {
-    const withCaps = systemCapabilities({ modes: ['lock'], modeLabels: [], capabilities: { comfy: true } });
-    expect(withCaps.find((c) => c.id === 'product-lock').description).toContain('צללים'); // comfy on -> shown
+    const withCaps = systemCapabilities(studioAvailability(DECLARED));
+    expect(withCaps.find((c) => c.id === 'product-lock').description).toContain('צללים'); // declared -> shown
     expect(caps(HOSTED).find((c) => c.id === 'product-lock').description).not.toContain('צללים');
+  });
+});
+
+// ===================================================================
+// Round 4 · MECHANICAL BOUNDARY 1 — the verified surface set is DERIVED
+// ===================================================================
+describe('the creative surface set is derived from the code, not from a list', () => {
+  it('the roots exist and the graph is non-trivial and deterministic', () => {
+    expect(GRAPH.length).toBeGreaterThan(20);
+    expect(moduleGraph(CREATIVE_ROUTE_ROOTS)).toEqual(GRAPH);              // stable
+    expect(moduleGraph([...CREATIVE_ROUTE_ROOTS].reverse())).toEqual(GRAPH); // order-independent
+  });
+
+  it('pulls in the transitive creative children NOBODY listed by hand', () => {
+    const names = GRAPH.map(relative);
+    for (const child of [
+      'src/components/studio/PosterEditor.jsx',   // the one that escaped rounds 1-3
+      'src/components/studio/MockupStudio.jsx',
+      'src/components/studio/ProductPlacer.jsx',
+      'src/components/ui/MaskCanvas.jsx',
+      'src/store/store.jsx',
+    ]) expect(names, child).toContain(child);
+  });
+
+  it('stays bounded by the project — no third-party module is pulled in', () => {
+    for (const f of GRAPH) {
+      expect(f).not.toMatch(/node_modules/);
+      expect(relative(f)).toMatch(/^(src|supabase)\//);
+    }
+  });
+
+  it('NEGATIVE CONTROL: the round-3 hand-written list is provably incomplete', () => {
+    const HAND_WRITTEN = [   // verbatim from the round-3 test this replaces
+      'src/pages/ImageStudio.jsx', 'src/pages/AdStudio.jsx', 'src/pages/Diagnose.jsx',
+      'src/pages/Outreach.jsx', 'src/components/studio/MockupStudio.jsx',
+    ];
+    const derived = GRAPH.filter(isComponent).map(relative);
+    const missed = derived.filter((f) => !HAND_WRITTEN.includes(f));
+    expect(missed).toContain('src/components/studio/PosterEditor.jsx');
+    expect(missed.length).toBeGreaterThan(0); // a literal list cannot detect its own gaps
+  });
+
+  it('NEGATIVE CONTROL: dropping a transitive child from the roots is detected', () => {
+    // ImageStudio is what reaches PosterEditor; without it the child disappears,
+    // which is precisely the failure mode a hand-maintained list hides.
+    const withoutStudio = moduleGraph(CREATIVE_ROUTE_ROOTS.filter((f) => !f.endsWith('ImageStudio.jsx')))
+      .map(relative);
+    expect(withoutStudio).not.toContain('src/components/studio/PosterEditor.jsx');
+    expect(GRAPH.map(relative)).toContain('src/components/studio/PosterEditor.jsx');
+  });
+
+  it('THE REPORTED SITE: PosterEditor no longer alerts a caught error', () => {
+    const poster = read('../../components/studio/PosterEditor.jsx');
+    expect(poster).not.toMatch(/\balert\s*\(/);
+    expect(poster).toMatch(/setExportError\(posterExportErrorText\(e\)\)/);
+    expect(sinkViolations(poster)).toEqual([]);
+  });
+
+  it('REAL CALL: the SHIPPED poster-export mapping renders only business text', () => {
+    // the actual exported expression the component uses — not a re-implementation
+    const taint = new Error('Failed to execute \'toDataURL\' on \'HTMLCanvasElement\': Tainted canvases may not be exported.');
+    expect(posterExportErrorText(taint)).toBe(POSTER_EXPORT_FALLBACK);
+    for (const term of ['toDataURL', 'canvas', 'Tainted', 'HTMLCanvasElement']) {
+      expect(posterExportErrorText(taint)).not.toMatch(new RegExp(term, 'i'));
+    }
+    // engine-originated and unknown values also degrade, never leak
+    expect(posterExportErrorText(engineError('comfy: generation error', ''))).toBe(POSTER_EXPORT_FALLBACK);
+    for (const junk of [null, undefined, 'string error', 0, {}]) {
+      expect(posterExportErrorText(junk)).toBe(POSTER_EXPORT_FALLBACK);
+    }
+    // an explicitly user-safe message still survives verbatim
+    expect(posterExportErrorText(userError('הדפדפן חסם את הייצוא'))).toBe('הדפדפן חסם את הייצוא');
+  });
+
+  it('THE OTHER SITES the derived graph found', () => {
+    expect(read('../../store/store.jsx')).toMatch(/setError\(userFacingError\(e, 'שגיאת טעינה'\)\)/);
+    expect(GEMINI_IMAGE).not.toMatch(/throw new Error\(`היצירה נכשלה/);
+    expect(GEMINI_IMAGE).toMatch(/throw engineError\(`local generate failed/);
+  });
+
+  it('REAL CALL: the reworked local-failure throw renders no technical detail', () => {
+    const e = engineError('local generate failed: comfy: generation error', 'היצירה נכשלה. נסה/י שוב בעוד רגע.');
+    expect(e.message).toContain('comfy');                                   // diagnostics kept
+    expect(userFacingError(e, 'גנרי')).toBe('היצירה נכשלה. נסה/י שוב בעוד רגע.');
+    expect(userFacingError(e, 'גנרי')).not.toMatch(/comfy/i);
+  });
+});
+
+// ===================================================================
+// Round 4 · MECHANICAL BOUNDARY 2 — ONE decision for action AND guidance
+// ===================================================================
+describe('a gated subfeature has a single authoritative decision', () => {
+  const BLEND = 'product-lock-blend';
+
+  it('availability requires BOTH the parent mode and the subfeature capability', () => {
+    expect(isStudioSubfeatureAvailable(BLEND, HOSTED)).toBe(false);
+    expect(isStudioSubfeatureAvailable(BLEND, DECLARED)).toBe(true);
+    // parent mode open but capability missing -> still closed
+    expect(isStudioSubfeatureAvailable(BLEND, { ...HOSTED, comfy: false })).toBe(false);
+  });
+
+  it('FAILS CLOSED on unknown ids and missing capability data', () => {
+    for (const bad of ['', null, undefined, 'nope', 'PRODUCT-LOCK-BLEND', 0, {}]) {
+      expect(isStudioSubfeatureAvailable(bad, DECLARED)).toBe(false);
+      expect(studioSubfeature(bad, DECLARED).available).toBe(false);
+    }
+    expect(isStudioSubfeatureAvailable(BLEND, undefined)).toBe(false);
+    // a closed record carries no text to render
+    for (const f of SUBFEATURE_TEXT_FIELDS) expect(studioSubfeature('nope', DECLARED)[f]).toBe('');
+  });
+
+  it('THE INVARIANT: every user-visible string of a subfeature lives ONLY in the authority', () => {
+    // A surface cannot render the label without asking for availability, because
+    // the surface does not own the text. This is what makes "the button is gated
+    // but the help text is not" impossible rather than merely fixed.
+    const AUTHORITY = resolve(REPO, 'src/lib/studioModes.js');
+    const sources = allProjectSources().filter((f) => f !== AUTHORITY);
+    for (const [id, def] of Object.entries(STUDIO_SUBFEATURES)) {
+      for (const field of SUBFEATURE_TEXT_FIELDS) {
+        const literal = def[field];
+        expect(typeof literal, `${id}.${field}`).toBe('string');
+        expect(literal.length).toBeGreaterThan(0);
+        const owners = sources.filter((f) => readSource(f).includes(literal)).map(relative);
+        expect(owners, `${id}.${field} is duplicated outside the authority`).toEqual([]);
+      }
+    }
+  });
+
+  it('every text field a subfeature declares is covered by the invariant', () => {
+    // schema coverage: a new text field cannot be added without being pinned
+    const NON_TEXT = ['id', 'parentMode', 'requires'];
+    for (const [id, def] of Object.entries(STUDIO_SUBFEATURES)) {
+      for (const key of Object.keys(def)) {
+        expect([...SUBFEATURE_TEXT_FIELDS, ...NON_TEXT], `${id}.${key} is classified`).toContain(key);
+      }
+    }
+  });
+
+  it('THE CONSUMER: in ImageStudio the action AND the guidance sit inside the same gate', () => {
+    // Mechanical, not visual: extract the balanced JSX regions introduced by the
+    // availability check, then assert EVERY other reference falls inside one.
+    const regions = gatedRegions(IMAGE_STUDIO, 'lockBlend.available &&');
+    expect(regions.length).toBeGreaterThanOrEqual(2); // the help paragraph and the control
+    const refs = [...IMAGE_STUDIO.matchAll(/lockBlend\.(guidance|actionNote|actionLabel|busyLabel)|runLockBlend\b/g)];
+    expect(refs.length).toBeGreaterThan(0);
+    for (const m of refs) {
+      if (IMAGE_STUDIO.slice(0, m.index).endsWith('const ')) continue; // the declaration
+      expect(insideAny(regions, m.index), `ungated reference at ${m.index}: ${m[0]}`).toBe(true);
+    }
+  });
+
+  it('THE CONSUMER: the Studio no longer owns the requirement or the wording', () => {
+    expect(IMAGE_STUDIO).toMatch(/const lockBlend = studioSubfeature\('product-lock-blend', studioCaps\)/);
+    expect(IMAGE_STUDIO).not.toMatch(/isLock && hasLocalComfy/); // the old, action-only gate
+  });
+
+  it('THE CONSUMER: Jake describes the subfeature from the same snapshot', () => {
+    const hosted = systemCapabilities(studioAvailability(HOSTED));
+    const declared = systemCapabilities(studioAvailability(DECLARED));
+    expect(hosted.map((c) => c.id)).not.toContain(BLEND);
+    const shown = declared.find((c) => c.id === BLEND);
+    expect(shown.title).toBe(STUDIO_SUBFEATURES[BLEND].title);
+    expect(shown.description).toBe(STUDIO_SUBFEATURES[BLEND].description);
+    // and the parent workflow's description gains the subfeature line only there
+    expect(declared.find((c) => c.id === 'product-lock').description).toContain(STUDIO_SUBFEATURES[BLEND].capabilityText);
+    expect(hosted.find((c) => c.id === 'product-lock').description).not.toContain(STUDIO_SUBFEATURES[BLEND].capabilityText);
+  });
+
+  it('the ALWAYS-AVAILABLE base Product Lock workflow survives hosted', () => {
+    const hosted = systemCapabilities(studioAvailability(HOSTED));
+    expect(hosted.map((c) => c.id)).toContain('product-lock');
+    expect(isStudioModeAvailable('lock', HOSTED)).toBe(true);
+  });
+
+  it('injected internals never leak onto the capability objects', () => {
+    for (const c of systemCapabilities(studioAvailability(DECLARED))) {
+      expect(c.requires).toBeUndefined();
+      expect(c.describe).toBeUndefined();
+      expect(c.titleOf).toBeUndefined();
+    }
+  });
+
+  it('NEGATIVE CONTROL: ungating the help text is what this suite detects', () => {
+    // the pre-fix shape — the sentence rendered off the MODE, not the subfeature
+    const preFix = IMAGE_STUDIO.replace(
+      /\{lockBlend\.available && \(\s*\n\s*<p className="dim"[^\n]*>\{lockBlend\.guidance\}<\/p>\s*\n\s*\)\}/,
+      `<p className="dim">${STUDIO_SUBFEATURES[BLEND].guidance}</p>`,
+    );
+    expect(preFix).not.toBe(IMAGE_STUDIO); // the replacement matched
+    const regions = gatedRegions(preFix, 'lockBlend.available &&');
+    const leak = preFix.indexOf(STUDIO_SUBFEATURES[BLEND].guidance);
+    expect(leak).toBeGreaterThan(-1);
+    expect(insideAny(regions, leak)).toBe(false); // ungated -> the invariant fails
+  });
+
+  it('NEGATIVE CONTROL: the round-3 fix gated only the action', () => {
+    // proof the earlier gate was action-only: the guidance sentence did not
+    // mention the capability flag anywhere near it, and lived under `mode`.
+    const roundThree = `{mode === 'lock' && (<p>${STUDIO_SUBFEATURES[BLEND].guidance}</p>)}\n{isLock && hasLocalComfy && (<button>x</button>)}`;
+    const regions = gatedRegions(roundThree, 'hasLocalComfy &&');
+    expect(insideAny(regions, roundThree.indexOf(STUDIO_SUBFEATURES[BLEND].guidance))).toBe(false);
+  });
+});
+
+// ===================================================================
+// Round 4 · MECHANICAL BOUNDARY 3 — the COMPLETE preset requirement schema
+// ===================================================================
+describe('preset availability evaluates every declared requirement', () => {
+  const byId = (id) => CREATIVE_PRESETS.find((p) => p.id === id);
+
+  it('SCHEMA COVERAGE: every field on every preset is explicitly classified', () => {
+    // The guard against the actual root cause: a new requirement field cannot be
+    // added to the data and silently ignored by the evaluator.
+    const known = new Set([...PRESET_REQUIREMENT_FIELDS, ...PRESET_DESCRIPTIVE_FIELDS]);
+    for (const p of CREATIVE_PRESETS) {
+      for (const key of Object.keys(p)) {
+        expect([...known], `${p.id}.${key} is neither a requirement nor declared descriptive`).toContain(key);
+      }
+    }
+    // the two lists are disjoint — a field cannot be both
+    for (const f of PRESET_REQUIREMENT_FIELDS) expect(PRESET_DESCRIPTIVE_FIELDS).not.toContain(f);
+  });
+
+  it('NEGATIVE CONTROL: an unhandled new requirement field fails the coverage check', () => {
+    const known = new Set([...PRESET_REQUIREMENT_FIELDS, ...PRESET_DESCRIPTIVE_FIELDS]);
+    const withNewField = { ...byId('premium_business_visual'), requiresGpuTier: 'a100' };
+    const unclassified = Object.keys(withNewField).filter((k) => !known.has(k));
+    expect(unclassified).toEqual(['requiresGpuTier']); // exactly what the invariant reports
+  });
+
+  it('THE REPORTED PRESET: hebrew_ui_mockup is never offered, in ANY configuration', () => {
+    const p = byId('hebrew_ui_mockup');
+    expect(p.targetTab).toBe('text');                    // its tab IS available...
+    expect(isStudioModeAvailable('text', HOSTED)).toBe(true);
+    expect(isPresetAvailable(p, HOSTED)).toBe(false);    // ...but the contract is not satisfied
+    expect(isPresetAvailable(p, DECLARED)).toBe(false);  // local/demo does not conjure a provider
+    // its own declared contract is what stops it: an API path with no provider
+    expect(p.requiresApi).toBe(true);
+    expect(p.localReady).toBe(false);
+    expect(presetUnavailableReason(p, DECLARED)).toBe('provider-unavailable');
+    expect(presetUnavailableReason(p, HOSTED)).toBe('provider-unavailable');
+  });
+
+  it('it therefore cannot feed a scaffold into an unrelated available generator', () => {
+    for (const caps of [HOSTED, DECLARED]) {
+      const offered = availablePresets(CREATIVE_PRESETS, caps).map((x) => x.id);
+      expect(offered).not.toContain('hebrew_ui_mockup');
+    }
+    // and selection is taken from the OFFERED list, so it cannot outlive availability
+    expect(IMAGE_STUDIO).toMatch(/const activePreset = presets\.find/);
+  });
+
+  it('NEGATIVE CONTROL: a targetTab-only filter passes it — that was the defect', () => {
+    const tabOnly = CREATIVE_PRESETS.filter((p) => isStudioModeAvailable(p.targetTab, HOSTED));
+    expect(tabOnly.map((p) => p.id)).toContain('hebrew_ui_mockup');            // the old rule
+    expect(availablePresets(CREATIVE_PRESETS, HOSTED).map((p) => p.id)).not.toContain('hebrew_ui_mockup');
+  });
+
+  it('the currently supported presets remain, in both configurations', () => {
+    const hosted = availablePresets(CREATIVE_PRESETS, HOSTED).map((p) => p.id);
+    expect(hosted).toEqual(['premium_business_visual', 'dark_saas_dashboard', 'product_hero_shot', 'local_ad_creative']);
+    const declared = availablePresets(CREATIVE_PRESETS, DECLARED).map((p) => p.id);
+    for (const id of [...hosted, 'photo_restoration', 'product_motion_video']) expect(declared).toContain(id);
+    expect(declared).toHaveLength(CREATIVE_PRESETS.length - 1); // everything except the API-only one
+  });
+
+  it('the destination mode still gates: engine-backed recipes stay hidden hosted', () => {
+    for (const id of ['photo_restoration', 'product_motion_video']) {
+      expect(presetUnavailableReason(byId(id), HOSTED)).toBe('target-mode-unavailable');
+      expect(isPresetAvailable(byId(id), DECLARED)).toBe(true);
+    }
+  });
+
+  it('FAILS CLOSED on unknown / unsupported / undeclared requirement values', () => {
+    const base = byId('premium_business_visual');
+    expect(presetUnavailableReason({ ...base, targetTab: 'nope' }, DECLARED)).toBe('target-mode-unavailable');
+    expect(presetUnavailableReason({ ...base, provider: 'brand-new-provider' }, DECLARED)).toBe('provider-unrecognised');
+    expect(presetUnavailableReason({ ...base, provider: '' }, DECLARED)).toBe('provider-undeclared');
+    expect(presetUnavailableReason({ ...base, requiresApi: true, provider: 'gpt-image-2' }, DECLARED)).toBe('provider-unavailable');
+    // undeclared readiness is not satisfied readiness
+    for (const bad of [undefined, null, 'true', 1]) {
+      expect(presetUnavailableReason({ ...base, localReady: bad }, DECLARED)).toBe('local-readiness-undeclared');
+      expect(presetUnavailableReason({ ...base, requiresApi: bad }, DECLARED)).toBe('api-requirement-undeclared');
+    }
+    for (const junk of [null, undefined, 'x', 0, []]) expect(isPresetAvailable(junk, DECLARED)).toBe(false);
+    expect(availablePresets(null, DECLARED)).toEqual([]);
+  });
+
+  it('no new provider is introduced by this change', () => {
+    expect(SUPPORTED_API_PROVIDERS).toEqual([]);
+    // and every provider the data names is either local-recognised or unsupported
+    for (const p of CREATIVE_PRESETS) expect(typeof p.provider).toBe('string');
   });
 });

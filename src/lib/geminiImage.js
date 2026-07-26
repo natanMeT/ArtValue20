@@ -1086,8 +1086,11 @@ export async function generateImage(prompt, opts = {}) {
       // setup instructions (desktop shortcut / .bat path) — those are operator
       // details, not something a business user should ever be shown.
       const up = await checkLocalEngine();
-      if (!up) throw new Error('יצירת התמונה אינה זמינה כרגע. נסה/י שוב בעוד רגע.');
-      throw new Error(`היצירה נכשלה: ${e.message}. נסה/י שוב.`);
+      if (!up) throw userError('יצירת התמונה אינה זמינה כרגע. נסה/י שוב בעוד רגע.');
+      // The engine is up but the run failed. The technical cause stays on the
+      // Error for diagnostics; it is NOT interpolated into the rendered text
+      // (it used to be, which put node/model strings in front of the user).
+      throw engineError(`local generate failed: ${e && e.message}`, 'היצירה נכשלה. נסה/י שוב בעוד רגע.');
     }
   }
   if (LOCAL_URL) {

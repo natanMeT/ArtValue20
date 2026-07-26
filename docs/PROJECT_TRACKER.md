@@ -6,7 +6,7 @@
 **Purpose:** single source of truth for state, so work continues across sessions with no loss.
 Nathan passes this to ChatGPT so it can review/advise **without re-deriving or guessing** state.
 **ChatGPT does NOT edit this document.** Only Claude updates it.
-**Last updated:** 2026-07-26 — session: **Studio Hosted Mode Containment Correction — IN FLIGHT / NOT RELEASED.** A hosted Jake→Studio hand-off could bypass the filtered tile list, select the hidden `presenter` mode, render its panel and surface a raw engine string (**proven in the DOM**). **Studio Containment stays LIVE in Production** (`247ef9ec` / `index-BZ3B-0yd.js`) **with this corrective gap in flight**; **no rollback is indicated** — it is a truthfulness/containment defect, not data loss or security exposure. A previously recorded claim that all residual `Qwen` artifact hits were non-rendered internals was **FALSE** and is corrected. PR #117 is **paused**. Prior: **Studio / Local-Engine UI Containment — released to Production.** PR [#114](https://github.com/natanMeT/ArtValue20/pull/114) merged (`29cccdd…`) → docs PR [#115](https://github.com/natanMeT/ArtValue20/pull/115) merged (`03c23c2…`) → one build from `03c23c2` → Preview **`ec239e3b`** + authenticated QA acceptance PASS → **Production `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js`** deployed by reusing the accepted artifact (wrangler "Uploaded 0 files (12 already uploaded)", **12/12 served files byte-match**) + **authenticated non-mutating Account A Production smoke PASS**. **Current rollback target: `476830a2` / `index-BrR14XIC.js`** — retained and verified healthy (the older `e63198b7` is a **historical fallback only**). **No migration; Edge `ai-gateway` v35 unchanged and not redeployed.** **P1 Atomic Quote Persistence remains CLOSED / LIVE** — the same session's authenticated Production smoke confirmed Quotes/Finance render and authenticated reads are healthy; Account A held no quote or transaction rows and no Production create/edit was authorized, so quote-row visibility and a Production-UI RPC re-exercise remain an **optional additional validation, not an open release item** — see its section.  Prior closed session: **P1 Atomic Quote Persistence — CLOSED / LIVE VERIFIED in Production.** PRs [#108](https://github.com/natanMeT/ArtValue20/pull/108) → [#109](https://github.com/natanMeT/ArtValue20/pull/109) → [#110](https://github.com/natanMeT/ArtValue20/pull/110) → [#111](https://github.com/natanMeT/ArtValue20/pull/111) → docs [#112](https://github.com/natanMeT/ArtValue20/pull/112) merged to `main` (`7e30199`); migration `20260726120000_atomic_quote_persistence.sql` **APPLIED & verified**; `public.save_quote_atomic` **live**; failure-injection acceptance **13/13** and Preview UI acceptance PASSED; **Production `476830a2-f8ea-45dc-b0ce-a71876bc48dd` / `index-BrR14XIC.js`** deployed by reusing the accepted artifact (12/12 served files byte-match). Its then-rollback `e63198b7` is retained (now a historical fallback only). An authenticated Production smoke has since confirmed Quotes/Finance render and authenticated reads are healthy; only an **optional additional Production-UI validation** remains — see the section below. Prior closed session: **S0F.1 Creative Trust, Account Isolation & Brand-Palette Consumption — CLOSED / LIVE VERIFIED in Production** (PR [#106](https://github.com/natanMeT/ArtValue20/pull/106) → main `983f489` → Edge `ai-gateway` **v34→v35** (Jake persona text only) → Preview `0760f00e` + three-account (A/B/D) acceptance PASS → **Production `e63198b7` / `index-lvfFFwEn.js`** + authenticated non-mutating Account A smoke PASS). Truthful cloud containment of the creative/campaign lanes, account-aware Outreach and quote issuer, per-account device-local creative/gallery isolation, and account brand-palette consumption in ImageStudio are now live; **no migration**. Prior: S0E Guided Business Onboarding CLOSED / LIVE VERIFIED (Production `4b86993d`, retained as the S0F.1 frontend rollback).
+**Last updated:** 2026-07-27 — session: **Studio Hosted Mode Containment Correction — IN FLIGHT / NOT RELEASED (now at ROUND 4).** A hosted Jake→Studio hand-off could bypass the filtered tile list, select the hidden `presenter` mode, render its panel and surface a raw engine string (**proven in the DOM**). **Round 4** corrected three further Codex-reported siblings (`PosterEditor` alerting a caught error; hosted Product Lock guidance still instructing users to click the gated «שפר חיבור וצללים»; the API-only `hebrew_ui_mockup` preset surviving a `targetTab`-only filter) and — the substantive change — **replaced the hand-maintained inventory with mechanically derived boundaries**: a transitive import-closure render-surface graph, one authority per gated subfeature owning its requirement AND its wording, and a complete preset requirement evaluator with a schema-coverage invariant. The derived graph then found **two more violations nobody had reported** (`store.jsx` and `geminiImage.js`). Full suite on the final head **123 files / 3,196 passed / 1 skip / 0 failed**, build green, both browser smokes re-run. **Studio Containment stays LIVE in Production** (`247ef9ec` / `index-BZ3B-0yd.js`) **with this corrective gap in flight**; **no rollback is indicated** — it is a truthfulness/containment defect, not data loss or security exposure. A previously recorded claim that all residual `Qwen` artifact hits were non-rendered internals was **FALSE** and is corrected. PR #117 is **paused**. Prior: **Studio / Local-Engine UI Containment — released to Production.** PR [#114](https://github.com/natanMeT/ArtValue20/pull/114) merged (`29cccdd…`) → docs PR [#115](https://github.com/natanMeT/ArtValue20/pull/115) merged (`03c23c2…`) → one build from `03c23c2` → Preview **`ec239e3b`** + authenticated QA acceptance PASS → **Production `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js`** deployed by reusing the accepted artifact (wrangler "Uploaded 0 files (12 already uploaded)", **12/12 served files byte-match**) + **authenticated non-mutating Account A Production smoke PASS**. **Current rollback target: `476830a2` / `index-BrR14XIC.js`** — retained and verified healthy (the older `e63198b7` is a **historical fallback only**). **No migration; Edge `ai-gateway` v35 unchanged and not redeployed.** **P1 Atomic Quote Persistence remains CLOSED / LIVE** — the same session's authenticated Production smoke confirmed Quotes/Finance render and authenticated reads are healthy; Account A held no quote or transaction rows and no Production create/edit was authorized, so quote-row visibility and a Production-UI RPC re-exercise remain an **optional additional validation, not an open release item** — see its section.  Prior closed session: **P1 Atomic Quote Persistence — CLOSED / LIVE VERIFIED in Production.** PRs [#108](https://github.com/natanMeT/ArtValue20/pull/108) → [#109](https://github.com/natanMeT/ArtValue20/pull/109) → [#110](https://github.com/natanMeT/ArtValue20/pull/110) → [#111](https://github.com/natanMeT/ArtValue20/pull/111) → docs [#112](https://github.com/natanMeT/ArtValue20/pull/112) merged to `main` (`7e30199`); migration `20260726120000_atomic_quote_persistence.sql` **APPLIED & verified**; `public.save_quote_atomic` **live**; failure-injection acceptance **13/13** and Preview UI acceptance PASSED; **Production `476830a2-f8ea-45dc-b0ce-a71876bc48dd` / `index-BrR14XIC.js`** deployed by reusing the accepted artifact (12/12 served files byte-match). Its then-rollback `e63198b7` is retained (now a historical fallback only). An authenticated Production smoke has since confirmed Quotes/Finance render and authenticated reads are healthy; only an **optional additional Production-UI validation** remains — see the section below. Prior closed session: **S0F.1 Creative Trust, Account Isolation & Brand-Palette Consumption — CLOSED / LIVE VERIFIED in Production** (PR [#106](https://github.com/natanMeT/ArtValue20/pull/106) → main `983f489` → Edge `ai-gateway` **v34→v35** (Jake persona text only) → Preview `0760f00e` + three-account (A/B/D) acceptance PASS → **Production `e63198b7` / `index-lvfFFwEn.js`** + authenticated non-mutating Account A smoke PASS). Truthful cloud containment of the creative/campaign lanes, account-aware Outreach and quote issuer, per-account device-local creative/gallery isolation, and account brand-palette consumption in ImageStudio are now live; **no migration**. Prior: S0E Guided Business Onboarding CLOSED / LIVE VERIFIED (Production `4b86993d`, retained as the S0F.1 frontend rollback).
 
 ---
 
@@ -297,6 +297,85 @@ button and its explainer return, and the declared-but-unavailable failure still 
 **PR [#117](https://github.com/natanMeT/ArtValue20/pull/117) remains OPEN and PAUSED** — its absolute closure wording and
 release anchors cannot be finalised until this correction is **deployed**, since the roadmaps describe the *released*
 artifact. **P1 Atomic Quote Persistence remains CLOSED / LIVE, unaffected.**
+
+### Round 4 — MECHANICALLY DERIVED BOUNDARIES (three more siblings; the *method* was the defect)
+
+Codex reviewed the round-3 head `563c6a9f` and found **three further instances inside the classes round 3 declared
+closed**. All three were verified real:
+
+| # | Instance | Class it should have been inside |
+|---|---|---|
+| 1 | `PosterEditor.jsx:141` — `alert('יצוא נכשל: ' + (e?.message || e))`; imported by `ImageStudio.jsx:24`, rendered at `:1539` | A · error render |
+| 2 | `ImageStudio.jsx:1208` — an **ungated** paragraph telling hosted users to click «שפר חיבור וצללים», while the button itself was gated at `:1276` | D · gated subfeature |
+| 3 | `hebrew_ui_mockup` — `targetTab: 'text'` (available) but `localReady: false`, `requiresApi: true`, `provider: 'gpt-image-2'`; it survived a tab-only filter | B · capability promise |
+
+**Why round 3 missed them — the structural causes, not the individual oversights.**
+
+1. **The verified surface set was hand-assembled.** `ImageStudio` imports three studio children (`PosterEditor`,
+   `MockupStudio`, `ProductPlacer`); only `MockupStudio` was checked, because the round-2 brief had named it. Worse, the
+   round-3 *class* test encoded that same literal `SURFACES` array, so the test inherited the blind spot and passed.
+   **A test whose scope is a literal list cannot detect a missing member.** (A second, independent reason #1 escaped: the
+   round-3 regex required `e.message` and the shipped code wrote `e?.message` — optional chaining slipped the pattern.)
+2. **The gate was applied to the ACTION, not to every reference to the gated thing.** The B2 button was correctly behind
+   `hasLocalComfy` and the Jake description was corrected, so the class looked closed — but the mode's own help text,
+   which *instructs the user to use* the control, was never grepped for the subfeature's label.
+3. **Availability was modelled on the axis that caused the original bug (modes) rather than on the requirement fields the
+   data already declares.** The preset schema carries `localReady` / `requiresApi` / `provider`; the round-3 edit even
+   rendered `!p.localReady && '· עתידי'` in the block being changed without connecting it to availability.
+
+Common meta-cause: **the inventory was bounded by the shape of the reported defect, not by the structure of the system.**
+
+**What round 4 changed — the boundaries are now derived mechanically, not by recall.**
+
+- **Derived render-surface graph** (`src/pages/__tests__/support/moduleGraph.js`, no new dependency): the verified set is
+  the transitive **project-local import closure** of the creative route roots. It resolves static / dynamic / side-effect
+  imports, follows only relative specifiers (so third-party modules stay out), and is sorted + order-independent.
+  `PosterEditor`, `MockupStudio`, `ProductPlacer`, `MaskCanvas` and `store.jsx` now enter verification automatically —
+  **46 modules**, where the hand-written list had 5. The CLASS-A predicate uses **balanced argument-list extraction**, so
+  "inside a sink call" is decided by the real extent of the expression rather than a character window.
+- **The derived graph immediately found two violations nobody had reported:** `store.jsx:360`
+  `setError(e.message || 'שגיאת טעינה')` (that `error` is exposed on the store context and rendered — Supabase/PostgREST
+  text could reach the UI), and `geminiImage.js:1090` `throw new Error(\`היצירה נכשלה: ${e.message}…\`)` which
+  interpolated the engine cause into the message. Both corrected; the technical detail is retained on the Error for
+  diagnostics via `engineError()`.
+- **One authority per gated subfeature** (`STUDIO_SUBFEATURES` in `lib/studioModes.js`): the requirement **and every
+  user-visible string** (action label, busy label, help sentence, note, Jake title/description/capability text) live in a
+  single record. `ImageStudio`, `creativeWorkflows.js` and `businessBrain.js` now reference it — the workflow card carries
+  `subfeatures: ['product-lock-blend']` (ids only) and availability is injected via `studioAvailability()`. **A surface
+  cannot render the label without asking for availability, because the surface no longer owns the text.**
+- **Complete preset requirement evaluation** (`lib/presetAvailability.js`): destination mode, local readiness, API
+  requirement and provider are all evaluated; unknown/undeclared values fail closed. `SUPPORTED_API_PROVIDERS` is
+  deliberately **empty — no new provider is introduced**. A **schema-coverage invariant** fails when a preset gains a
+  field that is in neither `PRESET_REQUIREMENT_FIELDS` nor `PRESET_DESCRIPTIVE_FIELDS`, so a requirement can never be
+  added and silently ignored. `futureProvider` is classified **descriptive on purpose** (a recipe can declare a better
+  future provider while being fully local-ready today) rather than given a rule that would never fire.
+
+**Round-4 verification.** Full suite on the FINAL head — **123 files / 3,196 passed / 1 pre-existing skip / 0 failed**
+(not a focused subset: this PR now spans shared creative helpers, the store, Business Brain and multiple rendered
+surfaces) — plus **one production build, green**. Four negative controls, each proving the invariant discriminates:
+the round-3 hand-written list is shown to be **provably incomplete** (it misses `PosterEditor`); dropping a transitive
+child from the roots removes it from the graph; ungating the B2 help text puts it outside the balanced gate region;
+a `targetTab`-only filter is shown to pass `hebrew_ui_mockup`; and an unhandled new requirement field is reported by the
+coverage check. The three shipped defect shapes (including the `e?.message` optional-chaining form) are each detected by
+the new predicate, while `console.*`, `userFacingError(...)` and data-contract `message:` fields correctly are not.
+
+**Evidence classes — stated separately, not merged.**
+- **Real DOM / runtime (browser, two builds served by `vite preview`):** *Hosted* (`index-CP1VZj91.js`) → exactly **2**
+  mode tiles; exactly **4** presets with `hebrew_ui_mockup` **absent**; Product Lock panel open shows the base guidance
+  but **no B2 label, no B2 help sentence, no B2 note**; a real generation attempt renders
+  `יצירת התמונה אינה זמינה כרגע.`; **0 console messages, 0 requests to any local-engine address**, 0 engine terms in the
+  DOM. *Configured local/demo* → **9** mode tiles, both engine-backed presets return, `hebrew_ui_mockup` **still absent**
+  (API-only ⇒ unavailable even locally), and the B2 **action + help sentence + note return together**; a real failed
+  generation renders `יצירת התמונה אינה זמינה כרגע. נסה/י שוב בעוד רגע.` with **0 engine terms**, failing closed.
+  ⚠️ Both smoke builds were served with Supabase intentionally unconfigured so the Studio DOM could be reached **without
+  entering any credentials**; that affects the auth gate only, not the local-engine axis under test.
+- **Executed code (not a source proxy):** the shipped `posterExportErrorText` mapping is exported and called directly
+  with a real canvas-taint `Error`, an `engineError`, junk values and a `userError` — technical text never survives.
+- **Source/test proxies (labelled as such):** the ImageStudio wiring pins (`studioSubfeature(...)`, `availablePresets(...)`,
+  the balanced-region gate containment) are assertions over source text, not runtime observations.
+
+**Still IN FLIGHT / NOT RELEASED.** PR #118 is not merged and nothing is deployed. **P1 Atomic Quote Persistence remains
+CLOSED / LIVE.** **PR #117 remains paused and untouched.**
 
 ## Studio / Local-Engine UI Containment — **LIVE IN PRODUCTION** (2026-07-26)
 

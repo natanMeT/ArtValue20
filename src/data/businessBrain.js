@@ -171,12 +171,26 @@ const STATIC_CAPABILITIES = deepFreeze([
       ? `מצבי היצירה הזמינים בחשבון זה בסטודיו התמונות: ${a.modeLabels.join(', ')}.`
       : 'מצבי היצירה הזמינים בסטודיו התמונות.'),
   },
+  // The gated Product Lock enhancement. Neither its requirement nor its wording
+  // is restated here — both are injected from the single subfeature authority
+  // (lib/studioModes.js), so Jake's description and the Studio's own control can
+  // no longer disagree about whether it exists.
   {
-    id: 'product-lock-blend', kind: 'system', title: 'שיפור חיבור וצללים (Product Lock B2)',
-    description: 'בתוך "מוצר מדויק": AI מוסיף צל מגע וחיבור טבעי סביב הקצוות בלבד — פיקסלי המוצר נשמרים 1:1.',
-    requires: { capability: 'comfy' },
+    id: 'product-lock-blend', kind: 'system', title: '', description: '',
+    requires: { subfeature: 'product-lock-blend' },
+    titleOf: (a) => subfeatureOf(a, 'product-lock-blend').title,
+    describe: (a) => subfeatureOf(a, 'product-lock-blend').description,
   },
 ]);
+
+// Read an injected subfeature record. Missing snapshot / unknown id → a closed
+// record, so a caller that forgets under-advertises rather than over-promises.
+const CLOSED_SUB = Object.freeze({ available: false, title: '', description: '', capabilityText: '' });
+function subfeatureOf(availability, id) {
+  const map = availability && availability.subfeatures;
+  const rec = map && typeof map === 'object' ? map[id] : null;
+  return rec && typeof rec === 'object' ? rec : CLOSED_SUB;
+}
 
 // Jake may only advertise creative workflows the ACTIVE configuration can
 // actually open. `liveWorkflows()` is the catalog of what EXISTS; it is not a
@@ -198,7 +212,13 @@ export function systemCapabilities(availability = {}) {
     : (availability || {});
   const allowed = a.modes instanceof Set ? a.modes : new Set(Array.isArray(a.modes) ? a.modes : []);
   const caps = a.capabilities || {};
-  const snapshot = { modes: [...allowed], modeLabels: Array.isArray(a.modeLabels) ? a.modeLabels : [], capabilities: caps };
+  const subfeatures = a.subfeatures && typeof a.subfeatures === 'object' ? a.subfeatures : {};
+  const snapshot = {
+    modes: [...allowed],
+    modeLabels: Array.isArray(a.modeLabels) ? a.modeLabels : [],
+    subfeatures,
+    capabilities: caps,
+  };
 
   // A static capability is advertised only when its EXPLICIT requirement holds.
   const staticAvailable = (c) => {
@@ -206,16 +226,21 @@ export function systemCapabilities(availability = {}) {
     if (!r) return true;                                   // non-Studio business capability
     if (r.anyStudioMode && allowed.size === 0) return false;
     if (r.capability && !caps[r.capability]) return false;
+    // A gated subfeature is advertised only when the injected authority says so
+    // — never re-derived from a capability flag here.
+    if (r.subfeature && subfeatureOf(snapshot, r.subfeature).available !== true) return false;
     return true;
   };
 
   // A workflow's own description must not assert a GATED SUBFEATURE. An
-  // available parent mode does not make every subfeature available, so each
-  // subfeature declares its own capability and is appended only when satisfied.
+  // available parent mode does not make every subfeature available. The card
+  // names subfeature IDS; availability and wording both come from the injected
+  // authority, so this cannot advertise something the Studio would not render.
   const describeWorkflow = (w) => {
     const extras = (Array.isArray(w.subfeatures) ? w.subfeatures : [])
-      .filter((f) => f && f.requires && caps[f.requires] && typeof f.text === 'string')
-      .map((f) => f.text);
+      .map((id) => subfeatureOf(snapshot, id))
+      .filter((f) => f.available === true && typeof f.capabilityText === 'string' && f.capabilityText)
+      .map((f) => f.capabilityText);
     return extras.length ? [w.description, ...extras].join(' ') : w.description;
   };
 
@@ -231,8 +256,12 @@ export function systemCapabilities(availability = {}) {
   // Unavailable entries are removed BEFORE any maxCapabilities slicing, so
   // truncation can never promote a hidden capability into Jake's prompt.
   const statics = STATIC_CAPABILITIES.filter(staticAvailable).map((c) => {
-    const { requires, describe, ...safe } = c;
-    return { ...safe, description: typeof describe === 'function' ? describe(snapshot) : safe.description };
+    const { requires, describe, titleOf, ...safe } = c;
+    return {
+      ...safe,
+      title: typeof titleOf === 'function' ? titleOf(snapshot) : safe.title,
+      description: typeof describe === 'function' ? describe(snapshot) : safe.description,
+    };
   });
   return [...studio, ...statics];
 }

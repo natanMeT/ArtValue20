@@ -104,11 +104,78 @@ export function availableStudioModeLabels(caps) {
   return availableStudioModeIds(caps).map((id) => STUDIO_MODE_LABELS[id]).filter(Boolean);
 }
 
+// ===================================================================
+// GATED SUBFEATURES — a capability that lives INSIDE an available mode.
+//
+// WHY THIS EXISTS
+// "Product Lock" (`lock`) is available everywhere, but its AI seam/shadow
+// enhancement (B2) needs the local engine. Round 3 gated the BUTTON and the
+// Jake capability description, and considered the class closed. It was not:
+// the mode's own help paragraph still told hosted users to click «שפר חיבור
+// וצללים», a control they could not see. The gate had been applied to the
+// ACTION, not to every reference to the thing being gated.
+//
+// So the subfeature is now ONE record: its requirement AND every string that
+// names it. A surface cannot render the label without asking this module
+// whether it is available, because the surface does not own the text.
+// A test asserts these literals appear in no other source file.
+// ===================================================================
+export const STUDIO_SUBFEATURES = Object.freeze({
+  'product-lock-blend': Object.freeze({
+    id: 'product-lock-blend',
+    parentMode: 'lock',
+    requires: 'comfy',
+    // the control
+    actionLabel: 'שפר חיבור וצללים',
+    busyLabel: 'משפר חיבור…',
+    // the help text that TELLS the user to use the control
+    guidance: 'אחרי יצירת הקומפוזיט המדויק אפשר ללחוץ «שפר חיבור וצללים» — AI יוסיף צל מגע וחיבור טבעי סביב הקצוות בלבד.',
+    actionNote: 'שיפור החיבור משתמש ב־AI רק באזור הקצוות והצללים. המוצר עצמו נשמר מוגן, כדי שלוגו, טקסט ופרטי מוצר לא ייווצרו מחדש.',
+    // how Jake is allowed to describe it
+    title: 'שיפור חיבור וצללים (Product Lock B2)',
+    description: 'בתוך "מוצר מדויק": AI מוסיף צל מגע וחיבור טבעי סביב הקצוות בלבד — פיקסלי המוצר נשמרים 1:1.',
+    capabilityText: 'ניתן גם לשפר את החיבור והצללים סביב קצוות המוצר באמצעות AI, בלי לגעת במוצר עצמו.',
+  }),
+});
+
+// The keys of a subfeature record that are USER-VISIBLE TEXT. The uniqueness
+// invariant is stated here so adding a new text field extends it automatically.
+export const SUBFEATURE_TEXT_FIELDS = Object.freeze([
+  'actionLabel', 'busyLabel', 'guidance', 'actionNote', 'title', 'description', 'capabilityText',
+]);
+
+// Available only when the PARENT MODE is open AND the subfeature's own
+// requirement is satisfied. Unknown id → false (closed).
+export function isStudioSubfeatureAvailable(id, caps) {
+  const def = Object.prototype.hasOwnProperty.call(STUDIO_SUBFEATURES, id) ? STUDIO_SUBFEATURES[id] : null;
+  if (!def) return false;
+  if (!isStudioModeAvailable(def.parentMode, caps)) return false;
+  return satisfies(def.requires, caps);
+}
+
+// THE accessor every surface uses. Returns the record plus `available`, so the
+// decision and the text it unlocks arrive together and cannot drift apart.
+// Unknown id → a closed record with empty text (fail closed, never throws).
+const CLOSED_SUBFEATURE = Object.freeze({ id: '', available: false, actionLabel: '', busyLabel: '', guidance: '', actionNote: '', title: '', description: '', capabilityText: '' });
+export function studioSubfeature(id, caps) {
+  const def = Object.prototype.hasOwnProperty.call(STUDIO_SUBFEATURES, id) ? STUDIO_SUBFEATURES[id] : null;
+  if (!def) return CLOSED_SUBFEATURE;
+  return { ...def, available: isStudioSubfeatureAvailable(id, caps) };
+}
+
+// Every subfeature, keyed by id, for injection into the pure data layer.
+export function studioSubfeatureSnapshot(caps) {
+  const out = {};
+  for (const id of Object.keys(STUDIO_SUBFEATURES)) out[id] = studioSubfeature(id, caps);
+  return out;
+}
+
 // The full availability snapshot consumers inject into the pure data layer.
 export function studioAvailability(caps) {
   return {
     modes: availableStudioModeIds(caps),
     modeLabels: availableStudioModeLabels(caps),
+    subfeatures: studioSubfeatureSnapshot(caps),
     capabilities: {
       comfy: Boolean(caps && caps.comfy),
       video: Boolean(caps && caps.video),

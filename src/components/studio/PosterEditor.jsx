@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import Icon from '../ui/Icon.jsx';
+import { userFacingError } from '../../lib/userFacingError.js';
 
 // Real-font text layers on top of an AI image → crisp, clean, perfect text
 // (also in Hebrew). Preview is DOM; export rasterizes to a canvas at the
@@ -22,6 +23,14 @@ const PRESETS = {
   cta: () => ({ id: nid(), text: 'לקנייה עכשיו', nx: 0.5, ny: 0.93, fs: 0.038, color: '#0e0e0e', weight: 800, align: 'center', font: 'clean', bg: '#D4FF3F' }),
 };
 
+// The export failure -> user text mapping, exported so the SHIPPED expression
+// can be executed directly in tests instead of being re-implemented there.
+// A canvas taint ("Tainted canvases may not be exported"), an image decode
+// failure or an engine-originated error all degrade to the same business text;
+// only an explicitly user-safe message survives verbatim.
+export const POSTER_EXPORT_FALLBACK = 'ייצוא הפוסטר נכשל. נסה/י שוב, או צור/י את התמונה מחדש לפני הייצוא.';
+export const posterExportErrorText = (e) => userFacingError(e, POSTER_EXPORT_FALLBACK);
+
 export default function PosterEditor({ src, onClose, onApply }) {
   const [imgUrl, setImgUrl] = useState('');
   const [natural, setNatural] = useState({ w: 1024, h: 1024 });
@@ -29,6 +38,11 @@ export default function PosterEditor({ src, onClose, onApply }) {
   const [selId, setSelId] = useState(null);
   const [stage, setStage] = useState({ w: 1, h: 1 });
   const [exporting, setExporting] = useState(false);
+  // Export failures used to go to a native browser dialog carrying `e.message` — a
+  // canvas/CORS taint error ("Tainted canvases may not be exported") reached
+  // the user verbatim. The failure is now rendered in the panel, through the
+  // same boundary every other creative surface uses.
+  const [exportError, setExportError] = useState('');
   const stageRef = useRef(null);
   const dragRef = useRef(null);
 
@@ -88,6 +102,7 @@ export default function PosterEditor({ src, onClose, onApply }) {
   // ---- export: draw image + layers onto a canvas at native resolution ----
   const exportPng = useCallback(async (apply) => {
     setExporting(true);
+    setExportError('');
     try {
       const im = new Image();
       await new Promise((res, rej) => { im.onload = res; im.onerror = rej; im.src = imgUrl; });
@@ -137,8 +152,8 @@ export default function PosterEditor({ src, onClose, onApply }) {
         document.body.appendChild(a); a.click(); a.remove();
       }
     } catch (e) {
-      // eslint-disable-next-line no-alert
-      alert('יצוא נכשל: ' + (e?.message || e));
+      console.error(e); // diagnostics keep the technical detail
+      setExportError(posterExportErrorText(e));
     } finally {
       setExporting(false);
     }
@@ -262,6 +277,11 @@ export default function PosterEditor({ src, onClose, onApply }) {
                 <Icon name="download" size={16} /> {exporting ? 'מייצא…' : 'הורד פוסטר PNG'}
               </button>
               {onApply && <button className="btn btn-ghost" disabled={exporting} onClick={() => exportPng(true)}><Icon name="check" size={16} /> השתמש בתמונה</button>}
+              {exportError && (
+                <div className="login-error" data-testid="poster-export-error" style={{ marginTop: 10 }}>
+                  <Icon name="x" size={15} strokeWidth={2.4} /> {exportError}
+                </div>
+              )}
             </div>
           </div>
         </div>

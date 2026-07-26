@@ -4,6 +4,7 @@ import { OUTREACH_EXTRA, OUTREACH_SEED_VERSION } from '../data/outreach.js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase.js';
 import * as api from '../lib/api.js';
 import { isMemoryOnlyDispatch } from '../lib/betaCapabilities.js';
+import { userFacingError } from '../lib/userFacingError.js';
 
 const DATA_KEY = 'artvalue_data';
 const THEME_KEY = 'artvalue_theme';
@@ -357,7 +358,10 @@ export function StoreProvider({ children }) {
       setData(fresh);
     } catch (e) {
       console.error(e);
-      setError(e.message || 'שגיאת טעינה');
+      // This `error` is exposed on the store context and rendered. A Supabase /
+      // network Error message (row-level-security text, endpoint URLs, PostgREST
+      // codes) must not become the user-visible string.
+      setError(userFacingError(e, 'שגיאת טעינה'));
     } finally {
       setLoading(false);
     }

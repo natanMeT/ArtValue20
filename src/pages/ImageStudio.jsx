@@ -21,11 +21,12 @@ import { createGalleryStore, srcToBlob, GALLERY_MAX, filterGalleryItems } from '
 import { activeBrandPalette, withBrandPalette } from '../lib/brandPalette.js';
 import { AI_GATEWAY_INPUT_LIMITS } from '../lib/aiGatewayInput.js';
 import { CREATIVE_PRESETS, isTextImagePreset } from '../data/creativePresets.js';
+import { availablePresets } from '../lib/presetAvailability.js';
 import PosterEditor from '../components/studio/PosterEditor.jsx';
 import MockupStudio from '../components/studio/MockupStudio.jsx';
 import ProductPlacer from '../components/studio/ProductPlacer.jsx';
 import { readStudioHandoff } from '../lib/studioHandoff.js';
-import { isStudioModeAvailable, resolveStudioMode } from '../lib/studioModes.js';
+import { isStudioModeAvailable, resolveStudioMode, studioSubfeature } from '../lib/studioModes.js';
 import { userFacingError } from '../lib/userFacingError.js';
 
 // ---- prompt enhancement (routed through the protected AI Gateway) ----
@@ -438,10 +439,16 @@ export default function ImageStudio() {
   // just for the tiles we draw. `studioModes.js` owns the requirements.
   const studioCaps = liveStudioCapabilities();
   const modes = MODES.filter((m) => isStudioModeAvailable(m.id, studioCaps));
-  // A preset ROUTES to a mode (`targetTab`) and its card prints "run it in
-  // tab X". When that tab is unavailable the preset would advertise and
-  // direct the user to a hidden capability, so it is not offered at all.
-  const presets = CREATIVE_PRESETS.filter((p) => isStudioModeAvailable(p.targetTab, studioCaps));
+  // A preset declares a whole contract — destination mode, local readiness, an
+  // API requirement and a provider. Filtering on the destination mode alone let
+  // an API-only recipe through (its tab existed) and applying it fed the
+  // scaffold into an unrelated generator. `presetAvailability.js` evaluates the
+  // COMPLETE declared contract and fails closed.
+  const presets = availablePresets(CREATIVE_PRESETS, studioCaps);
+  // ONE decision for the gated Product Lock enhancement: the control, its help
+  // text and its note all come from this record. Nothing here re-states the
+  // requirement, so the action and the guidance cannot diverge again.
+  const lockBlend = studioSubfeature('product-lock-blend', studioCaps);
 
   // S0F.1 (P1) - every async gallery read passes through the commit gate, so a
   // read started for the previous account can never land in the new account's
@@ -1205,7 +1212,13 @@ export default function ImageStudio() {
                 <Icon name="edit" size={13} style={{ color: 'var(--lime-deep)' }} /> <b>מוצר מדויק — Product Lock.</b> מצב זה שומר על פיקסלי המוצר המקורי וממקם אותו על גבי תמונת הפרזנטור. מתאים למוצרים עם לוגו, טקסט, שעון, אריזה או סימני מותג שצריכים להישאר מדויקים.
               </p>
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>המערכת שומרת על המוצר עצמו, ואתה יכול לדייק את המיקום, הגודל והזווית לפני יצירת הקומפוזיט.</p>
-              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>מומלץ להשתמש בתמונת מוצר PNG שקופה או בתמונת מוצר על רקע נקי. אחרי יצירת הקומפוזיט המדויק אפשר ללחוץ «שפר חיבור וצללים» — AI יוסיף צל מגע וחיבור טבעי סביב הקצוות בלבד.</p>
+              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>מומלץ להשתמש בתמונת מוצר PNG שקופה או בתמונת מוצר על רקע נקי.</p>
+              {/* The sentence that TELLS the user to use the gated enhancement is
+                  part of the enhancement, so it hangs off the SAME decision as
+                  the button below — not off `mode === 'lock'`. */}
+              {lockBlend.available && (
+                <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>{lockBlend.guidance}</p>
+              )}
               <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>לשימוש בתמונות שיש לך הרשאה להשתמש בהן בלבד.</p>
             </>
           )}
@@ -1273,14 +1286,12 @@ export default function ImageStudio() {
           </button>
 
           {/* Product Lock B2 — secondary action: AI blends ONLY the seam/shadow ring */}
-          {isLock && hasLocalComfy && (
+          {isLock && lockBlend.available && (
             <>
               <button className="btn btn-ghost btn-block" onClick={runLockBlend} disabled={lockBlendBusy || lockBusy || !file || !endFile} style={{ marginTop: 8 }}>
-                {lockBlendBusy ? <><span className="loader-ring" style={{ width: 16, height: 16, borderWidth: 2 }} /> משפר חיבור…</> : <><Icon name="wand" size={16} /> שפר חיבור וצללים</>}
+                {lockBlendBusy ? <><span className="loader-ring" style={{ width: 16, height: 16, borderWidth: 2 }} /> {lockBlend.busyLabel}</> : <><Icon name="wand" size={16} /> {lockBlend.actionLabel}</>}
               </button>
-              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 6 }}>
-                שיפור החיבור משתמש ב־AI רק באזור הקצוות והצללים. המוצר עצמו נשמר מוגן, כדי שלוגו, טקסט ופרטי מוצר לא ייווצרו מחדש.
-              </p>
+              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 6 }}>{lockBlend.actionNote}</p>
             </>
           )}
 

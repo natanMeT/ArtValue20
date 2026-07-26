@@ -143,12 +143,13 @@ export const CREATIVE_WORKFLOWS = [
     title: 'מוצר מדויק',
     subtitle: 'Product Lock · קומפוזיט',
     description: 'הרכבת תמונת מוצר על רקע או סצנה חדשה, כשפיקסלי המוצר נשמרים 1:1 — לוגו, טקסט ופרטי מוצר אינם נוצרים מחדש.',
-    // The AI seam/shadow enhancement (Product Lock B2) needs the local engine.
-    // It is a GATED SUBFEATURE of an otherwise-available mode, so it is declared
-    // here instead of being asserted inside the always-visible description.
-    subfeatures: [
-      { id: 'lock-blend', requires: 'comfy', text: 'ניתן גם לשפר את החיבור והצללים סביב קצוות המוצר באמצעות AI, בלי לגעת במוצר עצמו.' },
-    ],
+    // The AI seam/shadow enhancement (Product Lock B2) is a GATED SUBFEATURE of
+    // an otherwise-available mode. This card REFERENCES it by id only — the
+    // requirement and the wording live in the single authority
+    // (lib/studioModes.js STUDIO_SUBFEATURES), injected as an availability
+    // snapshot. Re-stating either here is what let the action and its guidance
+    // drift apart in the first place.
+    subfeatures: ['product-lock-blend'],
     engine: 'browser',
     status: 'live',
     category: 'commerce',
