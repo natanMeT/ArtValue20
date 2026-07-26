@@ -73,16 +73,32 @@ export const PRESET_DESCRIPTIVE_FIELDS = Object.freeze([
 // declared provider needs is satisfied. A preset is never silently re-routed to
 // a different engine than the one it names — if the declared path is missing,
 // the recipe is simply not offered.
+// `executors` maps a Studio mode to the EXECUTION PATH id this provider really
+// has in that mode. It is the difference between "the capability is declared"
+// and "this recipe will actually run on the engine it names" — availability was
+// only ever the first of those. An absent entry means the provider CANNOT serve
+// that mode, and the recipe is neither offered nor executed there; it is never
+// quietly handed to whatever else the lane happens to support.
 export const PRESET_PROVIDERS = Object.freeze({
-  'local-flux': Object.freeze({ id: 'local-flux', kind: 'local', supported: true, needs: Object.freeze(['comfy']) }),
-  'local-sdxl': Object.freeze({ id: 'local-sdxl', kind: 'local', supported: true, needs: Object.freeze(['comfy']) }),
-  'local-qwen-edit': Object.freeze({ id: 'local-qwen-edit', kind: 'local', supported: true, needs: Object.freeze(['comfy', 'qwen']) }),
-  'local-ltx-video': Object.freeze({ id: 'local-ltx-video', kind: 'local', supported: true, needs: Object.freeze(['ltx']) }),
+  'local-flux': Object.freeze({ id: 'local-flux', kind: 'local', supported: true, needs: Object.freeze(['comfy']), executors: Object.freeze({ text: 'text-image' }) }),
+  'local-sdxl': Object.freeze({ id: 'local-sdxl', kind: 'local', supported: true, needs: Object.freeze(['comfy']), executors: Object.freeze({ text: 'text-image', img2img: 'sdxl-img2img' }) }),
+  // Qwen-Image-Edit is a MULTI-IMAGE compose stack: its only execution path in
+  // this product is `qwenCompose`, which the `presenter` mode drives. There is
+  // no single-image Qwen edit path, so it declares NO `img2img` executor.
+  'local-qwen-edit': Object.freeze({ id: 'local-qwen-edit', kind: 'local', supported: true, needs: Object.freeze(['comfy', 'qwen']), executors: Object.freeze({ presenter: 'qwen-compose' }) }),
+  'local-ltx-video': Object.freeze({ id: 'local-ltx-video', kind: 'local', supported: true, needs: Object.freeze(['ltx']), executors: Object.freeze({ video: 'ltx-video', flf: 'flf-video' }) }),
   // External providers this build can actually call: NONE. The hosted image lane
   // is the account's own Gateway text-to-image path, not a preset-selected third
   // party. Declaring one here is a deliberate, reviewed act.
-  'gpt-image-2': Object.freeze({ id: 'gpt-image-2', kind: 'api', supported: false, needs: Object.freeze([]) }),
+  'gpt-image-2': Object.freeze({ id: 'gpt-image-2', kind: 'api', supported: false, needs: Object.freeze([]), executors: Object.freeze({}) }),
 });
+
+// The execution path a provider offers for a mode, or '' when it offers none.
+export function providerExecutorFor(providerId, mode) {
+  const p = providerRecord(providerId);
+  if (!p || !p.executors || typeof mode !== 'string') return '';
+  return Object.prototype.hasOwnProperty.call(p.executors, mode) ? p.executors[mode] : '';
+}
 
 // Kept as derived views so existing consumers/tests keep a stable vocabulary.
 export const SUPPORTED_API_PROVIDERS = Object.freeze(
@@ -168,6 +184,12 @@ export function presetUnavailableReason(preset, caps) {
   //    closed here.)
   if (PROVIDER_EXECUTED_MODES.includes(preset.targetTab)) {
     if (!isProviderExecutable(preset.provider, caps)) return 'provider-capability-missing';
+    // ...and the provider must have a real execution path in THAT mode. A
+    // declared capability is not an execution route: `photo_restoration` names
+    // Qwen-Edit and targets `img2img`, but Qwen has no single-image edit path
+    // here, so the lane would have run Kontext or SDXL instead. Offering it
+    // would promise an engine that never executes.
+    if (!providerExecutorFor(preset.provider, preset.targetTab)) return 'provider-cannot-execute-mode';
   }
   return '';
 }
@@ -176,3 +198,73 @@ export const isPresetAvailable = (preset, caps) => presetUnavailableReason(prese
 
 export const availablePresets = (presets, caps) =>
   (Array.isArray(presets) ? presets : []).filter((p) => isPresetAvailable(p, caps));
+
+// ===================================================================
+// EXECUTION AUTHORITY — which execution path a run actually takes.
+//
+// WHY THIS EXISTS
+// Availability said a recipe COULD be offered. It never said the recipe would
+// run on the engine it names. The Studio picked its execution path straight
+// from capability flags (`hasKontextModel ? editImage : generateImg2Img`,
+// `hasLtxVideo ? ltxVideo : animateImage`) and never consulted the active
+// preset, so a recipe declaring Qwen-Edit could be executed by Kontext or SDXL,
+// and one declaring LTX could be executed by SVD — silently, with the user
+// still reading guidance that named the promised engine.
+//
+// CONTRACT
+//   - A preset's DECLARED PROVIDER decides the path in its own target mode, and
+//     that decision NEVER falls back. If the declared provider cannot execute,
+//     the run is refused; it is not handed to another engine.
+//   - With no active preset for this mode, nothing has been promised, so the
+//     ordinary capability chain applies — first satisfied step wins.
+//   - FAIL CLOSED on an unknown mode, an unknown provider, or an exhausted
+//     chain. `ok:false` carries a machine reason; the caller renders business text.
+//   - PURE: ids only. The id→function mapping lives at the call site, so this
+//     module stays free of engine imports and is directly testable.
+// ===================================================================
+
+// The ordered capability chain for a mode when NO preset has declared anything.
+// `needs: null` = always available (served by whichever lane owns the mode).
+export const MODE_EXECUTOR_CHAIN = Object.freeze({
+  text: Object.freeze([Object.freeze({ id: 'text-image', needs: null })]),
+  lock: Object.freeze([Object.freeze({ id: 'lock-composite', needs: null })]),
+  img2img: Object.freeze([Object.freeze({ id: 'kontext-edit', needs: 'kontext' }), Object.freeze({ id: 'sdxl-img2img', needs: 'comfy' })]),
+  inpaint: Object.freeze([Object.freeze({ id: 'inpaint', needs: 'comfy' })]),
+  presenter: Object.freeze([Object.freeze({ id: 'qwen-compose', needs: 'qwen' })]),
+  video: Object.freeze([Object.freeze({ id: 'ltx-video', needs: 'ltx' }), Object.freeze({ id: 'svd-animate', needs: 'video' })]),
+  flf: Object.freeze([Object.freeze({ id: 'flf-video', needs: 'ltx' })]),
+  character: Object.freeze([Object.freeze({ id: 'character-pulid', needs: 'pulid' }), Object.freeze({ id: 'character-kontext', needs: 'kontext' })]),
+  album: Object.freeze([Object.freeze({ id: 'model-album', needs: 'pulid' })]),
+});
+
+// Every execution-path id this module can return. A call site must map ALL of
+// them, and a test pins that — so adding a path cannot leave a hole.
+export const STUDIO_EXECUTOR_IDS = Object.freeze([...new Set([
+  ...Object.values(MODE_EXECUTOR_CHAIN).flatMap((chain) => chain.map((s) => s.id)),
+  ...Object.values(PRESET_PROVIDERS).flatMap((p) => Object.values(p.executors || {})),
+])].sort());
+
+export function resolveStudioExecution(mode, preset, caps) {
+  const chain = Object.prototype.hasOwnProperty.call(MODE_EXECUTOR_CHAIN, mode) ? MODE_EXECUTOR_CHAIN[mode] : null;
+  if (!chain) return { ok: false, executor: '', provider: '', viaPreset: false, reason: 'unknown-mode' };
+
+  // A preset targeting THIS mode has made a promise about the engine.
+  const declaresThisMode = preset && typeof preset === 'object'
+    && preset.targetTab === mode && PROVIDER_EXECUTED_MODES.includes(mode);
+  if (declaresThisMode) {
+    const providerId = preset.provider;
+    if (!providerRecord(providerId)) return { ok: false, executor: '', provider: String(providerId || ''), viaPreset: true, reason: 'provider-unrecognised' };
+    const executor = providerExecutorFor(providerId, mode);
+    // NO FALLBACK on either branch — that is the whole point.
+    if (!executor) return { ok: false, executor: '', provider: providerId, viaPreset: true, reason: 'provider-cannot-execute-mode' };
+    if (!isProviderExecutable(providerId, caps)) return { ok: false, executor: '', provider: providerId, viaPreset: true, reason: 'provider-capability-missing' };
+    return { ok: true, executor, provider: providerId, viaPreset: true, reason: '' };
+  }
+
+  for (const step of chain) {
+    if (step.needs === null || satisfiesCapability(step.needs, caps)) {
+      return { ok: true, executor: step.id, provider: '', viaPreset: false, reason: '' };
+    }
+  }
+  return { ok: false, executor: '', provider: '', viaPreset: false, reason: 'no-executor-available' };
+}

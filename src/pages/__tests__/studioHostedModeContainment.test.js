@@ -21,7 +21,7 @@ import { dirname, resolve } from 'node:path';
 import {
   STUDIO_MODE_REQUIREMENTS, STUDIO_FALLBACK_MODE,
   isStudioModeAvailable, availableStudioModeIds, resolveStudioMode,
-  studioAvailability, STUDIO_SUBFEATURES, SUBFEATURE_TEXT_FIELDS,
+  studioAvailability, STUDIO_SUBFEATURE_IDS, SUBFEATURE_TEXT_FIELDS, SUBFEATURE_META_FIELDS,
   isStudioSubfeatureAvailable, studioSubfeature, studioSubfeatureSnapshot,
   satisfiesCapability,
 } from '../../lib/studioModes.js';
@@ -30,9 +30,14 @@ import {
   LOCAL_PRESET_PROVIDERS, PRESET_PROVIDERS, PROVIDER_EXECUTED_MODES,
   PROVIDER_RECOMMENDATION_ONLY_MODES, providerRecord, isProviderExecutable,
   isPresetAvailable, presetUnavailableReason, availablePresets,
+  providerExecutorFor, resolveStudioExecution, STUDIO_EXECUTOR_IDS, MODE_EXECUTOR_CHAIN,
 } from '../../lib/presetAvailability.js';
+import { STUDIO_EXECUTOR_FN, EXECUTION_REFUSED } from '../ImageStudio.jsx';
+import { qwenCompose, editImage, generateImg2Img, ltxVideo, animateImage } from '../../lib/geminiImage.js';
 import { moduleGraph, readSource, isComponent, rel as relTo } from './support/moduleGraph.js';
-import { unsafeErrorFlows, BOUNDARY_CALLS } from './support/errorFlow.js';
+import {
+  unsafeErrorFlows, BOUNDARY_CALLS, BOUNDARY_SEMANTICS, catchBindingNames, parseModule,
+} from './support/errorFlow.js';
 import { readStudioHandoff, workflowIdToMode } from '../../lib/studioHandoff.js';
 import { userFacingError, userError, engineError } from '../../lib/userFacingError.js';
 import { qwenCompose, gatewayImageErrorToThrow } from '../../lib/geminiImage.js';
@@ -518,6 +523,107 @@ describe('CLASS A · no uncontrolled or technical error value can render', () =>
     expect(BOUNDARY_CALLS.length).toBeLessThanOrEqual(6); // enumerating SAFETY stays reviewable
   });
 
+  // ---- ARGUMENT SEMANTICS -------------------------------------------------
+  // Being "inside a boundary call" proves nothing on its own: `userError(x)`
+  // marks x renderable, and `engineError(tech, userMessage)` renders its SECOND
+  // argument. A name-only allowlist launders the leak through the boundary.
+  const ARG_MISUSE = {
+    'userError() makes the caught text renderable VERBATIM': 'try { x(); } catch (e) { throw userError(e.message); }',
+    'userError() with the whole error': 'try { x(); } catch (e) { throw userError(e); }',
+    'engineError() arg1 becomes userMessage': "try { x(); } catch (e) { throw engineError('technical', e.message); }",
+    'userFacingError() arg1 is the rendered fallback': 'try { x(); } catch (e) { setError(userFacingError(null, e.message)); }',
+    'laundered through a boundary into a boundary': "try { x(); } catch (e) { setError(userFacingError(userError(e.message), 'x')); }",
+  };
+  const ARG_CORRECT = {
+    'engineError() arg0 stays diagnostic': "try { x(); } catch (e) { throw engineError('local: ' + e.message, 'biz'); }",
+    'userFacingError() arg0 is classified': "try { x(); } catch (e) { setError(userFacingError(e, 'biz')); }",
+    'console.* is diagnostics in every position': 'try { x(); } catch (e) { console.error(e, e.message); }',
+  };
+
+  it('ARGUMENT SEMANTICS: a caught value in a user-safe message position is rejected', () => {
+    for (const [label, src] of Object.entries(ARG_MISUSE)) {
+      expect(unsafeErrorFlows(src, label).length, label).toBeGreaterThan(0);
+    }
+  });
+
+  it('ARGUMENT SEMANTICS: diagnostic positions and genuine sanitizers stay accepted', () => {
+    for (const [label, src] of Object.entries(ARG_CORRECT)) {
+      expect(unsafeErrorFlows(src, label), label).toEqual([]);
+    }
+  });
+
+  it('ARGUMENT SEMANTICS: every boundary declares its safe positions explicitly', () => {
+    for (const [name, sem] of Object.entries(BOUNDARY_SEMANTICS)) {
+      expect(sem.safe === 'all' || Array.isArray(sem.safe), name).toBe(true);
+    }
+    expect(BOUNDARY_SEMANTICS.userError.safe).toEqual([]);        // renders whatever it is given
+    expect(BOUNDARY_SEMANTICS.engineError.safe).toEqual([0]);     // arg1 is the user message
+    expect(BOUNDARY_SEMANTICS.userFacingError.safe).toEqual([0]); // arg1 is the fallback text
+  });
+
+  it('NEGATIVE CONTROL: a name-only allowlist accepts all of the misuse above', () => {
+    const nameOnly = (src) => BOUNDARY_CALLS.some((b) => src.includes(`${b}(`));
+    for (const [label, src] of Object.entries(ARG_MISUSE)) {
+      expect(nameOnly(src), `${label} — the previous rule saw a boundary and stopped`).toBe(true);
+      expect(unsafeErrorFlows(src).length, label).toBeGreaterThan(0);
+    }
+  });
+
+  // ---- CATCH BINDING PATTERNS --------------------------------------------
+  const PATTERNS = {
+    'destructured shorthand': ['try { x(); } catch ({ message }) { setError(message); }', true],
+    'destructured + renamed': ['try { x(); } catch ({ message: msg }) { alert(msg); }', true],
+    'destructured + default': ['try { x(); } catch ({ message = "" }) { setError(message); }', true],
+    'array pattern': ['try { x(); } catch ([first]) { setError(first); }', true],
+    'destructured, diagnostics only': ['try { x(); } catch ({ message }) { console.error(message); }', false],
+    'parameterless binds nothing': ['try { x(); } catch { ignore(); }', false],
+  };
+
+  it('CATCH PATTERNS: destructured bindings are analysed, not skipped', () => {
+    for (const [label, [src, shouldFlag]] of Object.entries(PATTERNS)) {
+      expect(unsafeErrorFlows(src, label).length > 0, label).toBe(shouldFlag);
+    }
+  });
+
+  it('CATCH PATTERNS: binding names are extracted from every supported pattern', () => {
+    const namesFor = (code) => {
+      const clause = [];
+      const ast = parseModule(code);
+      const find = (n) => {
+        if (!n || typeof n !== 'object') return;
+        if (Array.isArray(n)) { n.forEach(find); return; }
+        if (n.type === 'CatchClause' && n.param) clause.push(catchBindingNames(n.param));
+        Object.values(n).forEach((v) => (v && typeof v === 'object' ? find(v) : null));
+      };
+      find(ast);
+      return clause[0];
+    };
+    expect(namesFor('try{}catch(e){}').names).toEqual(['e']);
+    expect(namesFor('try{}catch({ message }){}').names).toEqual(['message']);
+    expect(namesFor('try{}catch({ message: msg, code }){}').names).toEqual(['msg', 'code']);
+    expect(namesFor('try{}catch({ a, ...rest }){}').names).toEqual(['a', 'rest']);
+    expect(namesFor('try{}catch([a, , b]){}').names).toEqual(['a', 'b']); // holes bind nothing
+    for (const c of ['try{}catch(e){}', 'try{}catch({ m }){}']) expect(namesFor(c).unsupported).toBe('');
+  });
+
+  it('CATCH PATTERNS: an unsupported pattern FAILS CLOSED — reported, never skipped', () => {
+    // No catch clause may be silently ignored. Simulated directly against the
+    // extractor, since every pattern JS actually permits today is supported.
+    const exotic = catchBindingNames({ type: 'SomeFuturePattern' });
+    expect(exotic.unsupported).toBe('SomeFuturePattern');
+    expect(exotic.names).toEqual([]);
+    const nested = catchBindingNames({ type: 'ObjectPattern', properties: [{ type: 'WeirdProperty' }] });
+    expect(nested.unsupported).toBe('WeirdProperty');
+  });
+
+  it('NEGATIVE CONTROL: the previous rule skipped destructured handlers entirely', () => {
+    const src = PATTERNS['destructured shorthand'][0];
+    const ast = parseModule(src);
+    const clause = JSON.stringify(ast).includes('"ObjectPattern"');
+    expect(clause).toBe(true);                       // the param is not an Identifier...
+    expect(unsafeErrorFlows(src).length).toBeGreaterThan(0); // ...and is now analysed anyway
+  });
+
   it('a module that cannot be parsed is reported, never silently skipped', () => {
     const broken = unsafeErrorFlows('function ( { syntax error', 'broken.js');
     expect(broken.length).toBe(1);
@@ -691,6 +797,10 @@ describe('the creative surface set is derived from the code, not from a list', (
 // ===================================================================
 describe('a gated subfeature has a single authoritative decision', () => {
   const BLEND = 'product-lock-blend';
+  // The protected text is obtained the ONLY way any consumer can obtain it —
+  // through the capability-aware accessor, with capabilities that genuinely
+  // satisfy it. The raw registry is not importable (asserted below).
+  const OPEN_BLEND = studioSubfeature(BLEND, DECLARED);
 
   it('availability requires BOTH the parent mode and the subfeature capability', () => {
     expect(isStudioSubfeatureAvailable(BLEND, HOSTED)).toBe(false);
@@ -715,7 +825,7 @@ describe('a gated subfeature has a single authoritative decision', () => {
     // but the help text is not" impossible rather than merely fixed.
     const AUTHORITY = resolve(REPO, 'src/lib/studioModes.js');
     const sources = allProjectSources().filter((f) => f !== AUTHORITY);
-    for (const [id, def] of Object.entries(STUDIO_SUBFEATURES)) {
+    for (const [id, def] of STUDIO_SUBFEATURE_IDS.map((i) => [i, studioSubfeature(i, DECLARED)])) {
       for (const field of SUBFEATURE_TEXT_FIELDS) {
         const literal = def[field];
         expect(typeof literal, `${id}.${field}`).toBe('string');
@@ -726,14 +836,46 @@ describe('a gated subfeature has a single authoritative decision', () => {
     }
   });
 
-  it('every text field a subfeature declares is covered by the invariant', () => {
+  it('every field a subfeature declares is classified as text or metadata', () => {
     // schema coverage: a new text field cannot be added without being pinned
-    const NON_TEXT = ['id', 'parentMode', 'requires'];
-    for (const [id, def] of Object.entries(STUDIO_SUBFEATURES)) {
+    for (const id of STUDIO_SUBFEATURE_IDS) {
+      const def = studioSubfeature(id, DECLARED);
       for (const key of Object.keys(def)) {
-        expect([...SUBFEATURE_TEXT_FIELDS, ...NON_TEXT], `${id}.${key} is classified`).toContain(key);
+        if (key === 'available') continue; // added by the accessor, not a declared field
+        expect([...SUBFEATURE_TEXT_FIELDS, ...SUBFEATURE_META_FIELDS], `${id}.${key} is classified`).toContain(key);
       }
     }
+    for (const f of SUBFEATURE_TEXT_FIELDS) expect(SUBFEATURE_META_FIELDS).not.toContain(f);
+  });
+
+  it('THE RAW REGISTRY IS NOT IMPORTABLE — the accessor is the only public route', async () => {
+    // Exporting the definitions left every unavailable string obtainable
+    // directly, and the uniqueness invariant could not see the bypass because
+    // the literal was still defined only in the authority file.
+    const mod = await import('../../lib/studioModes.js');
+    for (const name of ['STUDIO_SUBFEATURES', 'SUBFEATURE_REGISTRY', 'SUBFEATURES']) {
+      expect(mod[name], `${name} must not be exported`).toBeUndefined();
+    }
+    // nothing exported may carry a user-visible string
+    const texts = STUDIO_SUBFEATURE_IDS.flatMap((id) => {
+      const open = studioSubfeature(id, DECLARED);
+      return SUBFEATURE_TEXT_FIELDS.map((f) => open[f]);
+    });
+    for (const [name, value] of Object.entries(mod)) {
+      if (typeof value === 'function') continue;               // the accessors themselves
+      const dump = JSON.stringify(value ?? null);
+      for (const t of texts) expect(dump, `${name} exposes protected text`).not.toContain(t);
+    }
+    // only non-sensitive metadata comes out
+    expect(STUDIO_SUBFEATURE_IDS).toEqual(['product-lock-blend']);
+    expect(SUBFEATURE_META_FIELDS).toEqual(['id', 'parentMode', 'requires']);
+  });
+
+  it('NEGATIVE CONTROL: with the registry exported, a consumer bypasses the accessor entirely', () => {
+    // the previous shape, reconstructed: import the registry, render the field
+    const exportedRegistry = { [BLEND]: { guidance: OPEN_BLEND.guidance } };
+    expect(exportedRegistry[BLEND].guidance).not.toBe('');     // obtainable with no capability check
+    expect(studioSubfeature(BLEND, HOSTED).guidance).toBe(''); // the closed route gives nothing
   });
 
   it('THE RUNTIME BOUNDARY: an unavailable subfeature yields NO text to render', () => {
@@ -752,12 +894,12 @@ describe('a gated subfeature has a single authoritative decision', () => {
     const open = studioSubfeature(BLEND, DECLARED);
     expect(open.available).toBe(true);
     for (const f of SUBFEATURE_TEXT_FIELDS) {
-      expect(open[f], `${f} must be present when available`).toBe(STUDIO_SUBFEATURES[BLEND][f]);
+      expect(open[f], `${f} must be present when available`).toBe(OPEN_BLEND[f]);
     }
   });
 
   it('THE RUNTIME BOUNDARY: it holds for every declared subfeature and every snapshot', () => {
-    for (const id of Object.keys(STUDIO_SUBFEATURES)) {
+    for (const id of STUDIO_SUBFEATURE_IDS) {
       for (const caps of [HOSTED, DECLARED, undefined, {}, { comfy: true }]) {
         const rec = studioSubfeature(id, caps);
         if (rec.available) continue;
@@ -776,7 +918,7 @@ describe('a gated subfeature has a single authoritative decision', () => {
 
   it('NEGATIVE CONTROL: the previous open-record API is what allowed a new consumer to leak', () => {
     // reproduce the round-4 shape: full text + a flag the consumer must honour
-    const openRecord = { ...STUDIO_SUBFEATURES[BLEND], available: isStudioSubfeatureAvailable(BLEND, HOSTED) };
+    const openRecord = { ...OPEN_BLEND, available: isStudioSubfeatureAvailable(BLEND, HOSTED) };
     expect(openRecord.available).toBe(false);
     expect(openRecord.guidance).not.toBe('');          // ...yet the text was there for the taking
     expect(studioSubfeature(BLEND, HOSTED).guidance).toBe(''); // the closed API gives nothing
@@ -792,11 +934,11 @@ describe('a gated subfeature has a single authoritative decision', () => {
     const declared = systemCapabilities(studioAvailability(DECLARED));
     expect(hosted.map((c) => c.id)).not.toContain(BLEND);
     const shown = declared.find((c) => c.id === BLEND);
-    expect(shown.title).toBe(STUDIO_SUBFEATURES[BLEND].title);
-    expect(shown.description).toBe(STUDIO_SUBFEATURES[BLEND].description);
+    expect(shown.title).toBe(OPEN_BLEND.title);
+    expect(shown.description).toBe(OPEN_BLEND.description);
     // and the parent workflow's description gains the subfeature line only there
-    expect(declared.find((c) => c.id === 'product-lock').description).toContain(STUDIO_SUBFEATURES[BLEND].capabilityText);
-    expect(hosted.find((c) => c.id === 'product-lock').description).not.toContain(STUDIO_SUBFEATURES[BLEND].capabilityText);
+    expect(declared.find((c) => c.id === 'product-lock').description).toContain(OPEN_BLEND.capabilityText);
+    expect(hosted.find((c) => c.id === 'product-lock').description).not.toContain(OPEN_BLEND.capabilityText);
   });
 
   it('the ALWAYS-AVAILABLE base Product Lock workflow survives hosted', () => {
@@ -883,15 +1025,20 @@ describe('preset availability evaluates every declared requirement', () => {
     const hosted = availablePresets(CREATIVE_PRESETS, HOSTED).map((p) => p.id);
     expect(hosted).toEqual(['premium_business_visual', 'dark_saas_dashboard', 'product_hero_shot', 'local_ad_creative']);
     const declared = availablePresets(CREATIVE_PRESETS, DECLARED).map((p) => p.id);
-    for (const id of [...hosted, 'photo_restoration', 'product_motion_video']) expect(declared).toContain(id);
-    expect(declared).toHaveLength(CREATIVE_PRESETS.length - 1); // everything except the API-only one
+    for (const id of [...hosted, 'product_motion_video']) expect(declared).toContain(id);
+    // `photo_restoration` is NOT here — see the execution-authority suite: it
+    // declares Qwen-Edit, which has no single-image edit path, so offering it
+    // would promise an engine that never executes. Availability alone used to
+    // let it through.
+    expect(declared).not.toContain('photo_restoration');
+    expect(declared).toHaveLength(CREATIVE_PRESETS.length - 2);
   });
 
   it('the destination mode still gates: engine-backed recipes stay hidden hosted', () => {
     for (const id of ['photo_restoration', 'product_motion_video']) {
       expect(presetUnavailableReason(byId(id), HOSTED)).toBe('target-mode-unavailable');
-      expect(isPresetAvailable(byId(id), DECLARED)).toBe(true);
     }
+    expect(isPresetAvailable(byId('product_motion_video'), DECLARED)).toBe(true);
   });
 
   it('FAILS CLOSED on unknown / unsupported / undeclared requirement values', () => {
@@ -952,7 +1099,9 @@ describe('provider requirements are declared and enforced where the provider exe
     expect(p.provider).toBe('local-qwen-edit');
     expect(isStudioModeAvailable('img2img', COMFY_NO_QWEN)).toBe(true);      // the tab IS open...
     expect(presetUnavailableReason(p, COMFY_NO_QWEN)).toBe('provider-capability-missing'); // ...the engine is not
-    expect(isPresetAvailable(p, DECLARED)).toBe(true);                        // fully declared rig -> offered
+    // and even on a FULLY declared rig it stays unavailable, because Qwen-Edit
+    // has no single-image execution path — see the execution-authority suite.
+    expect(presetUnavailableReason(p, DECLARED)).toBe('provider-cannot-execute-mode');
   });
 
   it('THE REPORTED CASE 2: an LTX recipe is not re-routed onto SVD', () => {
@@ -990,24 +1139,27 @@ describe('provider requirements are declared and enforced where the provider exe
     expect(PROVIDER_EXECUTED_MODES.length).toBe(Object.keys(STUDIO_MODE_REQUIREMENTS).length - 1);
   });
 
-  it('RECORDED LIMIT: `ltx` is not positively declared, so the LTX case cannot occur live yet', () => {
-    // Honest scope note from the stage-5 browser smoke. `qwen` and `pulid` are
-    // POSITIVELY declared (optionalCapabilityDeclared), so a rig with ComfyUI
-    // but no Qwen genuinely reports qwen:false — the photo_restoration case was
-    // reproduced in the DOM. `ltx` / `video` / `kontext` are still derived as
-    // `COMFY_URL && <model constant>`, and those constants carry non-empty
-    // defaults, so they are TRUE whenever ComfyUI is configured: the
-    // {video:true, ltx:false} state the evaluator handles cannot currently be
-    // produced by the live snapshot. The guard is therefore correct and proven
-    // at the evaluator level, but dormant in the app until `ltx` is declared the
-    // way `qwen` is. Recorded so it is not mistaken for DOM-proven coverage.
+  it('CLOSED: every optional stack is now positively declared, so no capability is inferred', () => {
+    // The round-5 limit was that `ltx`/`video`/`kontext` were derived as
+    // `COMFY_URL && <model constant>` — and every constant carries a non-empty
+    // default, so they reported TRUE on any rig with an engine URL. Strict
+    // provider enforcement cannot be stronger than its inputs, so the inputs
+    // were fixed: ALL FIVE optional stacks now share one positive declaration.
     const GEMINI = read('../../lib/geminiImage.js');
-    expect(GEMINI).toMatch(/hasQwenEdit = Boolean\(COMFY_URL && optionalCapabilityDeclared\(/);
-    expect(GEMINI).toMatch(/hasPulidModel = Boolean\(COMFY_URL && optionalCapabilityDeclared\(/);
-    // the asymmetry this note is about — if either of these gains positive
-    // declaration, this expectation fails and the note must be updated
-    expect(GEMINI).toMatch(/hasLtxVideo = Boolean\(COMFY_URL && LTX_MODEL && LTX_CLIP\)/);
-    expect(GEMINI).toMatch(/hasVideoModel = Boolean\(COMFY_URL && COMFY_SVD_MODEL\)/);
+    expect(GEMINI).toContain('const optionalStack = (raw) => Boolean(COMFY_URL && optionalCapabilityDeclared(raw));');
+    for (const flag of ['hasVideoModel', 'hasLtxVideo', 'hasKontextModel', 'hasPulidModel', 'hasQwenEdit']) {
+      expect(GEMINI, flag).toContain(`export const ${flag} = optionalStack(`);
+    }
+    // No STUDIO CAPABILITY may be inferred from a model-name constant any more.
+    // (`hasFluxModel` is deliberately still a constant check: it is not a
+    // capability in `liveStudioCapabilities()` — it selects a checkpoint on the
+    // baseline `comfy` lane and gates nothing that is offered to the user.)
+    const CAPABILITY_FLAGS = ['hasVideoModel', 'hasLtxVideo', 'hasKontextModel', 'hasPulidModel', 'hasQwenEdit'];
+    for (const flag of CAPABILITY_FLAGS) {
+      expect(GEMINI, flag).not.toMatch(new RegExp(`${flag} = Boolean\\(COMFY_URL && [A-Z_]+`));
+    }
+    const snapshot = GEMINI.slice(GEMINI.indexOf('export function liveStudioCapabilities'));
+    for (const flag of CAPABILITY_FLAGS) expect(snapshot, flag).toContain(flag);
   });
 
   it('ONE capability vocabulary: modes, subfeatures and providers ask the same predicate', () => {
@@ -1018,6 +1170,89 @@ describe('provider requirements are declared and enforced where the provider exe
     expect(isProviderExecutable('local-qwen-edit', COMFY_NO_QWEN)).toBe(false);
     expect(isProviderExecutable('local-qwen-edit', DECLARED)).toBe(true);
     expect(isProviderExecutable('local-ltx-video', SVD_NO_LTX)).toBe(false);
+  });
+
+  // ===================================================================
+  // EXECUTION AUTHORITY — availability said a recipe COULD be offered; it never
+  // said the recipe would RUN on the engine it names. The Studio picked its path
+  // from raw flags (`hasKontextModel ? editImage : generateImg2Img`,
+  // `hasLtxVideo ? ltxVideo : animateImage`) and never consulted the preset.
+  // ===================================================================
+  it('EXECUTION: a Qwen-declared recipe reaches the Qwen function ITSELF (identity, not source)', () => {
+    const qwenRecipe = { ...byId('photo_restoration'), id: 'synthetic_qwen_presenter', targetTab: 'presenter' };
+    const r = resolveStudioExecution('presenter', qwenRecipe, DECLARED);
+    expect(r).toMatchObject({ ok: true, executor: 'qwen-compose', provider: 'local-qwen-edit', viaPreset: true });
+    expect(STUDIO_EXECUTOR_FN[r.executor]).toBe(qwenCompose);   // the real function
+    expect(STUDIO_EXECUTOR_FN[r.executor]).not.toBe(editImage);
+    expect(STUDIO_EXECUTOR_FN[r.executor]).not.toBe(generateImg2Img);
+  });
+
+  it('EXECUTION: an LTX-declared recipe reaches ltxVideo and is NEVER substituted by SVD', () => {
+    const p = byId('product_motion_video');
+    const ok = resolveStudioExecution('video', p, DECLARED);
+    expect(ok).toMatchObject({ ok: true, executor: 'ltx-video', provider: 'local-ltx-video', viaPreset: true });
+    expect(STUDIO_EXECUTOR_FN[ok.executor]).toBe(ltxVideo);
+    // SVD present, LTX absent: the run is REFUSED, not handed to animateImage
+    const refused = resolveStudioExecution('video', p, SVD_NO_LTX);
+    expect(refused.ok).toBe(false);
+    expect(refused.reason).toBe('provider-capability-missing');
+    expect(refused.executor).toBe('');
+    expect(STUDIO_EXECUTOR_FN[refused.executor]).toBeUndefined(); // nothing to call
+  });
+
+  it('EXECUTION: the reported img2img substitution can no longer happen', () => {
+    // Codex: on {qwen:true, kontext:false} the lane ran the identity recipe
+    // through SDXL; on a Kontext rig, through Kontext — never through Qwen.
+    const p = byId('photo_restoration');
+    const QWEN_NO_KONTEXT = { comfy: true, qwen: true, kontext: false, video: false, ltx: false, pulid: false };
+    const r = resolveStudioExecution('img2img', p, QWEN_NO_KONTEXT);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('provider-cannot-execute-mode');   // Qwen has no img2img path
+    expect(r.executor).toBe('');                             // and no fallback was chosen
+    // the old behaviour, reconstructed from the flags the seam used to read
+    const preFix = QWEN_NO_KONTEXT.kontext ? 'kontext-edit' : 'sdxl-img2img';
+    expect(preFix).toBe('sdxl-img2img');                     // what shipped
+    expect(r.executor).not.toBe('sdxl-img2img');             // what happens now
+  });
+
+  it('EXECUTION: with NOTHING promised, the ordinary capability chain still applies', () => {
+    // No active preset => no promise => the mode's chain decides, as before.
+    expect(resolveStudioExecution('img2img', null, DECLARED)).toMatchObject({ ok: true, executor: 'kontext-edit', viaPreset: false });
+    expect(resolveStudioExecution('img2img', null, { comfy: true })).toMatchObject({ ok: true, executor: 'sdxl-img2img' });
+    expect(resolveStudioExecution('video', null, DECLARED)).toMatchObject({ ok: true, executor: 'ltx-video' });
+    expect(resolveStudioExecution('video', null, SVD_NO_LTX)).toMatchObject({ ok: true, executor: 'svd-animate' });
+    expect(resolveStudioExecution('text', null, HOSTED)).toMatchObject({ ok: true, executor: 'text-image' });
+  });
+
+  it('EXECUTION: a preset for a DIFFERENT mode makes no promise about this one', () => {
+    const textPreset = byId('premium_business_visual');
+    expect(resolveStudioExecution('img2img', textPreset, DECLARED)).toMatchObject({ ok: true, executor: 'kontext-edit', viaPreset: false });
+  });
+
+  it('EXECUTION FAILS CLOSED on unknown modes, unknown providers and exhausted chains', () => {
+    for (const bad of ['', null, undefined, 'nope', 0, {}]) {
+      expect(resolveStudioExecution(bad, null, DECLARED)).toMatchObject({ ok: false, reason: 'unknown-mode', executor: '' });
+    }
+    const bogus = { ...byId('product_motion_video'), provider: 'brand-new-provider' };
+    expect(resolveStudioExecution('video', bogus, DECLARED)).toMatchObject({ ok: false, reason: 'provider-unrecognised', executor: '' });
+    // chain exhausted: video needs ltx or svd, neither declared
+    expect(resolveStudioExecution('video', null, { comfy: true })).toMatchObject({ ok: false, reason: 'no-executor-available', executor: '' });
+    expect(resolveStudioExecution('presenter', null, { comfy: true })).toMatchObject({ ok: false, reason: 'no-executor-available' });
+  });
+
+  it('EXECUTION: every resolvable path id has a real function behind it', () => {
+    for (const id of STUDIO_EXECUTOR_IDS) {
+      expect(typeof STUDIO_EXECUTOR_FN[id], `${id} has no function`).toBe('function');
+    }
+    expect(STUDIO_EXECUTOR_IDS.length).toBeGreaterThan(8);
+  });
+
+  it('EXECUTION: the Studio seam consumes the resolution, not raw capability flags', () => {
+    expect(IMAGE_STUDIO).toMatch(/const exec = resolveStudioExecution\(mode, activePreset, studioCaps\)/);
+    expect(IMAGE_STUDIO).toMatch(/if \(!exec\.ok\) \{ setError\(EXECUTION_REFUSED\); return; \}/);
+    // the two substituting ternaries are gone
+    expect(IMAGE_STUDIO).not.toMatch(/hasKontextModel \? await editImage/);
+    expect(IMAGE_STUDIO).not.toMatch(/hasLtxVideo \? await ltxVideo/);
   });
 
   it('the full matrix stays coherent across every configuration', () => {

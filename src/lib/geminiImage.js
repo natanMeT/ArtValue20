@@ -47,36 +47,44 @@ const QWEN_LIGHTNING = import.meta.env.VITE_COMFYUI_QWEN_LIGHTNING || 'Qwen-Imag
 // Feature flags for the UI.
 export const hasFluxModel = Boolean(COMFY_URL && COMFY_FLUX_MODEL);
 export const hasLocalComfy = Boolean(COMFY_URL);       // enables img2img (uses existing models)
-export const hasVideoModel = Boolean(COMFY_URL && COMFY_SVD_MODEL); // enables image→video (SVD)
-export const hasLtxVideo = Boolean(COMFY_URL && LTX_MODEL && LTX_CLIP); // stronger prompt-guided video
-export const hasKontextModel = Boolean(COMFY_URL && COMFY_KONTEXT_MODEL && COMFY_FLUX_MODEL); // smart editing
-// Studio local-engine UI containment: these two used to be discovered by firing
-// `/object_info/...` probes at the local engine when the Studio MOUNTED. They are
-// now derived from configuration exactly like every flag above, so opening the
-// Studio performs ZERO local-engine requests. With the localEngines gate closed
-// (every hosted build) COMFY_URL is '' and both are false, unchanged.
-// PuLID (identity lock) and Qwen-Edit (multi-image compose) are OPTIONAL
-// custom-node stacks — a ComfyUI install is perfectly healthy without them, and
-// NONE of the model constants above can prove presence: each carries a
-// non-empty `||` default, so an engine URL alone tells us nothing.
+
+// ---- OPTIONAL STACKS: POSITIVELY DECLARED, NEVER INFERRED ----
 //
-// They therefore FAIL CLOSED: a capability is unavailable unless it is
-// POSITIVELY declared. Missing, undefined, empty, unknown or malformed
-// configuration => UNAVAILABLE. A rig that has never declared these stacks can
-// never be shown a mode it cannot actually run, and character packs keep
-// falling back to the Kontext path instead of being routed into an absent one.
+// Studio local-engine UI containment: these were once discovered by firing
+// `/object_info/...` probes at the engine on MOUNT. They are now derived from
+// configuration only, so opening the Studio performs ZERO local-engine requests.
+// With the localEngines gate closed (every hosted build) COMFY_URL is '' and all
+// of them are false.
 //
-// Declaring is a deployment/configuration act, never a user-facing control, and
-// it costs nothing at runtime — opening or idling in the Studio still issues no
-// local-engine request. This is a positive declaration, not runtime discovery:
-// it cannot detect a stack that was installed but never declared (that rig
-// declares it once, in config) — which is the safe direction to be wrong in.
+// LTX-Video, SVD, Kontext, PuLID and Qwen-Edit are OPTIONAL stacks — a ComfyUI
+// install is perfectly healthy without any of them — and NONE of the model-name
+// constants above can prove presence: each carries a non-empty `||` default, so
+// an engine URL alone tells us nothing. A constant says WHICH file to load,
+// never WHETHER it exists; conflating the two is the whole bug.
+//
+// PuLID and Qwen-Edit already required a positive declaration. LTX, SVD and
+// Kontext did NOT: they read `COMFY_URL && <constant>`, which collapses to "is
+// ComfyUI configured" and reported TRUE on any rig with an engine URL. That is
+// silent optimistic availability — it is what let a recipe promising LTX be
+// offered on a rig that would have run SVD instead, and it made strict provider
+// enforcement claim more than its inputs could support. All five now share ONE
+// predicate: missing, empty, unknown or malformed configuration => UNAVAILABLE.
+//
+// Declaring is a deployment act, never a user-facing control, and costs nothing
+// at runtime. It cannot detect a stack that was installed but never declared —
+// that rig declares it once, in config — which is the safe direction to be
+// wrong in.
 export function optionalCapabilityDeclared(raw) {
   const v = String(raw ?? '').trim().toLowerCase();
   return v === '1' || v === 'true' || v === 'on' || v === 'yes';
 }
-export const hasPulidModel = Boolean(COMFY_URL && optionalCapabilityDeclared(import.meta.env.VITE_COMFYUI_PULID));
-export const hasQwenEdit = Boolean(COMFY_URL && optionalCapabilityDeclared(import.meta.env.VITE_COMFYUI_QWEN_EDIT));
+const optionalStack = (raw) => Boolean(COMFY_URL && optionalCapabilityDeclared(raw));
+
+export const hasVideoModel = optionalStack(import.meta.env.VITE_COMFYUI_SVD);       // image→video (SVD)
+export const hasLtxVideo = optionalStack(import.meta.env.VITE_COMFYUI_LTX);         // prompt-guided video
+export const hasKontextModel = optionalStack(import.meta.env.VITE_COMFYUI_KONTEXT); // instruction editing
+export const hasPulidModel = optionalStack(import.meta.env.VITE_COMFYUI_PULID);     // identity lock
+export const hasQwenEdit = optionalStack(import.meta.env.VITE_COMFYUI_QWEN_EDIT);   // multi-image compose
 export const localEngineUrl = COMFY_URL;
 
 // Ping the local engine. Returns true if ComfyUI is up and reachable.

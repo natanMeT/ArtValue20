@@ -36,15 +36,34 @@
 import { parse } from '@babel/parser';
 import { readFileSync } from 'node:fs';
 
-// Calls that make a caught value safe to hold. Small and closed BY DESIGN.
-export const BOUNDARY_CALLS = Object.freeze([
-  'userFacingError', 'engineError', 'userError', 'posterExportErrorText',
-  // Assistant.jsx owns two older, equally strict boundaries: `creativeError`
-  // maps by structured `code` only, and `gentleError` matches the message
-  // against a regex and returns one of two FIXED Hebrew strings — neither can
-  // return the caught text. Verified by reading both before allowlisting.
-  'creativeError', 'gentleError',
-]);
+// ---- boundary SEMANTICS, per argument position -------------------------
+// A boundary is not uniformly safe. Being "inside a call to a named boundary"
+// says nothing on its own: `userError(e.message)` marks the caught provider text
+// `userSafe` so `userFacingError` renders it VERBATIM, and `engineError(tech,
+// userMessage)` stores its SECOND argument as `userMessage`, which is likewise
+// returned verbatim. Both would have passed a name-only allowlist — the leak the
+// whole boundary exists to prevent, laundered through the boundary itself.
+//
+// So each boundary declares WHICH argument positions may receive a caught value:
+//   safe: [0]    -> only the first argument
+//   safe: 'all'  -> every argument (diagnostics)
+//   safe: []     -> none; this call renders whatever it is given
+export const BOUNDARY_SEMANTICS = Object.freeze({
+  // (err, fallbackText) — arg0 is classified/sanitized; arg1 is rendered text
+  userFacingError: Object.freeze({ safe: Object.freeze([0]) }),
+  // (technicalMessage, userMessage) — arg0 stays diagnostic; arg1 is rendered
+  engineError: Object.freeze({ safe: Object.freeze([0]) }),
+  // (message) — its ONLY argument becomes the verbatim user-facing message
+  userError: Object.freeze({ safe: Object.freeze([]) }),
+  // (err) — sanitizing wrappers that can only return their own fixed strings.
+  // `creativeError` maps by structured `code`; `gentleError` regex-matches and
+  // returns one of two FIXED Hebrew strings; `posterExportErrorText` delegates
+  // to `userFacingError`. Each verified by reading it before allowlisting.
+  posterExportErrorText: Object.freeze({ safe: Object.freeze([0]) }),
+  creativeError: Object.freeze({ safe: Object.freeze([0]) }),
+  gentleError: Object.freeze({ safe: Object.freeze([0]) }),
+});
+export const BOUNDARY_CALLS = Object.freeze(Object.keys(BOUNDARY_SEMANTICS));
 
 export function parseModule(src) {
   return parse(src, {
@@ -81,8 +100,17 @@ function calleeName(call) {
   return '';
 }
 
-const isBoundaryCall = (node) => node.type === 'CallExpression'
-  && (BOUNDARY_CALLS.includes(calleeName(node)) || calleeName(node).startsWith('console.'));
+// Which argument positions of this call may receive a caught value?
+// null = not a boundary at all. 'all' = every position (diagnostics).
+function boundarySafeArgs(node) {
+  if (node.type !== 'CallExpression') return null;
+  const name = calleeName(node);
+  if (name.startsWith('console.')) return 'all';
+  return Object.prototype.hasOwnProperty.call(BOUNDARY_SEMANTICS, name) ? BOUNDARY_SEMANTICS[name].safe : null;
+}
+
+// Index of the top-level argument of `call` that contains `child`, or -1.
+const argIndexOf = (call, child) => call.arguments.indexOf(child);
 
 // Is this identifier use safe? `ancestors` runs outermost-first and ends at the
 // identifier's direct parent.
@@ -91,8 +119,16 @@ function isSafeUse(ident, ancestors) {
     const node = ancestors[i];
     const child = i === ancestors.length - 1 ? ident : ancestors[i + 1];
 
-    // wrapped by a declared boundary (or diagnostics) at any depth
-    if (isBoundaryCall(node)) return true;
+    // A boundary decides DEFINITIVELY, by argument position. Reaching an unsafe
+    // position is a violation even if an outer wrapper is itself a boundary —
+    // `setError(userFacingError(userError(e.message), 'x'))` still renders the
+    // provider text, because `userError` marked it renderable on the way in.
+    const safeArgs = boundarySafeArgs(node);
+    if (safeArgs !== null) {
+      if (safeArgs === 'all') return true;
+      const idx = argIndexOf(node, child);
+      return idx >= 0 && safeArgs.includes(idx);
+    }
 
     // being CALLED is not being rendered: e.g. `e.handler()` — but the callee
     // expression itself is not a value that reaches the UI
@@ -111,6 +147,38 @@ function isSafeUse(ident, ancestors) {
     if (node.type === 'CatchClause' || node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') break;
   }
   return false;
+}
+
+// ---- catch parameter patterns -------------------------------------------
+// `catch (e)` is not the only legal shape. `catch ({ message })` binds the raw
+// message directly, and an early return on "param is not an Identifier" skipped
+// the ENTIRE handler — raw engine text could reach a render sink while the
+// default-deny invariant stayed green. Every binding a pattern introduces is
+// extracted; an unrecognised pattern FAILS CLOSED (reported, never skipped).
+export function catchBindingNames(param) {
+  const names = [];
+  let unsupported = '';
+  const visitPattern = (node) => {
+    if (!node || unsupported) return;
+    switch (node.type) {
+      case 'Identifier': names.push(node.name); return;
+      case 'ObjectPattern':
+        for (const prop of node.properties) {
+          if (prop.type === 'RestElement') visitPattern(prop.argument);
+          else if (prop.type === 'ObjectProperty') visitPattern(prop.value); // key is not a binding
+          else unsupported = prop.type;
+        }
+        return;
+      case 'ArrayPattern':
+        for (const el of node.elements) if (el) visitPattern(el); // holes bind nothing
+        return;
+      case 'AssignmentPattern': visitPattern(node.left); return;   // `catch ({ m = '' })`
+      case 'RestElement': visitPattern(node.argument); return;
+      default: unsupported = node.type;
+    }
+  };
+  visitPattern(param);
+  return { names, unsupported };
 }
 
 // Locals assigned directly FROM the caught binding (one alias level).
@@ -162,16 +230,26 @@ export function unsafeErrorFlows(src, label = '') {
   const lines = src.split('\n');
 
   walk(ast, (node) => {
-    if (node.type !== 'CatchClause' || !node.param || node.param.type !== 'Identifier') return; // `catch {}` holds nothing
-    const binding = node.param.name;
-    const aliases = aliasesOf(node.body, binding);
+    if (node.type !== 'CatchClause') return;
+    if (!node.param) return;                      // `catch {}` binds nothing at all
+    const { names, unsupported } = catchBindingNames(node.param);
+    if (unsupported) {                            // FAIL CLOSED — never skip a handler
+      const line = node.param.loc ? node.param.loc.start.line : 0;
+      out.push({ binding: '', name: '', line, snippet: `UNSUPPORTED catch parameter pattern (${unsupported}) — cannot be analysed, so it is reported` });
+      return;
+    }
+    if (!names.length) return;                    // e.g. `catch ([])` — binds nothing
+    const binding = names.join('|');
+    // Aliases are resolved per bound name, then merged.
+    const aliases = new Map();
+    for (const n of names) for (const [k, v] of aliasesOf(node.body, n)) aliases.set(k, v);
     // An alias whose every use is safe makes its EXTRACTION safe too, so
     // `const detail = String(e?.error?.message || ''); throw engineError(detail, …)`
     // is not reported. An alias that escapes is reported at both sites.
     const safeAliases = new Set(
       [...aliases.entries()].filter(([name, decl]) => allUsesSafe(node.body, name, decl)).map(([name]) => name),
     );
-    const tainted = new Set([binding, ...aliases.keys()]);
+    const tainted = new Set([...names, ...aliases.keys()]);
 
     walk(node.body, (inner, ancestors) => {
       if (inner.type !== 'Identifier' || !tainted.has(inner.name)) return;

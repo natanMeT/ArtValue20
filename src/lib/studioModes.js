@@ -127,7 +127,14 @@ export function availableStudioModeLabels(caps) {
 // whether it is available, because the surface does not own the text.
 // A test asserts these literals appear in no other source file.
 // ===================================================================
-export const STUDIO_SUBFEATURES = Object.freeze({
+// PRIVATE — deliberately NOT exported. Exporting the raw definitions left every
+// unavailable string directly obtainable: a consumer could import the registry
+// and render `REGISTRY[id].guidance` without ever asking about availability, and
+// the single-ownership invariant stayed green because the literal was still
+// defined only here. The capability-aware accessor below is the ONLY public
+// route to user-visible text; only non-sensitive metadata (ids, field names) is
+// exported alongside it.
+const SUBFEATURE_REGISTRY = Object.freeze({
   'product-lock-blend': Object.freeze({
     id: 'product-lock-blend',
     parentMode: 'lock',
@@ -145,16 +152,26 @@ export const STUDIO_SUBFEATURES = Object.freeze({
   }),
 });
 
+// NON-SENSITIVE METADATA — safe to export, and genuinely required: consumers
+// and tests need to name a subfeature and to know which fields are text.
+// Neither exposes any user-visible string.
+export const STUDIO_SUBFEATURE_IDS = Object.freeze(Object.keys(SUBFEATURE_REGISTRY));
+
 // The keys of a subfeature record that are USER-VISIBLE TEXT. The uniqueness
 // invariant is stated here so adding a new text field extends it automatically.
 export const SUBFEATURE_TEXT_FIELDS = Object.freeze([
   'actionLabel', 'busyLabel', 'guidance', 'actionNote', 'title', 'description', 'capabilityText',
 ]);
 
+// Fields of a subfeature record that are NOT user-visible text. Together with
+// SUBFEATURE_TEXT_FIELDS these must cover every key — pinned by a test, so a new
+// field cannot be added without being classified.
+export const SUBFEATURE_META_FIELDS = Object.freeze(['id', 'parentMode', 'requires']);
+
 // Available only when the PARENT MODE is open AND the subfeature's own
 // requirement is satisfied. Unknown id → false (closed).
 export function isStudioSubfeatureAvailable(id, caps) {
-  const def = Object.prototype.hasOwnProperty.call(STUDIO_SUBFEATURES, id) ? STUDIO_SUBFEATURES[id] : null;
+  const def = Object.prototype.hasOwnProperty.call(SUBFEATURE_REGISTRY, id) ? SUBFEATURE_REGISTRY[id] : null;
   if (!def) return false;
   if (!isStudioModeAvailable(def.parentMode, caps)) return false;
   return satisfies(def.requires, caps);
@@ -172,7 +189,7 @@ export function isStudioSubfeatureAvailable(id, caps) {
 // review.) Unknown id → the same closed record (fail closed, never throws).
 const CLOSED_SUBFEATURE = Object.freeze({ id: '', available: false, actionLabel: '', busyLabel: '', guidance: '', actionNote: '', title: '', description: '', capabilityText: '' });
 export function studioSubfeature(id, caps) {
-  const def = Object.prototype.hasOwnProperty.call(STUDIO_SUBFEATURES, id) ? STUDIO_SUBFEATURES[id] : null;
+  const def = Object.prototype.hasOwnProperty.call(SUBFEATURE_REGISTRY, id) ? SUBFEATURE_REGISTRY[id] : null;
   if (!def) return CLOSED_SUBFEATURE;
   if (!isStudioSubfeatureAvailable(id, caps)) return { ...CLOSED_SUBFEATURE, id: def.id };
   return { ...def, available: true };
@@ -181,7 +198,7 @@ export function studioSubfeature(id, caps) {
 // Every subfeature, keyed by id, for injection into the pure data layer.
 export function studioSubfeatureSnapshot(caps) {
   const out = {};
-  for (const id of Object.keys(STUDIO_SUBFEATURES)) out[id] = studioSubfeature(id, caps);
+  for (const id of STUDIO_SUBFEATURE_IDS) out[id] = studioSubfeature(id, caps);
   return out;
 }
 

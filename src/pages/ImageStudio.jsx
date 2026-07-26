@@ -21,13 +21,13 @@ import { createGalleryStore, srcToBlob, GALLERY_MAX, filterGalleryItems } from '
 import { activeBrandPalette, withBrandPalette } from '../lib/brandPalette.js';
 import { AI_GATEWAY_INPUT_LIMITS } from '../lib/aiGatewayInput.js';
 import { CREATIVE_PRESETS, isTextImagePreset } from '../data/creativePresets.js';
-import { availablePresets } from '../lib/presetAvailability.js';
+import { availablePresets, resolveStudioExecution, STUDIO_EXECUTOR_IDS } from '../lib/presetAvailability.js';
 import PosterEditor from '../components/studio/PosterEditor.jsx';
 import MockupStudio from '../components/studio/MockupStudio.jsx';
 import ProductPlacer from '../components/studio/ProductPlacer.jsx';
 import { readStudioHandoff } from '../lib/studioHandoff.js';
 import { isStudioModeAvailable, resolveStudioMode, studioSubfeature } from '../lib/studioModes.js';
-import { userFacingError } from '../lib/userFacingError.js';
+import { userFacingError, userError } from '../lib/userFacingError.js';
 
 // ---- prompt enhancement (routed through the protected AI Gateway) ----
 // The enhancement INSTRUCTION (per mode: generate / edit / inpaint) is assembled
@@ -303,6 +303,30 @@ export function presetModelFamily(preset) {
   if (!preset || !isTextImagePreset(preset)) return undefined;
   return preset.modelFamily === 'flux' ? 'flux' : undefined;
 }
+
+// Business-facing refusal when the declared provider cannot execute. The user is
+// never shown which engine was expected, and no other engine is substituted.
+export const EXECUTION_REFUSED = 'המתכון הזה דורש יכולת שאינה זמינה בהגדרה הנוכחית, ולכן לא הופעל.';
+
+// THE EXECUTION MAP: execution-path id -> the function that actually runs it.
+// Exported so routing can be proven by FUNCTION IDENTITY rather than by reading
+// the source — e.g. that a Qwen-declared recipe reaches `qwenCompose` itself.
+// A test pins that every id `resolveStudioExecution` can return is mapped here,
+// so a new path cannot be added without a home.
+export const STUDIO_EXECUTOR_FN = Object.freeze({
+  'text-image': generateImage,
+  'kontext-edit': editImage,
+  'sdxl-img2img': generateImg2Img,
+  'qwen-compose': qwenCompose,
+  inpaint: inpaintImage,
+  'ltx-video': ltxVideo,
+  'svd-animate': animateImage,
+  'flf-video': flfVideo,
+  'character-pulid': characterPackPulid,
+  'character-kontext': characterPack,
+  'model-album': generateModelAlbum,
+  'lock-composite': productLockBlend,
+});
 
 export default function ImageStudio() {
   const { toast, data, session } = useStore();
@@ -612,6 +636,10 @@ export default function ImageStudio() {
     // error, the user's input preserved, and no approved HEX value altered.
     const overflow = gatewayImagePromptOverflow(p, { gatewayLane: usesGatewayImageLane });
     if (overflow) { setError(imagePromptTooLongMessage(overflow, p !== prompt)); return; }
+    // Resolve the execution path BEFORE any engine work. A recipe that declared
+    // a provider runs on that provider or not at all — it is never substituted.
+    const exec = resolveStudioExecution(mode, activePreset, studioCaps);
+    if (!exec.ok) { setError(EXECUTION_REFUSED); return; }
     const token = ++runTokenRef.current;
     cancelledRef.current = false;
     setJob(null);
@@ -630,11 +658,34 @@ export default function ImageStudio() {
         // preset, not from a technical control. No preset → engine default.
         r = await generateImage(p, { arch: presetArch, width: asp.w, height: asp.h, hd, aspect });
       }
-      else if (mode === 'img2img') { r = hasKontextModel ? await editImage(file, p) : await generateImg2Img(file, p, { strength }); }
-      else if (mode === 'presenter') { r = await qwenCompose(file, endFile, p, presenterQuality === 'quality' ? { lightning: false } : {}); r = { ...r, presenterQuality }; }
-      else if (mode === 'inpaint') { const mask = await maskRef.current.exportMask(); r = await inpaintImage(file, mask, p); }
-      else if (mode === 'flf') { const len = (VID_LENGTHS.find((v) => v.sec === vidSec) || VID_LENGTHS[0]).frames; r = await flfVideo(file, endFile, p, { length: len, ...ltxRes() }); }
-      else { const len = (VID_LENGTHS.find((v) => v.sec === vidSec) || VID_LENGTHS[0]).frames; r = hasLtxVideo ? await ltxVideo(file, p, { length: len, ...ltxRes() }) : await animateImage(file, {}); }
+      // EXECUTION AUTHORITY: the path is resolved from the active preset's
+      // DECLARED PROVIDER (never falling back) or, with nothing promised, from
+      // the mode's capability chain. It is no longer read off a raw flag, which
+      // is how a Qwen-declared recipe could be run by Kontext/SDXL and an
+      // LTX-declared one by SVD. `exec.ok === false` refuses the run above.
+      else if (mode === 'img2img') {
+        if (exec.executor === 'kontext-edit') r = await editImage(file, p);
+        else if (exec.executor === 'sdxl-img2img') r = await generateImg2Img(file, p, { strength });
+        else throw userError(EXECUTION_REFUSED);
+      }
+      else if (mode === 'presenter') {
+        if (exec.executor !== 'qwen-compose') throw userError(EXECUTION_REFUSED);
+        r = await qwenCompose(file, endFile, p, presenterQuality === 'quality' ? { lightning: false } : {}); r = { ...r, presenterQuality };
+      }
+      else if (mode === 'inpaint') {
+        if (exec.executor !== 'inpaint') throw userError(EXECUTION_REFUSED);
+        const mask = await maskRef.current.exportMask(); r = await inpaintImage(file, mask, p);
+      }
+      else if (mode === 'flf') {
+        if (exec.executor !== 'flf-video') throw userError(EXECUTION_REFUSED);
+        const len = (VID_LENGTHS.find((v) => v.sec === vidSec) || VID_LENGTHS[0]).frames; r = await flfVideo(file, endFile, p, { length: len, ...ltxRes() });
+      }
+      else {
+        const len = (VID_LENGTHS.find((v) => v.sec === vidSec) || VID_LENGTHS[0]).frames;
+        if (exec.executor === 'ltx-video') r = await ltxVideo(file, p, { length: len, ...ltxRes() });
+        else if (exec.executor === 'svd-animate') r = await animateImage(file, {});
+        else throw userError(EXECUTION_REFUSED);
+      }
       if (token !== runTokenRef.current) return; // cancelled (pending-delete) — ignore the orphan
       setResult(r);
       if (r.demo) toast('נוצר דרך המחולל החינמי');
@@ -892,7 +943,14 @@ export default function ImageStudio() {
       // match the result image's orientation to the LTX base resolution
       const portrait = (ASPECTS.find((a) => a.id === aspect) || ASPECTS[0]).h > (ASPECTS.find((a) => a.id === aspect) || ASPECTS[0]).w;
       const res = portrait ? { width: 512, height: 768 } : { width: 768, height: 512 };
-      const r = hasLtxVideo ? await ltxVideo(f, prompt, { length: len, ...res }) : await animateImage(f, {});
+      // Second execution seam — same authority. Nothing is promised here (this
+      // path carries no preset), so the mode's capability chain decides; it must
+      // still not read a raw flag, or the two seams can disagree.
+      const vx = resolveStudioExecution('video', null, studioCaps);
+      let r;
+      if (vx.executor === 'ltx-video') r = await ltxVideo(f, prompt, { length: len, ...res });
+      else if (vx.executor === 'svd-animate') r = await animateImage(f, {});
+      else throw userError(EXECUTION_REFUSED);
       setResult(r);
     } catch (e) {
       setError(userFacingError(e, 'שגיאה ביצירת האנימציה'));

@@ -117,11 +117,26 @@ describe('optional capabilities · dependent modes and fallback routing', () => 
   it('the valid Kontext fallback is PRESERVED when the identity stack is absent', async () => {
     // Character series must stay available via Kontext and must NOT be routed
     // into PuLID. `usePulid` mirrors buildCharacterPack's real branch.
-    const m = await loadImage({ VITE_COMFYUI_URL: ENGINE });
+    // Kontext is now a POSITIVELY DECLARED optional stack like PuLID/Qwen — an
+    // engine URL alone no longer implies it, because the model constant behind
+    // it carries a non-empty default and could never prove presence.
+    const m = await loadImage({ VITE_COMFYUI_URL: ENGINE, VITE_COMFYUI_KONTEXT: '1' });
     expect(offered(m).character).toBe(true);   // still offered, via Kontext
     expect(m.hasKontextModel).toBe(true);
     const usePulid = m.hasPulidModel;          // buildCharacterPack: pulidReady ? PuLID : Kontext
     expect(usePulid).toBe(false);              // → falls back, never routes into an absent stack
+  });
+
+  it('an UNDECLARED optional stack is not assumed present just because ComfyUI is configured', () => {
+    // The defect this closes: `COMFY_URL && <model constant>` collapsed to "is
+    // ComfyUI configured", because every constant carries a non-empty default.
+    return loadImage({ VITE_COMFYUI_URL: ENGINE }).then((m) => {
+      expect(m.hasLocalComfy).toBe(true);       // the baseline engine is still there
+      expect(m.hasKontextModel).toBe(false);
+      expect(m.hasLtxVideo).toBe(false);
+      expect(m.hasVideoModel).toBe(false);
+      expect(offered(m).character).toBe(false); // neither identity stack declared
+    });
   });
 
   it('the Studio branches on exactly these flags (no separate source of truth)', async () => {

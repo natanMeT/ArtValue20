@@ -144,17 +144,19 @@ describe('Studio containment · no local-engine request on mount', () => {
   });
 
   it('the new flags are derived from configuration only (no network in their definition)', () => {
-    for (const decl of ['export const hasPulidModel = Boolean(', 'export const hasQwenEdit = Boolean(']) {
-      expect(geminiImage).toContain(decl);
-    }
-    // Their definitions must not contain a request of any kind.
-    for (const name of ['hasPulidModel', 'hasQwenEdit']) {
-      const start = geminiImage.indexOf(`export const ${name} = Boolean(`);
+    // All five optional stacks now share ONE positive-declaration helper, so
+    // there is a single definition to inspect rather than five spellings.
+    expect(geminiImage).toContain('const optionalStack = (raw) => Boolean(COMFY_URL && optionalCapabilityDeclared(raw));');
+    for (const name of ['hasPulidModel', 'hasQwenEdit', 'hasLtxVideo', 'hasVideoModel', 'hasKontextModel']) {
+      expect(geminiImage).toContain(`export const ${name} = optionalStack(`);
+      const start = geminiImage.indexOf(`export const ${name} = optionalStack(`);
       const body = geminiImage.slice(start, geminiImage.indexOf(');', start));
       for (const banned of ['fetch', 'await', 'then(']) {
         expect(body.includes(banned), `${banned} in ${name}`).toBe(false);
       }
     }
+    const helper = geminiImage.slice(geminiImage.indexOf('const optionalStack ='), geminiImage.indexOf('\n', geminiImage.indexOf('const optionalStack =')));
+    for (const banned of ['fetch', 'await', 'then(']) expect(helper.includes(banned)).toBe(false);
     // With the localEngines gate closed (every hosted build) COMFY_URL is ''
     // and therefore every capability flag is false.
     expect(geminiImage).toContain("import { resolveLocalEngineUrl } from './localEngines.js'");
