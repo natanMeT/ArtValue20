@@ -137,7 +137,7 @@
 - jake.chat / jake.force_actions / jake.draft_message
 - crm.lead_ideas / crm.diagnose_quote
 
-| Release gate | S0D CLOSED / LIVE VERIFIED בפרודקשן על main 22ee2f3. **אין שינוי Edge/Gateway בסלייס זה.** כל מסלולי ה־Gateway שכבר נסגרו נשארים LIVE — VERIFIED; אין לפתוח אותם מחדש ללא ראיה חדשה. |
+| Release gate | S0E CLOSED / LIVE VERIFIED בפרודקשן על עוגן קוד ההשקה הפעיל 272fc148984b68c26aa46d24e1cdefc2878cddb9 (S0D נסגר לפניו על 22ee2f3). **אין שינוי Edge/Gateway בסלייס זה** — ai-gateway נשאר v34 ולא בוצע לו deploy. כל מסלולי ה־Gateway שכבר נסגרו נשארים LIVE — VERIFIED; אין לפתוח אותם מחדש ללא ראיה חדשה. |
 | --- | --- |
 
 ## איפה אנחנו עדיין מקובעים ל־Gemini
@@ -149,15 +149,17 @@
 | שדה | מצב |
 | --- | --- |
 | Gateway PR (Slice B) | #72 — MERGED / DEPLOYED |
-| Frontend production | Cloudflare Pages — 22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4 — https://artvalue-product.pages.dev (deploy 69f8a175-08b2-4c65-aac5-c8e4b61d7962; bundle index-DnfLj9lz.js) |
-| Preview מאומת (S0D) | f4da6153-abef-4872-8ed0-cc54b6b744ab (branch s0d-preview-22ee2f3; two-account acceptance PASS) |
+| S0E PRs | #103 — Guided Business Onboarding (merge c10ac55); #104 — תיקון שני סיורי ההתחלה (merge 272fc14) |
+| Frontend production | Cloudflare Pages — 272fc148984b68c26aa46d24e1cdefc2878cddb9 — https://artvalue-product.pages.dev (deploy 4b86993d-5b4f-4587-87ea-17d68a10adef; bundle index-DRaTE7f5.js) |
+| Preview מאומת (S0E) | ea0dcc02-5eb6-4c2a-aef8-db43499c381f (branch s0e-preview-272fc14; bundle index-DRaTE7f5.js; בדיקת קבלה על חשבון לא מוגדר PASS). קודמו ההיסטורי: Preview S0D f4da6153 (branch s0d-preview-22ee2f3). |
+| Frontend rollback | 69f8a175-08b2-4c65-aac5-c8e4b61d7962 (source 22ee2f3; bundle index-DnfLj9lz.js) — נשמר וזמין. קודמים היסטוריים: cec116b9 (S0C), 31cb521d (S0B), 4cb17aee (S0A). |
 | Local-engine gate | #75 — MERGED / DEPLOYED (קודם ל־S0C) |
 | CRM migrations | #73 + #74 — EXECUTED / VERIFIED |
 | CRM hotfix | #76 + #77 — MERGED / SQL EXECUTED / VERIFIED / CRUD PERSISTED |
-| S0D migration | 20260724120000_s0d_business_profile.sql — APPLIED / VERIFIED (public.business_profile) |
-| Full tests latest | 2759 passed / 1 pre-existing skipped (107 files); production build green |
-| עוגן קוד ההשקה הפעיל (S0D) — מקור הפרודקשן | 22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4 (repository main HEAD נפתר חי בכל preflight) |
-| Release state | Production online. S0D CLOSED / LIVE VERIFIED; ai-gateway v34 ACTIVE/JWT-on **unchanged**. Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED. Frontend rollback cec116b9 נשמר. |
+| Migrations | חמש מיגרציות הוחלו, אין ממתינה. **ל־S0E אין migration כלל.** מיגרציית S0D 20260724120000_s0d_business_profile.sql — APPLIED / VERIFIED (public.business_profile). |
+| Full tests latest | 111 קובצי בדיקה — 2885 עברו / 1 skip קיים מראש / 0 נכשלו; production build ירוק. (S0D בזמנו: 107 קבצים / 2759 עברו.) |
+| עוגן קוד ההשקה הפעיל (S0E) — מקור הפרודקשן | 272fc148984b68c26aa46d24e1cdefc2878cddb9 — זהו מקור האפליקציה הפרוסה בפועל, **ולא** טענה קבועה על HEAD של repository main; את ה־HEAD יש לפתור חי בכל preflight עתידי (main עשוי לכלול commits מאוחרים של תיעוד בלבד ללא drift אפליקטיבי). |
+| Release state | Production online. **S0E CLOSED / LIVE VERIFIED**; ai-gateway **v34 ACTIVE/JWT-on — unchanged ולא נפרס מחדש על ידי S0E**. Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED. Frontend rollback 69f8a175 נשמר. |
 
 # 3. ארכיטקטורת היעד
 
