@@ -23,14 +23,16 @@ import {
   isStudioModeAvailable, availableStudioModeIds, resolveStudioMode,
   studioAvailability, STUDIO_SUBFEATURES, SUBFEATURE_TEXT_FIELDS,
   isStudioSubfeatureAvailable, studioSubfeature, studioSubfeatureSnapshot,
+  satisfiesCapability,
 } from '../../lib/studioModes.js';
 import {
   PRESET_REQUIREMENT_FIELDS, PRESET_DESCRIPTIVE_FIELDS, SUPPORTED_API_PROVIDERS,
+  LOCAL_PRESET_PROVIDERS, PRESET_PROVIDERS, PROVIDER_EXECUTED_MODES,
+  PROVIDER_RECOMMENDATION_ONLY_MODES, providerRecord, isProviderExecutable,
   isPresetAvailable, presetUnavailableReason, availablePresets,
 } from '../../lib/presetAvailability.js';
-import {
-  moduleGraph, readSource, isComponent, rel as relTo, gatedRegions, insideAny, callsOf,
-} from './support/moduleGraph.js';
+import { moduleGraph, readSource, isComponent, rel as relTo } from './support/moduleGraph.js';
+import { unsafeErrorFlows, BOUNDARY_CALLS } from './support/errorFlow.js';
 import { readStudioHandoff, workflowIdToMode } from '../../lib/studioHandoff.js';
 import { userFacingError, userError, engineError } from '../../lib/userFacingError.js';
 import { qwenCompose, gatewayImageErrorToThrow } from '../../lib/geminiImage.js';
@@ -67,27 +69,43 @@ const CREATIVE_ROUTE_ROOTS = [
 const GRAPH = moduleGraph(CREATIVE_ROUTE_ROOTS);
 const relative = (f) => relTo(REPO, f);
 
-// ---- the CLASS A predicate, applied to source text -------------------
-// A violation is a value read off a caught error that reaches a RENDER SINK
-// (alert/confirm/a set*State call/a toast) or becomes a thrown Error MESSAGE,
-// without passing through the declared boundary. Reading `.message` for
-// diagnostics (console.*) or into a data-contract field is not a violation —
-// those never render. Extraction is by BALANCED ARGUMENT LIST, not by a
-// character window, so "near a sink" is never mistaken for "inside a sink".
-const SINK_CALL = /\balert|\bconfirm|\bset[A-Z]\w*|\btoast[A-Za-z]*|\bthrow new Error/g;
-const READS_ERR_MESSAGE = /\b(?:e|err|error|ex|_e|e2|cause)\s*\??\s*\.\s*(?:\w+\s*\??\s*\.\s*)?message\b/;
-const SANCTIONED = /userFacingError\s*\(|console\s*\.|engineError\s*\(|userError\s*\(/;
+// ---- STAGE 4: the SCOPE decision, recorded rather than implied -----------
+// Running the AST rule app-wide found user-facing leaks of this very class
+// OUTSIDE the creative routes. Owner decision (2026-07-27): PR #118 stays
+// scoped to the Studio, and the rest is recorded as KNOWN DEBT with exact
+// sites rather than silently excluded — the failure mode of rounds 1-3 was a
+// boundary that looked closed because nobody had looked past its edge.
+//
+// This list is asserted below: each entry must STILL be outside the graph and
+// must STILL be a real violation. If someone fixes one, or pulls one of these
+// files into the creative graph, the test fails and the debt record must be
+// updated. Debt that cannot go stale silently.
+const KNOWN_OUT_OF_SCOPE_DEBT = Object.freeze([
+  { file: 'src/pages/ProjectDetail.jsx', flows: 3, note: 'toast(err.message) ×3 — IndexedDB/File API text; reachable directly at /projects/:id, which (unlike Projects) has no BetaUnavailable gate' },
+  { file: 'src/lib/jakeAgent.js', flows: 1, note: 'logs.push(`… ${err.message}`) — action-handler failure text reaches Jake\'s visible log' },
+]);
+// Latent, NOT a leak: Settings.jsx:74 renders err.message only when it is
+// EQUAL to a known Hebrew business string — a hand-rolled boundary that should
+// move to userError(), but cannot emit technical text today.
+// Non-rendering: Assistant.jsx window.__creativeLastError (debug hook) and the
+// creative/v2 engine's structured `reason`/`details`/`log` positions.
 
-function sinkViolations(src) {
+// ---- the CLASS A predicate — now derived from the PARSE TREE ----------
+// STAGE 3 replaced a regex predicate here. That predicate recognised only a
+// hard-coded set of catch-variable names, so `catch (failure) { … }` was
+// invisible to it, and it tried to enumerate SINKS — an open-ended set.
+// `errorFlow.js` instead finds every catch clause structurally, takes whatever
+// the author named the binding, and DEFAULT-DENIES every use that is not one of
+// a small closed set of safe handlings. See that module for the stated limits.
+const sinkViolations = (src, label = '') => unsafeErrorFlows(src, label)
+  .map((v) => `${v.binding}@${v.line}: ${v.snippet}`);
+
+function rawErrorSinks() {
   const out = [];
-  for (const call of callsOf(src, SINK_CALL)) {
-    if (!READS_ERR_MESSAGE.test(call.args)) continue;
-    if (SANCTIONED.test(call.args)) continue;
-    out.push(`${call.name}${call.args.slice(0, 60)}`);
+  for (const file of GRAPH) {
+    if (file.endsWith('/userFacingError.js')) continue; // the boundary itself
+    for (const v of sinkViolations(readSource(file), relative(file))) out.push(`${relative(file)} :: ${v}`);
   }
-  // JSX interpolation straight into the tree. The lookbehind excludes `${…}`
-  // template slots, which the balanced-call scan above already covers.
-  for (const m of src.matchAll(/(?<!\$)\{\s*(?:e|err|error)\s*\??\s*\.\s*message\b[^}]*\}/g)) out.push(m[0]);
   return out;
 }
 
@@ -101,15 +119,6 @@ function allProjectSources(dir = resolve(REPO, 'src'), out = []) {
       if (entry.name === '__tests__' || entry.name === 'node_modules') continue;
       allProjectSources(full, out);
     } else if (/\.(js|jsx)$/.test(entry.name)) out.push(full);
-  }
-  return out;
-}
-
-function rawErrorSinks() {
-  const out = [];
-  for (const file of GRAPH) {
-    if (file.endsWith('/userFacingError.js')) continue; // the boundary itself
-    for (const v of sinkViolations(readSource(file))) out.push(`${relative(file)} :: ${v}`);
   }
   return out;
 }
@@ -459,15 +468,60 @@ describe('CLASS A · no uncontrolled or technical error value can render', () =>
     expect(gemini).not.toMatch(/throw new Error\(/);
   });
 
-  it('NEGATIVE CONTROL: the three shapes that actually shipped are all detected', () => {
-    // the exact pre-fix lines from PosterEditor, store.jsx and geminiImage.js
-    expect(sinkViolations("alert('יצוא נכשל: ' + (e?.message || e));")).toHaveLength(1);   // optional chaining
-    expect(sinkViolations("setError(e.message || 'שגיאת טעינה');")).toHaveLength(1);
-    expect(sinkViolations('throw new Error(`היצירה נכשלה: ${e.message}. נסה/י שוב.`);')).toHaveLength(1);
-    // and the sanctioned shapes are NOT flagged
-    expect(sinkViolations("setError(userFacingError(e, 'גנרי'));")).toEqual([]);
-    expect(sinkViolations('console.error(e.message);')).toEqual([]);
-    expect(sinkViolations("message: error.message || 'AI Gateway error.',")).toEqual([]); // contract field, not a sink
+  // ---- fixtures: real modules, parsed by the real rule --------------------
+  // These are complete `try { … } catch (…) { … }` sources, not string samples
+  // fed to a pattern. Each is parsed exactly as a project file would be.
+  const FLAGGED = {
+    'the shipped PosterEditor shape (optional chaining)': "try { x(); } catch (e) { alert('יצוא נכשל: ' + (e?.message || e)); }",
+    'the shipped store.jsx shape': "try { x(); } catch (e) { setError(e.message || 'שגיאת טעינה'); }",
+    'the shipped geminiImage shape (interpolated throw)': 'try { x(); } catch (e) { throw new Error(`היצירה נכשלה: ${e.message}. נסה/י שוב.`); }',
+    'A DIFFERENTLY NAMED BINDING — invisible to the old regex': 'try { x(); } catch (failure) { setError(failure.message); }',
+    'another name, another sink': 'try { x(); } catch (reason) { alert(reason.message); }',
+    'a name nobody would have listed': 'try { x(); } catch (kaboom) { toast(kaboom.message, "error"); }',
+    'JSX interpolation with a novel name': 'function C() { try { x(); } catch (oops) { return <div>{oops.message}</div>; } }',
+    'the whole error object into rendered state': 'try { x(); } catch (zz) { setError(zz); }',
+    'an alias that escapes': 'try { x(); } catch (problem) { const m = problem.message; setState(m); }',
+  };
+  const CLEAN = {
+    'routed through the boundary': "try { x(); } catch (e) { setError(userFacingError(e, 'גנרי')); }",
+    'boundary with an unusual name': "try { x(); } catch (whatever) { setError(userFacingError(whatever, 'גנרי')); }",
+    'diagnostics only': 'try { x(); } catch (e) { console.error(e); console.log(e.message); }',
+    'bare rethrow': 'try { x(); } catch (e) { throw e; }',
+    'inspected, not surfaced': "try { x(); } catch (e) { if (e.status === 500) { retry(); } if (!e.status) { throw userError('x'); } throw e; }",
+    'technical detail kept on the Error, business text declared': 'try { x(); } catch (e) { throw engineError(`local: ${e.message}`, "biz"); }',
+    'parameterless catch holds nothing': 'try { x(); } catch { ignore(); }',
+    'detail extracted for diagnostics, then declared': 'try { x(); } catch (e) { const d = String(e?.error?.message || ""); throw engineError(d, "biz"); }',
+  };
+
+  it('POSITIVE CONTROLS: every unsafe shape is detected, whatever the binding is called', () => {
+    for (const [label, src] of Object.entries(FLAGGED)) {
+      expect(unsafeErrorFlows(src, label).length, label).toBeGreaterThan(0);
+    }
+  });
+
+  it('NEGATIVE CONTROLS: correct handling is never flagged', () => {
+    for (const [label, src] of Object.entries(CLEAN)) {
+      expect(unsafeErrorFlows(src, label), label).toEqual([]);
+    }
+  });
+
+  it('THE ESCAPE STAGE 3 CLOSES: the old regex was blind to the binding name', () => {
+    const oldPredicate = (src) => /\b(?:e|err|error|ex|_e|e2|cause)\s*\??\s*\.\s*message\b/.test(src);
+    const renamed = FLAGGED['A DIFFERENTLY NAMED BINDING — invisible to the old regex'];
+    expect(oldPredicate(renamed)).toBe(false);              // what shipped saw nothing
+    expect(unsafeErrorFlows(renamed).length).toBeGreaterThan(0); // the AST rule sees it
+  });
+
+  it('the safe-handling allowlist is small, closed and declared', () => {
+    expect(BOUNDARY_CALLS).toContain('userFacingError');
+    expect(BOUNDARY_CALLS).toContain('engineError');
+    expect(BOUNDARY_CALLS.length).toBeLessThanOrEqual(6); // enumerating SAFETY stays reviewable
+  });
+
+  it('a module that cannot be parsed is reported, never silently skipped', () => {
+    const broken = unsafeErrorFlows('function ( { syntax error', 'broken.js');
+    expect(broken.length).toBe(1);
+    expect(broken[0].snippet).toMatch(/PARSE FAILED/);
   });
 });
 
@@ -557,6 +611,22 @@ describe('the creative surface set is derived from the code, not from a list', (
       expect(f).not.toMatch(/node_modules/);
       expect(relative(f)).toMatch(/^(src|supabase)\//);
     }
+  });
+
+  it('STAGE 4 SCOPE: the recorded out-of-scope debt is real, and still out of scope', () => {
+    // Two ways this fails: the debt was fixed (update the record), or the file
+    // entered the creative graph (then it is no longer debt — it is covered).
+    const inGraph = new Set(GRAPH.map(relative));
+    for (const d of KNOWN_OUT_OF_SCOPE_DEBT) {
+      expect(inGraph.has(d.file), `${d.file} is now IN the graph — remove it from the debt record`).toBe(false);
+      const flows = unsafeErrorFlows(readSource(resolve(REPO, d.file)), d.file);
+      expect(flows.length, `${d.file}: recorded ${d.flows} unsafe flows, found ${flows.length} — update the record`).toBe(d.flows);
+    }
+  });
+
+  it('STAGE 4 SCOPE: the enforced scope itself is clean', () => {
+    expect(rawErrorSinks()).toEqual([]);
+    expect(GRAPH.length).toBeGreaterThan(40);
   });
 
   it('NEGATIVE CONTROL: the round-3 hand-written list is provably incomplete', () => {
@@ -666,17 +736,50 @@ describe('a gated subfeature has a single authoritative decision', () => {
     }
   });
 
-  it('THE CONSUMER: in ImageStudio the action AND the guidance sit inside the same gate', () => {
-    // Mechanical, not visual: extract the balanced JSX regions introduced by the
-    // availability check, then assert EVERY other reference falls inside one.
-    const regions = gatedRegions(IMAGE_STUDIO, 'lockBlend.available &&');
-    expect(regions.length).toBeGreaterThanOrEqual(2); // the help paragraph and the control
-    const refs = [...IMAGE_STUDIO.matchAll(/lockBlend\.(guidance|actionNote|actionLabel|busyLabel)|runLockBlend\b/g)];
-    expect(refs.length).toBeGreaterThan(0);
-    for (const m of refs) {
-      if (IMAGE_STUDIO.slice(0, m.index).endsWith('const ')) continue; // the declaration
-      expect(insideAny(regions, m.index), `ungated reference at ${m.index}: ${m[0]}`).toBe(true);
+  it('THE RUNTIME BOUNDARY: an unavailable subfeature yields NO text to render', () => {
+    // This replaces the round-4 source-region scan, which could only prove that
+    // the consumers I knew about were gated. A consumer cannot render what it
+    // cannot obtain: unavailable => every user-visible field is empty, so a new
+    // or careless consumer has nothing to leak, gated or not.
+    const closed = studioSubfeature(BLEND, HOSTED);
+    expect(closed.available).toBe(false);
+    for (const f of SUBFEATURE_TEXT_FIELDS) {
+      expect(closed[f], `${f} must be empty when unavailable`).toBe('');
     }
+    // the id survives so a consumer can still identify what it asked for
+    expect(closed.id).toBe(BLEND);
+
+    const open = studioSubfeature(BLEND, DECLARED);
+    expect(open.available).toBe(true);
+    for (const f of SUBFEATURE_TEXT_FIELDS) {
+      expect(open[f], `${f} must be present when available`).toBe(STUDIO_SUBFEATURES[BLEND][f]);
+    }
+  });
+
+  it('THE RUNTIME BOUNDARY: it holds for every declared subfeature and every snapshot', () => {
+    for (const id of Object.keys(STUDIO_SUBFEATURES)) {
+      for (const caps of [HOSTED, DECLARED, undefined, {}, { comfy: true }]) {
+        const rec = studioSubfeature(id, caps);
+        if (rec.available) continue;
+        for (const f of SUBFEATURE_TEXT_FIELDS) expect(rec[f], `${id}.${f}`).toBe('');
+      }
+      // the injected snapshot carries the same closed records, not the raw defs
+      const snap = studioSubfeatureSnapshot(HOSTED)[id];
+      for (const f of SUBFEATURE_TEXT_FIELDS) expect(snap[f]).toBe('');
+    }
+  });
+
+  it('THE ACTION SEAM refuses independently of what is rendered', () => {
+    // the handler checks availability itself — it does not trust the render gate
+    expect(IMAGE_STUDIO).toMatch(/const runLockBlend = async \(\) => \{\s*\n(?:\s*\/\/[^\n]*\n)*\s*if \(!lockBlend\.available\)/);
+  });
+
+  it('NEGATIVE CONTROL: the previous open-record API is what allowed a new consumer to leak', () => {
+    // reproduce the round-4 shape: full text + a flag the consumer must honour
+    const openRecord = { ...STUDIO_SUBFEATURES[BLEND], available: isStudioSubfeatureAvailable(BLEND, HOSTED) };
+    expect(openRecord.available).toBe(false);
+    expect(openRecord.guidance).not.toBe('');          // ...yet the text was there for the taking
+    expect(studioSubfeature(BLEND, HOSTED).guidance).toBe(''); // the closed API gives nothing
   });
 
   it('THE CONSUMER: the Studio no longer owns the requirement or the wording', () => {
@@ -710,25 +813,15 @@ describe('a gated subfeature has a single authoritative decision', () => {
     }
   });
 
-  it('NEGATIVE CONTROL: ungating the help text is what this suite detects', () => {
-    // the pre-fix shape — the sentence rendered off the MODE, not the subfeature
-    const preFix = IMAGE_STUDIO.replace(
-      /\{lockBlend\.available && \(\s*\n\s*<p className="dim"[^\n]*>\{lockBlend\.guidance\}<\/p>\s*\n\s*\)\}/,
-      `<p className="dim">${STUDIO_SUBFEATURES[BLEND].guidance}</p>`,
-    );
-    expect(preFix).not.toBe(IMAGE_STUDIO); // the replacement matched
-    const regions = gatedRegions(preFix, 'lockBlend.available &&');
-    const leak = preFix.indexOf(STUDIO_SUBFEATURES[BLEND].guidance);
-    expect(leak).toBeGreaterThan(-1);
-    expect(insideAny(regions, leak)).toBe(false); // ungated -> the invariant fails
-  });
-
-  it('NEGATIVE CONTROL: the round-3 fix gated only the action', () => {
-    // proof the earlier gate was action-only: the guidance sentence did not
-    // mention the capability flag anywhere near it, and lived under `mode`.
-    const roundThree = `{mode === 'lock' && (<p>${STUDIO_SUBFEATURES[BLEND].guidance}</p>)}\n{isLock && hasLocalComfy && (<button>x</button>)}`;
-    const regions = gatedRegions(roundThree, 'hasLocalComfy &&');
-    expect(insideAny(regions, roundThree.indexOf(STUDIO_SUBFEATURES[BLEND].guidance))).toBe(false);
+  it('NEGATIVE CONTROL: a consumer that ignores the flag entirely still renders nothing', () => {
+    // the exact escape Codex described: a NEW child asks the authority and
+    // renders the text without ever checking `available`.
+    const carelessConsumer = (caps) => {
+      const rec = studioSubfeature(BLEND, caps);
+      return `${rec.guidance} ${rec.actionLabel} ${rec.actionNote}`.trim(); // no gate at all
+    };
+    expect(carelessConsumer(HOSTED)).toBe('');                  // nothing to leak
+    expect(carelessConsumer(DECLARED)).toContain('צל מגע');      // genuinely available -> works
   });
 });
 
@@ -820,5 +913,123 @@ describe('preset availability evaluates every declared requirement', () => {
     expect(SUPPORTED_API_PROVIDERS).toEqual([]);
     // and every provider the data names is either local-recognised or unsupported
     for (const p of CREATIVE_PRESETS) expect(typeof p.provider).toBe('string');
+  });
+});
+
+// ===================================================================
+// Stage 2 · PROVIDER REGISTRY — a provider declares what it needs to execute,
+// and the same capability predicate answers for modes, subfeatures and providers.
+//
+// The escape this closes: a provider was previously accepted for being
+// RECOGNISED, never for being CAPABLE. Two live presets name an engine their
+// target mode does not imply.
+// ===================================================================
+describe('provider requirements are declared and enforced where the provider executes', () => {
+  const byId = (id) => CREATIVE_PRESETS.find((p) => p.id === id);
+  // partial local rigs — the exact configurations that slipped through
+  const COMFY_NO_QWEN = { comfy: true, qwen: false, video: false, ltx: false, kontext: true, pulid: false };
+  const SVD_NO_LTX = { comfy: true, qwen: true, video: true, ltx: false, kontext: true, pulid: false };
+
+  it('every provider declares its needs, and unknown ids/needs fail closed', () => {
+    for (const [id, p] of Object.entries(PRESET_PROVIDERS)) {
+      expect(p.id, id).toBe(id);
+      expect(['local', 'api']).toContain(p.kind);
+      expect(typeof p.supported).toBe('boolean');
+      expect(Array.isArray(p.needs), `${id}.needs`).toBe(true);
+    }
+    expect(providerRecord('no-such-provider')).toBeNull();
+    for (const bad of [null, undefined, 0, {}, '']) expect(providerRecord(bad)).toBeNull();
+    for (const bad of [null, undefined, 'no-such-provider']) expect(isProviderExecutable(bad, DECLARED)).toBe(false);
+    expect(isProviderExecutable('gpt-image-2', DECLARED)).toBe(false); // declared but unsupported
+  });
+
+  it('every provider a preset names is registered (no implicit pass)', () => {
+    for (const p of CREATIVE_PRESETS) expect(Object.keys(PRESET_PROVIDERS), p.id).toContain(p.provider);
+  });
+
+  it('THE REPORTED CASE 1: a Qwen recipe is not offered on a ComfyUI rig without Qwen', () => {
+    const p = byId('photo_restoration');
+    expect(p.provider).toBe('local-qwen-edit');
+    expect(isStudioModeAvailable('img2img', COMFY_NO_QWEN)).toBe(true);      // the tab IS open...
+    expect(presetUnavailableReason(p, COMFY_NO_QWEN)).toBe('provider-capability-missing'); // ...the engine is not
+    expect(isPresetAvailable(p, DECLARED)).toBe(true);                        // fully declared rig -> offered
+  });
+
+  it('THE REPORTED CASE 2: an LTX recipe is not re-routed onto SVD', () => {
+    const p = byId('product_motion_video');
+    expect(p.provider).toBe('local-ltx-video');
+    expect(isStudioModeAvailable('video', SVD_NO_LTX)).toBe(true);           // `video` is satisfied by video||ltx
+    expect(presetUnavailableReason(p, SVD_NO_LTX)).toBe('provider-capability-missing');
+    expect(isPresetAvailable(p, DECLARED)).toBe(true);
+  });
+
+  it('NEGATIVE CONTROL: membership-only checking (the previous rule) passes both', () => {
+    const membershipOnly = (p, caps) =>
+      isStudioModeAvailable(p.targetTab, caps) && p.localReady === true && LOCAL_PRESET_PROVIDERS.includes(p.provider);
+    expect(membershipOnly(byId('photo_restoration'), COMFY_NO_QWEN)).toBe(true);   // what shipped
+    expect(isPresetAvailable(byId('photo_restoration'), COMFY_NO_QWEN)).toBe(false); // what happens now
+    expect(membershipOnly(byId('product_motion_video'), SVD_NO_LTX)).toBe(true);
+    expect(isPresetAvailable(byId('product_motion_video'), SVD_NO_LTX)).toBe(false);
+  });
+
+  it('the hosted text lane is NOT gated on the recommendation (owner decision)', () => {
+    // `text` is served by whichever lane owns text-to-image; the preset's
+    // provider is authoring metadata there, so hosted keeps its business recipes.
+    expect(PROVIDER_RECOMMENDATION_ONLY_MODES).toEqual(['text']);
+    const hosted = availablePresets(CREATIVE_PRESETS, HOSTED).map((p) => p.id);
+    expect(hosted).toEqual(['premium_business_visual', 'dark_saas_dashboard', 'product_hero_shot', 'local_ad_creative']);
+    for (const id of hosted) expect(byId(id).targetTab).toBe('text');
+  });
+
+  it('the exemption is a LIST, so any future mode is enforced by default', () => {
+    for (const mode of Object.keys(STUDIO_MODE_REQUIREMENTS)) {
+      const exempt = PROVIDER_RECOMMENDATION_ONLY_MODES.includes(mode);
+      expect(PROVIDER_EXECUTED_MODES.includes(mode), mode).toBe(!exempt);
+    }
+    expect(PROVIDER_EXECUTED_MODES).not.toContain('text');
+    expect(PROVIDER_EXECUTED_MODES.length).toBe(Object.keys(STUDIO_MODE_REQUIREMENTS).length - 1);
+  });
+
+  it('RECORDED LIMIT: `ltx` is not positively declared, so the LTX case cannot occur live yet', () => {
+    // Honest scope note from the stage-5 browser smoke. `qwen` and `pulid` are
+    // POSITIVELY declared (optionalCapabilityDeclared), so a rig with ComfyUI
+    // but no Qwen genuinely reports qwen:false — the photo_restoration case was
+    // reproduced in the DOM. `ltx` / `video` / `kontext` are still derived as
+    // `COMFY_URL && <model constant>`, and those constants carry non-empty
+    // defaults, so they are TRUE whenever ComfyUI is configured: the
+    // {video:true, ltx:false} state the evaluator handles cannot currently be
+    // produced by the live snapshot. The guard is therefore correct and proven
+    // at the evaluator level, but dormant in the app until `ltx` is declared the
+    // way `qwen` is. Recorded so it is not mistaken for DOM-proven coverage.
+    const GEMINI = read('../../lib/geminiImage.js');
+    expect(GEMINI).toMatch(/hasQwenEdit = Boolean\(COMFY_URL && optionalCapabilityDeclared\(/);
+    expect(GEMINI).toMatch(/hasPulidModel = Boolean\(COMFY_URL && optionalCapabilityDeclared\(/);
+    // the asymmetry this note is about — if either of these gains positive
+    // declaration, this expectation fails and the note must be updated
+    expect(GEMINI).toMatch(/hasLtxVideo = Boolean\(COMFY_URL && LTX_MODEL && LTX_CLIP\)/);
+    expect(GEMINI).toMatch(/hasVideoModel = Boolean\(COMFY_URL && COMFY_SVD_MODEL\)/);
+  });
+
+  it('ONE capability vocabulary: modes, subfeatures and providers ask the same predicate', () => {
+    expect(satisfiesCapability('qwen', DECLARED)).toBe(true);
+    expect(satisfiesCapability('qwen', COMFY_NO_QWEN)).toBe(false);
+    expect(satisfiesCapability('unknown-capability', DECLARED)).toBe(false); // fail closed
+    // the provider check is that predicate, applied to every declared need
+    expect(isProviderExecutable('local-qwen-edit', COMFY_NO_QWEN)).toBe(false);
+    expect(isProviderExecutable('local-qwen-edit', DECLARED)).toBe(true);
+    expect(isProviderExecutable('local-ltx-video', SVD_NO_LTX)).toBe(false);
+  });
+
+  it('the full matrix stays coherent across every configuration', () => {
+    for (const caps of [HOSTED, DECLARED, COMFY_NO_QWEN, SVD_NO_LTX, undefined, {}]) {
+      for (const p of availablePresets(CREATIVE_PRESETS, caps)) {
+        expect(isStudioModeAvailable(p.targetTab, caps), `${p.id} mode`).toBe(true);
+        if (PROVIDER_EXECUTED_MODES.includes(p.targetTab)) {
+          expect(isProviderExecutable(p.provider, caps), `${p.id} provider`).toBe(true);
+        }
+        expect(p.localReady === true || p.requiresApi === true).toBe(true);
+      }
+    }
+    expect(availablePresets(CREATIVE_PRESETS, undefined).every((p) => p.targetTab === 'text')).toBe(true);
   });
 });

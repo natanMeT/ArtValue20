@@ -25,7 +25,7 @@
 //   - No provider is introduced here. `SUPPORTED_API_PROVIDERS` is empty
 //     because the product ships none; adding one is a deliberate, reviewed act.
 // ===================================================================
-import { isStudioModeAvailable } from './studioModes.js';
+import { isStudioModeAvailable, satisfiesCapability, STUDIO_MODE_REQUIREMENTS } from './studioModes.js';
 
 // Fields that PARTICIPATE in the availability decision.
 export const PRESET_REQUIREMENT_FIELDS = Object.freeze([
@@ -50,19 +50,71 @@ export const PRESET_DESCRIPTIVE_FIELDS = Object.freeze([
   'qualityNotes', 'pitfalls',
 ]);
 
-// External providers this build can actually call. Empty by design: the hosted
-// image lane is the account's own Gateway text-to-image path, not a preset-
-// selected third-party provider. A preset that names a provider NOT listed here
-// is unavailable — including on a local/demo rig.
-export const SUPPORTED_API_PROVIDERS = Object.freeze([]);
+// ===================================================================
+// PROVIDER REGISTRY — every provider DECLARES what it needs to execute.
+//
+// WHY THIS SHAPE
+// The first version listed local providers as merely "recognised" and did not
+// check them, on the assumption that "the target mode already encodes the engine
+// requirement". THAT ASSUMPTION IS FALSE whenever the mode and the provider need
+// DIFFERENT capabilities, and two live presets are exactly that case:
+//   * photo_restoration    → mode `img2img` needs `comfy`, provider needs `qwen`
+//   * product_motion_video → mode `video` is satisfied by `video || ltx`,
+//                            provider needs `ltx` specifically
+// so a rig with ComfyUI but no Qwen-Edit, or with SVD but no LTX, was offered a
+// recipe its declared engine cannot run — the wrong-engine behaviour this module
+// exists to prevent.
+//
+// `needs` is resolved through `satisfiesCapability` — the SAME predicate the
+// modes and subfeatures use, so there is exactly one capability vocabulary.
+// `supported: false` means the product cannot call it at all today.
+//
+// POLICY (fail closed): a preset is offered only when EVERY capability its
+// declared provider needs is satisfied. A preset is never silently re-routed to
+// a different engine than the one it names — if the declared path is missing,
+// the recipe is simply not offered.
+export const PRESET_PROVIDERS = Object.freeze({
+  'local-flux': Object.freeze({ id: 'local-flux', kind: 'local', supported: true, needs: Object.freeze(['comfy']) }),
+  'local-sdxl': Object.freeze({ id: 'local-sdxl', kind: 'local', supported: true, needs: Object.freeze(['comfy']) }),
+  'local-qwen-edit': Object.freeze({ id: 'local-qwen-edit', kind: 'local', supported: true, needs: Object.freeze(['comfy', 'qwen']) }),
+  'local-ltx-video': Object.freeze({ id: 'local-ltx-video', kind: 'local', supported: true, needs: Object.freeze(['ltx']) }),
+  // External providers this build can actually call: NONE. The hosted image lane
+  // is the account's own Gateway text-to-image path, not a preset-selected third
+  // party. Declaring one here is a deliberate, reviewed act.
+  'gpt-image-2': Object.freeze({ id: 'gpt-image-2', kind: 'api', supported: false, needs: Object.freeze([]) }),
+});
 
-// Providers served by the LOCAL creative stack. A preset on the local path is
-// governed by its target mode (which already encodes the engine requirement),
-// so these are recognised-but-not-additionally-gated; an UNRECOGNISED provider
-// is a hard stop.
-export const LOCAL_PRESET_PROVIDERS = Object.freeze([
-  'local-flux', 'local-sdxl', 'local-qwen-edit', 'local-ltx-video',
-]);
+// Kept as derived views so existing consumers/tests keep a stable vocabulary.
+export const SUPPORTED_API_PROVIDERS = Object.freeze(
+  Object.values(PRESET_PROVIDERS).filter((p) => p.kind === 'api' && p.supported).map((p) => p.id),
+);
+export const LOCAL_PRESET_PROVIDERS = Object.freeze(
+  Object.values(PRESET_PROVIDERS).filter((p) => p.kind === 'local').map((p) => p.id),
+);
+
+// Resolve a provider id to its record. Unknown → null (caller fails closed).
+export const providerRecord = (id) =>
+  (typeof id === 'string' && Object.prototype.hasOwnProperty.call(PRESET_PROVIDERS, id) ? PRESET_PROVIDERS[id] : null);
+
+// Can this provider actually execute under `caps`? Every declared need must be
+// satisfied; an unknown need resolves to false inside satisfiesCapability.
+export function isProviderExecutable(id, caps) {
+  const p = providerRecord(id);
+  if (!p || p.supported !== true) return false;
+  if (!Array.isArray(p.needs)) return false;
+  return p.needs.every((need) => satisfiesCapability(need, caps));
+}
+
+// Target modes whose execution IS the preset's declared provider. For these the
+// provider is a promise to the user and is enforced; everywhere else the mode's
+// own lane executes the recipe and the provider is authoring metadata.
+// FAIL CLOSED BY LISTING THE EXEMPTION, NOT THE RULE: `text` is the single lane
+// that is served independently of the preset's provider, so it is named here and
+// every other mode — including any mode added later — is enforced by default.
+export const PROVIDER_RECOMMENDATION_ONLY_MODES = Object.freeze(['text']);
+export const PROVIDER_EXECUTED_MODES = Object.freeze(
+  Object.keys(STUDIO_MODE_REQUIREMENTS).filter((m) => !PROVIDER_RECOMMENDATION_ONLY_MODES.includes(m)),
+);
 
 const isBool = (v) => v === true || v === false;
 
@@ -79,18 +131,44 @@ export function presetUnavailableReason(preset, caps) {
   if (!isBool(preset.localReady)) return 'local-readiness-undeclared';
   if (!isBool(preset.requiresApi)) return 'api-requirement-undeclared';
 
-  // 3. an API-only recipe needs a provider this build supports
+  // 3. the provider must be DECLARED and RECOGNISED in every case — an
+  //    unregistered provider id is a hard stop, never an implicit pass.
+  if (typeof preset.provider !== 'string' || !preset.provider) return 'provider-undeclared';
+  const provider = providerRecord(preset.provider);
+  if (!provider) return 'provider-unrecognised';
+
+  // 4. an API-only recipe is served by the provider itself, so the provider must
+  //    be one this build can actually call.
   if (preset.requiresApi === true) {
-    if (typeof preset.provider !== 'string' || !preset.provider) return 'provider-undeclared';
-    if (!SUPPORTED_API_PROVIDERS.includes(preset.provider)) return 'provider-unavailable';
-    return '';
+    if (provider.kind !== 'api' || provider.supported !== true) return 'provider-unavailable';
+    return isProviderExecutable(preset.provider, caps) ? '' : 'provider-unavailable';
   }
 
-  // 4. otherwise it runs on the local/hosted creative path, which requires the
-  //    recipe to be declared ready and its provider to be a recognised one
+  // 5. otherwise the recipe runs on the creative path and must be declared ready
   if (preset.localReady !== true) return 'not-ready';
-  if (typeof preset.provider !== 'string' || !preset.provider) return 'provider-undeclared';
-  if (!LOCAL_PRESET_PROVIDERS.includes(preset.provider)) return 'provider-unrecognised';
+  if (provider.kind !== 'local') return 'provider-unavailable';
+
+  // 6. THE PROVIDER'S OWN CAPABILITIES — but only where the declared provider is
+  //    what ACTUALLY executes the recipe.
+  //
+  //    `text` is served by whichever lane owns text-to-image in this
+  //    configuration (the account's Gateway when hosted, the local engine when
+  //    present). For those presets `provider`/`recommendedModel` are the
+  //    AUTHORING RECOMMENDATION, not the execution path, so gating on them would
+  //    hide every business recipe in a hosted build without making any promise
+  //    truer. The engine-specific lanes are different: `photo_restoration` really
+  //    is executed by Qwen-Edit and `product_motion_video` really is executed by
+  //    LTX, and their guidance names those engines to the user. There the
+  //    declared provider is a PROMISE, and it must hold or the recipe is not
+  //    offered — a preset is never silently re-routed to a different engine.
+  //
+  //    (Owner decision, 2026-07-27: enforce exactly where the provider executes.
+  //    The remaining gap — model-specific wording inside `qualityNotes` for the
+  //    hosted text lane — is recorded as a separate follow-up, not silently
+  //    closed here.)
+  if (PROVIDER_EXECUTED_MODES.includes(preset.targetTab)) {
+    if (!isProviderExecutable(preset.provider, caps)) return 'provider-capability-missing';
+  }
   return '';
 }
 

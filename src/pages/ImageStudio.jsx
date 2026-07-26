@@ -741,6 +741,10 @@ export default function ImageStudio() {
   // product protection comes from mask geometry + paste-back, never wording.
   const LOCK_BLEND_PROMPT = 'Natural soft contact shadow, seamless edge blending, matched ambient lighting, realistic product contact with the surface or skin, photorealistic integration. Preserve the product exactly.';
   const runLockBlend = async () => {
+    // Defense in depth: the control is only rendered when available, but the
+    // ACTION must not depend on that being true. A gated capability is refused
+    // at its own seam, not only where it happens to be drawn.
+    if (!lockBlend.available) { setError('הפעולה אינה זמינה בהגדרה הנוכחית'); return; }
     if (!file) { setError('העלה תמונת בסיס / פרזנטור'); return; }
     if (!endFile) { setError('העלה גם תמונת מוצר'); return; }
     if (!placerRef.current?.isReady()) { setError('סביבת המיקום עדיין נטענת — נסה שוב בעוד רגע'); return; }

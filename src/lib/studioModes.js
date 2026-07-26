@@ -42,6 +42,9 @@ export const STUDIO_MODE_REQUIREMENTS = Object.freeze({
 export const STUDIO_FALLBACK_MODE = 'text';
 
 // Does `caps` satisfy a single requirement key? Unknown key → false (closed).
+// Exported as `satisfiesCapability` below: this is THE capability vocabulary for
+// the whole Studio, so modes, subfeatures and providers all ask the same
+// question and cannot drift into three private interpretations of "available".
 function satisfies(need, caps) {
   const c = caps || {};
   switch (need) {
@@ -55,6 +58,10 @@ function satisfies(need, caps) {
     default: return false;
   }
 }
+
+// THE shared capability predicate. Any consumer that needs to ask "can this
+// configuration do X" uses this, never its own lookup.
+export const satisfiesCapability = (need, caps) => satisfies(need, caps);
 
 // Is this mode offerable under these capabilities? Fail closed on anything
 // unrecognised — an unknown id must never render a panel.
@@ -153,14 +160,22 @@ export function isStudioSubfeatureAvailable(id, caps) {
   return satisfies(def.requires, caps);
 }
 
-// THE accessor every surface uses. Returns the record plus `available`, so the
-// decision and the text it unlocks arrive together and cannot drift apart.
-// Unknown id → a closed record with empty text (fail closed, never throws).
+// THE accessor every surface uses — and the actual runtime boundary.
+//
+// CAPABILITY-CLOSED DATA ACCESS: when the subfeature is unavailable the record
+// comes back with EMPTY text fields, not with the real text plus a flag. A
+// consumer therefore cannot render the label/guidance/note of an unavailable
+// subfeature even if it forgets to check `available` — the text does not exist
+// at runtime. (The earlier shape returned the full record with `available:
+// false`, which made every consumer's gating discipline load-bearing; a single
+// careless new consumer could expose the gated text. Proven escapable in
+// review.) Unknown id → the same closed record (fail closed, never throws).
 const CLOSED_SUBFEATURE = Object.freeze({ id: '', available: false, actionLabel: '', busyLabel: '', guidance: '', actionNote: '', title: '', description: '', capabilityText: '' });
 export function studioSubfeature(id, caps) {
   const def = Object.prototype.hasOwnProperty.call(STUDIO_SUBFEATURES, id) ? STUDIO_SUBFEATURES[id] : null;
   if (!def) return CLOSED_SUBFEATURE;
-  return { ...def, available: isStudioSubfeatureAvailable(id, caps) };
+  if (!isStudioSubfeatureAvailable(id, caps)) return { ...CLOSED_SUBFEATURE, id: def.id };
+  return { ...def, available: true };
 }
 
 // Every subfeature, keyed by id, for injection into the pure data layer.

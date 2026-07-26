@@ -85,61 +85,13 @@ export const isComponent = (file) => file.endsWith('.jsx');
 
 export const readSource = (file) => readFileSync(file, 'utf8');
 
-// ---- balanced-delimiter extraction -------------------------------------
-// Line-based scanning cannot tell whether a value is INSIDE a given call or
-// merely near it, which is exactly the imprecision that let a defect through.
-// These read the real extent of an expression instead of guessing from a
-// window of characters.
-
-const CLOSER = { '(': ')', '{': '}', '[': ']' };
-
-// The source of the balanced group that OPENS at `openIdx` (which must be one
-// of ( { [ ), delimiters included. Returns '' if it never closes.
-export function balancedAt(src, openIdx) {
-  const open = src[openIdx];
-  const close = CLOSER[open];
-  if (!close) return '';
-  let depth = 0;
-  for (let i = openIdx; i < src.length; i += 1) {
-    const ch = src[i];
-    if (ch === open) depth += 1;
-    else if (ch === close) {
-      depth -= 1;
-      if (depth === 0) return src.slice(openIdx, i + 1);
-    }
-  }
-  return '';
-}
-
-// Every `name(...)` call in `src`, as { name, args, index } where `args` is the
-// balanced argument list. `namePattern` must have the /g flag and capture the
-// call name in group 1 (or match the name itself).
-export function callsOf(src, namePattern) {
-  const out = [];
-  const re = new RegExp(namePattern.source, namePattern.flags.includes('g') ? namePattern.flags : `${namePattern.flags}g`);
-  for (const m of src.matchAll(re)) {
-    const open = src.indexOf('(', m.index + m[0].length - 1);
-    if (open < 0) continue;
-    out.push({ name: m[0], index: m.index, args: balancedAt(src, open) });
-  }
-  return out;
-}
-
-// The balanced `{ … }` JSX expression regions introduced by `marker` (e.g.
-// `{lockBlend.available && (`). Used to prove that other references sit inside
-// the same gate rather than merely in the same file.
-export function gatedRegions(src, marker) {
-  const out = [];
-  let from = 0;
-  for (;;) {
-    const at = src.indexOf(marker, from);
-    if (at < 0) break;
-    const open = src.lastIndexOf('{', at);
-    const region = open >= 0 ? balancedAt(src, open) : '';
-    if (region) out.push({ start: open, end: open + region.length, text: region });
-    from = at + marker.length;
-  }
-  return out;
-}
-
-export const insideAny = (regions, index) => regions.some((r) => index >= r.start && index < r.end);
+// NOTE (stage 3): this module previously also exported balanced-delimiter
+// helpers (`balancedAt` / `callsOf` / `gatedRegions` / `insideAny`) used by two
+// source-text invariants. Both were retired:
+//   * the CLASS-A sink predicate moved to `errorFlow.js`, which reads the parse
+//     tree instead of measuring the extent of text;
+//   * the gated-subfeature region scan was replaced by a runtime boundary —
+//     `studioSubfeature()` returns EMPTY text when unavailable, so there is no
+//     longer anything for a consumer to render ungated, and nothing to prove by
+//     inspecting where the text appears in a file.
+// This module's remaining job is scope: WHICH files the AST rule must parse.
