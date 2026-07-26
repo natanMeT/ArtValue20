@@ -9,7 +9,7 @@ import warriorWalk from '../../assets/warrior_walk.png';
 import { chatJake, forceActionsJake, draftWithJake } from '../../lib/gemini.js';
 import { isSupabaseConfigured } from '../../lib/supabase.js';
 import { extractActions, executeActions, describeActions, detectBulkDelete, buildBulkDeleteGate } from '../../lib/jakeAgent.js';
-import { partitionJakeActions } from '../../lib/betaCapabilities.js';
+import { partitionJakeActions, BETA_MESSAGES } from '../../lib/betaCapabilities.js';
 import { activePack } from '../../lib/jakePack.js';
 import { withBusinessBrain } from '../../lib/jakeBusinessContext.js';
 import { applyJakePrefill } from '../../lib/jakePrefill.js';
@@ -416,8 +416,16 @@ export default function Assistant() {
   // adapter inside wraps the FROZEN Creative Director V1 (injected at composition).
   const dataRef = useRef(data);
   dataRef.current = data;
+  // S0F.1 (D6) — the creative campaign + production stores are scoped by the
+  // stable session user id, so the orchestrator is rebuilt whenever the account
+  // changes and a switch always lands on the correct namespace.
   const creativeRef = useRef(null);
-  if (!creativeRef.current) creativeRef.current = createArtValueCreative({ getData: () => dataRef.current, user: displayName });
+  const creativeScopeRef = useRef(null);
+  const creativeScopeId = (session && session.user && session.user.id) || '';
+  if (!creativeRef.current || creativeScopeRef.current !== creativeScopeId) {
+    creativeScopeRef.current = creativeScopeId;
+    creativeRef.current = createArtValueCreative({ getData: () => dataRef.current, user: displayName, session });
+  }
   const timers = useRef([]);
   const dismissRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -928,6 +936,17 @@ export default function Assistant() {
     // adapter, and returns three distinct concepts. Selection/persistence reuse the
     // existing confirm card. Nothing is saved until the user approves a concept.
     if (isCampaignRequest(text)) {
+      // S0F.1 (D1) — CONTAINED in authenticated cloud beta. The lane seeds the
+      // frozen Creative Director with hardcoded ArtValue brand facts, and with no
+      // text engine configured in a hosted build every V1 stage returns a demo
+      // stub — so a signed-in account would see placeholder concepts presented as
+      // real output. We answer truthfully instead: no Creative V1/V2 run, no
+      // Gateway call, no campaign/production record. Local/demo is unchanged.
+      if (isSupabaseConfigured) {
+        setMessages((m) => [...m, { role: 'assistant', system: true, text: BETA_MESSAGES.creativeCampaignUnavailable }]);
+        speak(BETA_MESSAGES.creativeCampaignUnavailable);
+        return;
+      }
       setLoading(true);
       setMessages((m) => [...m, { role: 'assistant', system: true, text: '🎯 בודק את נתוני העסק, בונה בריף ומריץ את מנהל הקריאייטיב — ייקח רגע…' }]);
       try {
@@ -1487,7 +1506,10 @@ export default function Assistant() {
               </div>
 
               <div className="ai-suggestions" style={{ padding: '0 12px 8px' }}>
-                <button className="ai-sugg" onClick={openOfferForm}>📣 בנה בריף הצעה ללקוח</button>
+                {/* S0F.1 (D3): the offer-brief surface is built on the ArtValue offer
+                    preset, so it is hidden in authenticated cloud beta. The preset
+                    itself is unchanged and local/demo keeps the chip. */}
+                {!isSupabaseConfigured && <button className="ai-sugg" onClick={openOfferForm}>📣 בנה בריף הצעה ללקוח</button>}
               </div>
 
               <div className="ai-input">

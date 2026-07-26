@@ -12,6 +12,8 @@ import { leadsRouteForCategory } from '../data/growthCalendar.js';
 import { uuid } from '../lib/api.js';
 import { generateLeadIdeas } from '../lib/gemini.js';
 import { isSupabaseConfigured } from '../lib/supabase.js';
+import { buildAccountOutreachMessage, canBuildAccountOutreach, OUTREACH_SETUP_REQUIRED } from '../lib/outreachMessage.js';
+import { resolveDisplayName } from '../lib/userIdentity.js';
 
 const FILTERS = [
   { key: 'all', label: 'הכל' },
@@ -23,8 +25,22 @@ const FILTERS = [
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function Outreach() {
-  const { data, dispatch, toast } = useStore();
+  const { data, dispatch, toast, session } = useStore();
   const leads = data.outreachLeads || [];
+
+  // S0F.1 — outreach copy in authenticated cloud beta is built from the ACTIVE
+  // account only: its session-derived sender name (S0C) + its approved Business
+  // Context (S0D) + the account's own lead record. The legacy category templates
+  // in data/outreach.js open with one specific person at one specific business,
+  // so they are never rendered to a signed-in account. Without an approved
+  // business name we show a truthful setup-required state and invent nothing.
+  const senderName = resolveDisplayName(session);
+  const accountReady = canBuildAccountOutreach(data.businessProfile);
+  const messageFor = (category, leadName, need) => (
+    isSupabaseConfigured
+      ? buildAccountOutreachMessage({ leadName, need, senderName, businessProfile: data.businessProfile })
+      : buildMessage(category, leadName)
+  );
 
   const [filter, setFilter] = useState('all');
   const [copiedId, setCopiedId] = useState(null);
@@ -141,6 +157,19 @@ export default function Outreach() {
         }
       />
 
+      {/* S0F.1 — truthful setup-required notice: in authenticated cloud beta the
+          opening message is built ONLY from the account's approved Business
+          Context, so without one we say so instead of showing another
+          business's copy. */}
+      {isSupabaseConfigured && !accountReady && (
+        <div className="card panel" style={{ marginBottom: 18 }} data-testid="outreach-setup-required">
+          <p className="muted" style={{ margin: 0, lineHeight: 1.7 }}>{OUTREACH_SETUP_REQUIRED}</p>
+          <Link className="btn btn-sm btn-outline" to="/settings" style={{ marginTop: 10 }}>
+            <Icon name="edit" size={15} /> להשלמת ההקשר העסקי
+          </Link>
+        </div>
+      )}
+
       {/* AI lead idea generator */}
       <ScrollReveal>
         <div className="card panel" style={{ marginBottom: 18, borderColor: 'rgba(212,255,63,0.22)' }}>
@@ -252,13 +281,19 @@ export default function Outreach() {
                         <span><b>צורך מרכזי:</b> {needFor(lead)}</span>
                       </div>
 
-                      <div className="lead-msg">{buildMessage(lead.category, lead.name)}</div>
+                      {messageFor(lead.category, lead.name, needFor(lead))
+                        ? <div className="lead-msg">{messageFor(lead.category, lead.name, needFor(lead))}</div>
+                        : <div className="lead-msg lead-msg-setup">נוסח הפנייה יופיע אחרי השלמת ההקשר העסקי — לא נציג נוסח של עסק אחר.</div>}
 
                       <div className="row gap-2 wrap">
-                        <button className={`btn btn-sm ${copiedId === lead.id ? 'btn-primary' : 'btn-primary'}`} onClick={() => copy(buildMessage(lead.category, lead.name), lead.id)}>
-                          <Icon name={copiedId === lead.id ? 'check' : 'copy'} size={15} />
-                          {copiedId === lead.id ? 'הועתק' : 'העתק הודעה'}
-                        </button>
+                        {messageFor(lead.category, lead.name, needFor(lead)) ? (
+                          <button className={`btn btn-sm ${copiedId === lead.id ? 'btn-primary' : 'btn-primary'}`} onClick={() => copy(messageFor(lead.category, lead.name, needFor(lead)), lead.id)}>
+                            <Icon name={copiedId === lead.id ? 'check' : 'copy'} size={15} />
+                            {copiedId === lead.id ? 'הועתק' : 'העתק הודעה'}
+                          </button>
+                        ) : (
+                          <Link className="btn btn-sm btn-outline" to="/settings"><Icon name="edit" size={15} /> להשלמת ההקשר העסקי</Link>
+                        )}
                         <button className={`btn btn-sm ${lead.status === 'contacted' ? 'btn-toggle-on' : 'btn-outline'}`} onClick={() => toggleContacted(lead)}>
                           <Icon name="check" size={15} /> פניתי
                         </button>
@@ -304,7 +339,9 @@ export default function Outreach() {
             <label>צורך מרכזי (מה להציע)</label>
             <textarea className="textarea" style={{ minHeight: 64 }} value={newNeed} onChange={(e) => setNewNeed(e.target.value)} placeholder="במה העסק הזה צריך עזרה?" />
           </div>
-          <div className="lead-msg" style={{ marginBottom: 0 }}>{buildMessage(newCat, newName || '{שם העסק}')}</div>
+          <div className="lead-msg" style={{ marginBottom: 0 }}>
+            {messageFor(newCat, newName || '{שם העסק}', newNeed) || OUTREACH_SETUP_REQUIRED}
+          </div>
         </div>
       </Modal>
 

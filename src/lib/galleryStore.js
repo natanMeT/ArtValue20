@@ -3,9 +3,21 @@
 // Bytes live in IndexedDB (keeps the main app state small). Capped so
 // it never grows unbounded. Used to collect shots of the same subject
 // and feed them into the video montage.
+//
+// S0F.1: access is ONLY through createGalleryStore(session) — there is no
+// unscoped read/write entry point left, so no caller can reach a
+// device-global gallery.
 // ===================================================================
 
-const DB_NAME = 'artvalue_gallery';
+import { userScopeKey } from './userIdentity.js';
+
+// S0F.1 (D6) — the gallery is scoped PER ACCOUNT. `artvalue_gallery` (bare)
+// is the PRE-S0F.1 device-global database: it is LEGACY and is never opened,
+// read, migrated, copied or deleted here. A scoped name is always
+// `artvalue_gallery_<user.id>` (or `artvalue_gallery_local` with no session),
+// so it can never collide with the legacy database by construction. A future
+// explicit import may surface legacy assets; nothing implicit ever will.
+const DB_NAME_BASE = 'artvalue_gallery';
 const STORE = 'items';
 export const GALLERY_MAX = 40;
 
@@ -48,86 +60,107 @@ export function filterGalleryItems(items, tab) {
   return list;
 }
 
-let _db;
-function db() {
-  if (_db) return Promise.resolve(_db);
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
+// The per-account database name. NEVER the bare legacy `artvalue_gallery`.
+export function galleryDbName(session) {
+  return userScopeKey(DB_NAME_BASE, session);
+}
+
+const _dbs = new Map(); // dbName → Promise<IDBDatabase> (one connection per scope)
+
+function openDb(dbName) {
+  if (_dbs.has(dbName)) return _dbs.get(dbName);
+  const p = new Promise((resolve, reject) => {
+    const req = indexedDB.open(dbName, 1);
     req.onupgradeneeded = () => {
       if (!req.result.objectStoreNames.contains(STORE)) {
         req.result.createObjectStore(STORE, { keyPath: 'id' });
       }
     };
-    req.onsuccess = () => { _db = req.result; resolve(_db); };
+    req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+  _dbs.set(dbName, p);
+  return p;
 }
 
 function rndId() { return `g_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`; }
 
-// Store one asset. `meta` may carry { kind, source, prompt, preset, engine };
-// kind defaults to 'image', meta fields are sanitized to small strings.
-export async function addImage(blob, meta = {}) {
-  const d = await db();
-  const id = rndId();
-  const kind = normalizeGalleryKind(meta.kind);
-  const cleanMeta = normalizeGalleryMeta(meta);
-  await new Promise((res, rej) => {
+/**
+ * Account-scoped gallery handle. Every read/write goes to THIS account's own
+ * database, so one account can never see another's assets on a shared device.
+ * @param {object|null} session Supabase session (null in local/demo mode).
+ */
+export function createGalleryStore(session) {
+  const dbName = galleryDbName(session);
+  const db = () => openDb(dbName);
+
+  async function enforceCap() {
+    const d = await db();
+    const rows = await new Promise((res) => {
+      const tx = d.transaction(STORE, 'readonly');
+      const r = tx.objectStore(STORE).getAll();
+      r.onsuccess = () => res(r.result || []);
+      r.onerror = () => res([]);
+    });
+    if (rows.length <= GALLERY_MAX) return;
+    const toDelete = rows.sort((a, b) => a.createdAt - b.createdAt).slice(0, rows.length - GALLERY_MAX);
     const tx = d.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).put({ id, blob, createdAt: Date.now(), kind, meta: cleanMeta });
-    tx.oncomplete = () => res();
-    tx.onerror = () => rej(tx.error);
-  });
-  await enforceCap();
-  return id;
-}
+    toDelete.forEach((it) => tx.objectStore(STORE).delete(it.id));
+  }
 
-export async function listImages() {
-  const d = await db();
-  const rows = await new Promise((res, rej) => {
-    const tx = d.transaction(STORE, 'readonly');
-    const r = tx.objectStore(STORE).getAll();
-    r.onsuccess = () => res(r.result || []);
-    r.onerror = () => rej(r.error);
-  });
-  return rows
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .map((it) => ({ ...normalizeGalleryRecord(it), url: URL.createObjectURL(it.blob) }));
-}
+  return {
+    dbName,
 
-export async function getBlob(id) {
-  const d = await db();
-  return new Promise((res, rej) => {
-    const tx = d.transaction(STORE, 'readonly');
-    const r = tx.objectStore(STORE).get(id);
-    r.onsuccess = () => res(r.result?.blob || null);
-    r.onerror = () => rej(r.error);
-  });
-}
+    // Store one asset. `meta` may carry { kind, source, prompt, preset, engine };
+    // kind defaults to 'image', meta fields are sanitized to small strings.
+    async add(blob, meta = {}) {
+      const d = await db();
+      const id = rndId();
+      const kind = normalizeGalleryKind(meta.kind);
+      const cleanMeta = normalizeGalleryMeta(meta);
+      await new Promise((res, rej) => {
+        const tx = d.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).put({ id, blob, createdAt: Date.now(), kind, meta: cleanMeta });
+        tx.oncomplete = () => res();
+        tx.onerror = () => rej(tx.error);
+      });
+      await enforceCap();
+      return id;
+    },
 
-export async function removeImage(id) {
-  const d = await db();
-  return new Promise((res) => {
-    const tx = d.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).delete(id);
-    tx.oncomplete = () => res(true);
-    tx.onerror = () => res(false);
-  });
-}
+    async list() {
+      const d = await db();
+      const rows = await new Promise((res, rej) => {
+        const tx = d.transaction(STORE, 'readonly');
+        const r = tx.objectStore(STORE).getAll();
+        r.onsuccess = () => res(r.result || []);
+        r.onerror = () => rej(r.error);
+      });
+      return rows
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map((it) => ({ ...normalizeGalleryRecord(it), url: URL.createObjectURL(it.blob) }));
+    },
 
-async function enforceCap() {
-  const d = await db();
-  const rows = await new Promise((res) => {
-    const tx = d.transaction(STORE, 'readonly');
-    const r = tx.objectStore(STORE).getAll();
-    r.onsuccess = () => res(r.result || []);
-    r.onerror = () => res([]);
-  });
-  if (rows.length <= GALLERY_MAX) return;
-  const toDelete = rows.sort((a, b) => a.createdAt - b.createdAt).slice(0, rows.length - GALLERY_MAX);
-  const d2 = await db();
-  const tx = d2.transaction(STORE, 'readwrite');
-  toDelete.forEach((it) => tx.objectStore(STORE).delete(it.id));
+    async get(id) {
+      const d = await db();
+      return new Promise((res, rej) => {
+        const tx = d.transaction(STORE, 'readonly');
+        const r = tx.objectStore(STORE).get(id);
+        r.onsuccess = () => res(r.result?.blob || null);
+        r.onerror = () => rej(r.error);
+      });
+    },
+
+    async remove(id) {
+      const d = await db();
+      return new Promise((res) => {
+        const tx = d.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).delete(id);
+        tx.oncomplete = () => res(true);
+        tx.onerror = () => res(false);
+      });
+    },
+  };
 }
 
 // Fetch any image src (ComfyUI /view url, data url, blob url) into a Blob.

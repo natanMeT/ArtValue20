@@ -10,9 +10,9 @@
 import { runCreativeDirector, draftWithJake } from '../../lib/gemini.js';
 import { activePack } from '../../lib/jakePack.js';
 import { createCreativeDirectorAdapter } from './creativeDirectorAdapter.js';
-import { createCampaignStore } from './campaignStore.js';
+import { createCampaignStore, CAMPAIGN_STORAGE_KEY } from './campaignStore.js';
 import { createCreativeOrchestrator } from './creativeActions.js';
-import { createProductionStore } from './productionStore.js';
+import { createProductionStore, PRODUCTION_STORAGE_KEY } from './productionStore.js';
 import { createProductionBriefEngine } from './productionBriefEngine.js';
 import { createProductionOrchestrator } from './productionActions.js';
 import { critiqueConcepts } from './conceptCritic.js';
@@ -22,6 +22,8 @@ import { logCreativeEvent } from './logging.js';
 // importer of the offer layer; it deliberately imports the action entry only and
 // NEVER the bridge/schema/presets/types directly (enforced by offerIsolation.test.js).
 import { generateOfferCampaignBrief } from './offer/offerActions.js';
+import { userScopeKey } from '../../lib/userIdentity.js';
+import { isSupabaseConfigured } from '../../lib/supabase.js';
 
 // The creative model label (for result metadata only — never sent anywhere).
 const CREATIVE_MODEL = (import.meta && import.meta.env
@@ -37,13 +39,30 @@ const CREATIVE_MODEL = (import.meta && import.meta.env
 // the critic engine). Flip to false to re-enable the critic as a driver.
 const CRITIC_PASSTHROUGH_MODE = true;
 
+// Volatile storage used when no account can own the records (see storeDeps).
+function memoryStorage() {
+  const m = new Map();
+  return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => { m.set(k, String(v)); } };
+}
+
 /**
  * Build the Art Value creative orchestrator wired to the REAL frozen V1.
  * @param {{ getData: ()=>object, user?: string, criticPassthrough?: boolean }} opts
  */
-export function createArtValueCreative({ getData, user, criticPassthrough = CRITIC_PASSTHROUGH_MODE } = {}) {
+export function createArtValueCreative({ getData, user, session = null, criticPassthrough = CRITIC_PASSTHROUGH_MODE } = {}) {
   const adapter = createCreativeDirectorAdapter({ runV1: runCreativeDirector, model: CREATIVE_MODEL });
-  const store = createCampaignStore(); // localStorage-backed (additive; no CRM-store change)
+  // S0F.1 (D6) — per-account storage. Keys are scoped by the STABLE session
+  // user.id (never a name/email); the PRE-S0F.1 device-global keys are LEGACY and
+  // are never read, migrated, copied or deleted (a scoped key can never equal the
+  // bare legacy key). In authenticated cloud mode WITHOUT a resolved user id there
+  // is NO persistent write at all — the stores fall back to memory, so nothing can
+  // land in an unattributed bucket. Local/demo keeps its `_local` bucket.
+  const storeDeps = (base) => {
+    const scoped = { storageKey: userScopeKey(base, session) };
+    const hasUserId = Boolean(session && session.user && session.user.id);
+    return (isSupabaseConfigured && !hasUserId) ? { ...scoped, storage: memoryStorage() } : scoped;
+  };
+  const store = createCampaignStore(storeDeps(CAMPAIGN_STORAGE_KEY)); // localStorage-backed (additive; no CRM-store change)
   const creative = createCreativeOrchestrator({ adapter, store, pack: activePack, getData, user, tenantId: activePack.id });
 
   // Additive Concept Critic + rerank (deterministic; model seam OFF this slice — D2-A).
@@ -95,7 +114,7 @@ export function createArtValueCreative({ getData, user, criticPassthrough = CRIT
   // package (creativeCore + copy + visual brief + image prompt). Hebrew copy reuses
   // the existing draftWithJake brain seam (no new provider); everything else is
   // deterministic. Separate localStorage store — the campaign store is untouched.
-  const productionStore = createProductionStore();
+  const productionStore = createProductionStore(storeDeps(PRODUCTION_STORAGE_KEY));
   const engine = createProductionBriefEngine({
     // A provider/model ERROR PROPAGATES (the engine turns it into copy:error /
     // rewrite:error and rejects — a real failure is never shown as a completed

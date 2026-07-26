@@ -16,7 +16,7 @@ import {
   generateModelAlbum, onComfyJob, markNextComfyJob, hasQwenEditNode, qwenCompose, productLockBlend,
 } from '../lib/geminiImage.js';
 import { watchJob, cancelJob } from '../lib/comfyProgress.js';
-import { addImage as addToGallery, listImages as listGallery, getBlob as getGalleryBlob, removeImage as removeFromGallery, srcToBlob, GALLERY_MAX, filterGalleryItems } from '../lib/galleryStore.js';
+import { createGalleryStore, srcToBlob, GALLERY_MAX, filterGalleryItems } from '../lib/galleryStore.js';
 import { CREATIVE_PRESETS, isTextImagePreset } from '../data/creativePresets.js';
 import PosterEditor from '../components/studio/PosterEditor.jsx';
 import MockupStudio from '../components/studio/MockupStudio.jsx';
@@ -267,8 +267,12 @@ function JobElapsed({ at }) {
 }
 
 export default function ImageStudio() {
-  const { toast } = useStore();
+  const { toast, data, session } = useStore();
   const location = useLocation();
+  // S0F.1 (D6) — per-account gallery: rebuilt when the account changes, so a
+  // switch reloads the correct namespace and never the previous account's.
+  const galleryStore = useMemo(() => createGalleryStore(session), [session]);
+
   const handoffKeyRef = useRef(null);              // one-shot guard per location entry
   const [handoffNotice, setHandoffNotice] = useState(''); // small "prompt came from Jake" hint
   const [mode, setMode] = useState('text');
@@ -382,8 +386,10 @@ export default function ImageStudio() {
 
   const modes = MODES.filter((m) => !m.needs || (m.needs === 'comfy' && hasLocalComfy) || (m.needs === 'video' && (hasVideoModel || hasLtxVideo)) || (m.needs === 'ltx' && hasLtxVideo) || (m.needs === 'kontext' && hasKontextModel) || (m.needs === 'character' && (hasKontextModel || pulidReady)) || (m.needs === 'pulid' && pulidReady) || (m.needs === 'qwen' && qwenReady));
 
-  const refreshGallery = async () => { try { setGallery(await listGallery()); } catch { /* noop */ } };
-  useEffect(() => { refreshGallery(); }, []);
+  const refreshGallery = async () => { try { setGallery(await galleryStore.list()); } catch { /* noop */ } };
+  // S0F.1: re-read when the account (and therefore the gallery namespace)
+  // changes, so a switch never leaves the previous account's list on screen.
+  useEffect(() => { setGallery([]); refreshGallery(); }, [galleryStore]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Jake handoff prefill (Phase 2): consume a router-state payload ONCE per
   // location entry — prefill the prompt (and mode, if the workflow maps to a
@@ -522,7 +528,7 @@ export default function ImageStudio() {
       if (r.demo) toast('נוצר דרך המחולל החינמי');
       // collect the output (image OR animated-WebP video) into the gallery
       if (r && r.src) {
-        try { await addToGallery(await srcToBlob(r.src), galleryMeta(r, SOURCE_BY_MODE[mode] || 'unknown')); await refreshGallery(); } catch { /* noop */ }
+        try { await galleryStore.add(await srcToBlob(r.src), galleryMeta(r, SOURCE_BY_MODE[mode] || 'unknown')); await refreshGallery(); } catch { /* noop */ }
       }
     } catch (e) {
       if (token !== runTokenRef.current) return; // stale run — already handled by cancel
@@ -545,7 +551,7 @@ export default function ImageStudio() {
     try {
       const onResult = async (r) => {
         setPack((p) => [...p, r]);
-        try { await addToGallery(await srcToBlob(r.src), galleryMeta(r, 'pack')); } catch { /* noop */ }
+        try { await galleryStore.add(await srcToBlob(r.src), galleryMeta(r, 'pack')); } catch { /* noop */ }
       };
       const usePulid = pulidReady && packEngine === 'pulid';
       if (usePulid) await characterPackPulid(file, packCount, onResult, { portrait: true });
@@ -567,7 +573,7 @@ export default function ImageStudio() {
     try {
       const onResult = async (r) => {
         setPack((p) => [...p, r]);
-        try { await addToGallery(await srcToBlob(r.src), galleryMeta(r, 'album')); } catch { /* noop */ }
+        try { await galleryStore.add(await srcToBlob(r.src), galleryMeta(r, 'album')); } catch { /* noop */ }
       };
       await generateModelAlbum(file, clothing, onResult, { count: 8 });
       await refreshGallery();
@@ -584,7 +590,7 @@ export default function ImageStudio() {
   // Load a gallery image into edit mode → make a variation of the SAME subject (Kontext).
   const makeVariation = async (item) => {
     try {
-      const blob = await getGalleryBlob(item.id);
+      const blob = await galleryStore.get(item.id);
       if (!blob) return;
       const f = new File([blob], 'base.png', { type: blob.type || 'image/png' });
       if (filePreview) URL.revokeObjectURL(filePreview);
@@ -606,7 +612,7 @@ export default function ImageStudio() {
     try {
       const blob = await placerRef.current.exportComposite();
       if (!blob) throw new Error('יצירת הקומפוזיט נכשלה');
-      await addToGallery(blob, { kind: 'image', source: 'product-lock', engine: 'composite' });
+      await galleryStore.add(blob, { kind: 'image', source: 'product-lock', engine: 'composite' });
       await refreshGallery();
       toast('הקומפוזיט המדויק נשמר בגלריה ✓');
     } catch (e) {
@@ -636,7 +642,7 @@ export default function ImageStudio() {
       const r = await productLockBlend(exported.composite, exported.ringMask, LOCK_BLEND_PROMPT);
       if (token !== runTokenRef.current) return; // cancelled (pending-delete)
       if (r?.src) {
-        try { await addToGallery(await srcToBlob(r.src), { kind: 'image', source: 'product-lock-blend', engine: 'comfyui' }); await refreshGallery(); } catch { /* noop */ }
+        try { await galleryStore.add(await srcToBlob(r.src), { kind: 'image', source: 'product-lock-blend', engine: 'comfyui' }); await refreshGallery(); } catch { /* noop */ }
       }
       toast('שיפור החיבור נשמר בגלריה ✓');
     } catch (e) {
@@ -657,7 +663,7 @@ export default function ImageStudio() {
   // Image-kind items only. Never touches the product slot or the prompt.
   const useGalleryAsPresenter = async (item) => {
     try {
-      const blob = await getGalleryBlob(item.id);
+      const blob = await galleryStore.get(item.id);
       if (!blob) return;
       const f = new File([blob], 'presenter.png', { type: blob.type || 'image/png' });
       if (filePreview) URL.revokeObjectURL(filePreview);
@@ -669,7 +675,7 @@ export default function ImageStudio() {
   };
 
   const removeGalleryItem = async (id) => {
-    await removeFromGallery(id);
+    await galleryStore.remove(id);
     setSelectedIds((s) => s.filter((x) => x !== id));
     refreshGallery();
   };
@@ -681,10 +687,10 @@ export default function ImageStudio() {
     try {
       const ordered = gallery.filter((g) => selectedIds.includes(g.id));
       const blobs = [];
-      for (const g of ordered) { const b = await getGalleryBlob(g.id); if (b) blobs.push(b); } // eslint-disable-line no-await-in-loop
+      for (const g of ordered) { const b = await galleryStore.get(g.id); if (b) blobs.push(b); } // eslint-disable-line no-await-in-loop
       const r = await montageFromImages(blobs, {});
       setResult(r);
-      if (r?.src) { try { await addToGallery(await srcToBlob(r.src), galleryMeta(r, 'montage')); await refreshGallery(); } catch { /* noop */ } }
+      if (r?.src) { try { await galleryStore.add(await srcToBlob(r.src), galleryMeta(r, 'montage')); await refreshGallery(); } catch { /* noop */ } }
       toast('הסרטון הורכב!');
     } catch (e) {
       setError(e.message || 'שגיאה בהרכבת הסרטון');
@@ -711,7 +717,7 @@ export default function ImageStudio() {
     try {
       const ordered = gallery.filter((g) => selectedIds.includes(g.id));
       for (let i = 0; i < ordered.length; i += 1) {
-        const b = await getGalleryBlob(ordered[i].id); // eslint-disable-line no-await-in-loop
+        const b = await galleryStore.get(ordered[i].id); // eslint-disable-line no-await-in-loop
         if (!b) continue;
         const f = new File([b], 'frame.png', { type: b.type || 'image/png' });
         const d = await blobDims(b); // eslint-disable-line no-await-in-loop
@@ -720,7 +726,7 @@ export default function ImageStudio() {
         const r = await ltxVideo(f, prompt, { length: len, ...res }); // eslint-disable-line no-await-in-loop
         setClips((c) => [...c, r]);
         setClipProg(i + 1);
-        try { await addToGallery(await srcToBlob(r.src), galleryMeta(r, 'batch-animate')); } catch { /* noop */ } // eslint-disable-line no-await-in-loop
+        try { await galleryStore.add(await srcToBlob(r.src), galleryMeta(r, 'batch-animate')); } catch { /* noop */ } // eslint-disable-line no-await-in-loop
       }
       await refreshGallery();
       toast('כל הסרטונים מוכנים ✓');

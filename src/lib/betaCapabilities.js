@@ -196,6 +196,12 @@ export const BETA_MESSAGES = {
   // (S0B removed the tasks/follow-ups note — both are now durably persisted.)
   moduleTitle: 'עדיין לא בגרסת הבטא',
   moduleHint: 'המודול עדיין אינו זמין בגרסת הבטא.',
+  // S0F.1 (D1): the Jake creative-campaign lane is CONTAINED in authenticated
+  // cloud beta. Truthful by construction — it states that nothing ran and
+  // nothing was saved, and never presents placeholder concepts as real output.
+  creativeCampaignUnavailable:
+    'בניית קמפיין קריאייטיבי עדיין אינה זמינה בגרסת הבטא בענן, אז לא הרצתי אותה ולא שמרתי כלום. '
+    + 'בינתיים אפשר לנסח איתי תוכן וטיוטות בצ׳אט, וליצור ויזואלים במחולל התמונות.',
 };
 
 // One concise, truthful Hebrew message explaining why Jake did not perform the
@@ -234,4 +240,9 @@ export function betaBlockedMessage(blocked, clients = []) {
 // every Growth route renders BetaUnavailable (centralized gate in App.jsx) and
 // its GROWTH_NAV items are betaHidden. Deferred: "Account-aware Growth & Creative
 // Context". (Local/demo is unchanged.)
-export const BETA_HIDDEN_MODULES = new Set(['projects', 'inventory', 'templates', 'activity', 'growth']);
+// S0F.1 (D4): `adstudio` joins the set — the ad-studio lane is ArtValue-seeded
+// and, with no text engine in a hosted build, its analyzer/director stages return
+// demo stubs; a signed-in account must not see placeholder creative presented as
+// real output (nor spend real image generation on it). The route stays registered
+// and renders the existing BetaUnavailable state. (Local/demo is unchanged.)
+export const BETA_HIDDEN_MODULES = new Set(['projects', 'inventory', 'templates', 'activity', 'growth', 'adstudio']);

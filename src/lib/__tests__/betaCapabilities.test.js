@@ -228,8 +228,8 @@ describe('beta messages + modules', () => {
     expect(msg).toMatch(/בטא/);
   });
 
-  it('hidden modules are exactly activity/inventory/projects/templates', () => {
-    expect([...BETA_HIDDEN_MODULES].sort()).toEqual(['activity', 'growth', 'inventory', 'projects', 'templates']);
+  it('hidden modules are exactly the S0A Memory-Only set + growth (S0D) + adstudio (S0F.1)', () => {
+    expect([...BETA_HIDDEN_MODULES].sort()).toEqual(['activity', 'adstudio', 'growth', 'inventory', 'projects', 'templates']);
   });
 
   it('S0B: the tasks/follow-ups beta note is gone (both are durable); module copy remains', () => {

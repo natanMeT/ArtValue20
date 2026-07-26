@@ -35,7 +35,7 @@ export const NAV_SECTIONS = [
     label: 'סטודיו וכלים',
     items: [
       { to: '/diagnose', label: 'אבחון AI', icon: 'spark' },
-      { to: '/adstudio', label: 'סטודיו פרסום', icon: 'spark' },
+      { to: '/adstudio', label: 'סטודיו פרסום', icon: 'spark', betaHidden: true },
       { to: '/studio', label: 'מחולל תמונות', icon: 'image' },
       { to: '/templates', label: 'תבניות', icon: 'copy', betaHidden: true },
       { to: '/assets', label: 'קבצים וקישורים', icon: 'link' },
@@ -50,6 +50,8 @@ export const SIDEBAR_ROUTE_ITEMS = NAV_SECTIONS.flatMap((s) => s.items);
 // Memory-Only modules (Projects, Inventory, Templates) that can't durably persist
 // in authenticated cloud mode. Hide them from the nav there so they aren't
 // presented as usable capabilities. In local/demo mode everything is shown.
+// S0F.1 (D4) extends the same flag to /adstudio — contained for truthfulness
+// (demo-stub creative output + ArtValue-seeded prompts), not for persistence.
 // The routes stay registered (App.jsx) and render a restrained unavailable state.
 export function visibleNavSections(isCloudBeta) {
   if (!isCloudBeta) return NAV_SECTIONS;
