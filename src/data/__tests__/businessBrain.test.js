@@ -89,7 +89,7 @@ describe('systemCapabilities · derived registry', () => {
 
   it('adds the static system surfaces without clobbering studio entries', () => {
     const caps = systemCapabilities();
-    for (const id of ['image-studio', 'growth-os', 'gallery', 'creative-workflow-map', 'product-lock-blend']) {
+    for (const id of ['image-studio', 'growth-os', 'gallery', 'creative-modes', 'product-lock-blend']) {
       const cap = caps.find((c) => c.id === id);
       expect(cap, id).toBeTruthy();
       expect(cap.kind).toBe('system');

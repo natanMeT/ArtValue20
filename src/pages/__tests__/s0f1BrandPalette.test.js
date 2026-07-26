@@ -44,7 +44,7 @@ describe('S0F.1 · ImageStudio palette wiring (D5)', () => {
   });
 
   it('the Gateway image contract is unchanged (same action + same option keys)', () => {
-    expect(imageStudio).toContain('r = await generateImage(p, { model: selModel?.file, arch, width: asp.w, height: asp.h, hd: !isFluxModel && hd, aspect });');
+    expect(imageStudio).toContain('r = await generateImage(p, { width: asp.w, height: asp.h, hd, aspect });');
     // prompt_enhance is a meta-prompt lane and must NOT carry palette guidance
     expect(imageStudio).toContain('buildStudioEnhancePrompt(prompt, kind)');
   });

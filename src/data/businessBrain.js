@@ -153,7 +153,11 @@ const STATIC_CAPABILITIES = deepFreeze([
   { id: 'image-studio', kind: 'system', title: 'Image Studio', description: 'סטודיו התמונות המרכזי — כל מצבי היצירה והעריכה במקום אחד, כולל גלריה.' },
   { id: 'growth-os', kind: 'system', title: 'Growth OS', description: 'מרכז הצמיחה: מיפוי קטגוריות לידים, לוח פעולה חודשי, הכנת שיחות וספריית תוכן.' },
   { id: 'gallery', kind: 'system', title: 'גלריה / היסטוריית רנדרים', description: 'כל התוצרים (תמונות ווידאו) נשמרים ומסומנים לפי מקור, לשימוש חוזר.' },
-  { id: 'creative-workflow-map', kind: 'system', title: 'מפת Workflows קריאייטיביים', description: 'קטלוג מסודר של כל יכולות היצירה החיות במערכת.' },
+  // Containment: this used to advertise "מפת Workflows קריאייטיביים" — the
+  // workflow-map surface that the Studio no longer renders. Jake must not offer
+  // a screen the user cannot open, so the capability is described as what
+  // actually exists: the creative modes inside the Image Studio.
+  { id: 'creative-modes', kind: 'system', title: 'מצבי יצירה בסטודיו', description: 'מגוון מצבי יצירה ועריכה בתוך סטודיו התמונות — יצירה מתיאור, עריכה, ויזואל מוצר וסרטון.' },
   { id: 'product-lock-blend', kind: 'system', title: 'שיפור חיבור וצללים (Product Lock B2)', description: 'בתוך "מוצר מדויק": AI מוסיף צל מגע וחיבור טבעי סביב הקצוות בלבד — פיקסלי המוצר נשמרים 1:1.' },
 ]);
 

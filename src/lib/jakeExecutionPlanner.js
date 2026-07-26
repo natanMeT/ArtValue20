@@ -88,7 +88,7 @@ const STEP_DEFS = Object.freeze({
   'studio-prompt': { label: 'הכנת פרומפט באנגלית ל-Studio', capability: 'fast-image' },
   'studio-workflow': { label: 'המלצה על Workflow מתאים ב-Studio', capability: 'creative-brief' },
   'product-visual-brief': { label: 'בריף ויזואל מוצר', capability: 'presenter' },
-  'product-presenter': { label: 'פרזנטור מוצר (Qwen)', capability: 'presenter' },
+  'product-presenter': { label: 'פרזנטור מוצר', capability: 'presenter' },
   'product-lock': { label: 'מוצר מדויק — Product Lock', capability: 'product-lock' },
   'exact-composite': { label: 'קומפוזיט מדויק (שימור פיקסלים)', capability: 'product-lock' },
   'seam-shadow-blend': { label: 'שיפור חיבור וצללים (AI סביב הקצוות בלבד)', capability: 'product-lock' },

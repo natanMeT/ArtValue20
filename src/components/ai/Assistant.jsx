@@ -168,10 +168,10 @@ function buildOfferRequest(form) {
 // card it renders is TRANSIENT, so it never sticks around after a reload.
 function posterErrorText(err) {
   const reason = err && err.reason;
-  if (reason === 'comfy_not_configured') return 'מחולל הפוסטרים המקומי (ComfyUI) לא מוגדר. הוסף/י את כתובת המנוע והפעל/י אותו, ואז נסה/י שוב.';
-  if (reason === 'comfy_offline') return 'מנוע ה-ComfyUI כבוי או לא מגיב כרגע 🙏 הפעל/י אותו והמתן/י כ-30 שניות, ואז נסה/י שוב.';
+  if (reason === 'comfy_not_configured') return 'יצירת הפוסטר אינה זמינה כרגע 🙏';
+  if (reason === 'comfy_offline') return 'יצירת הפוסטר אינה זמינה כרגע 🙏 נסה/י שוב בעוד רגע.';
   if (reason === 'prompt_failed') return 'לא הצלחתי לבנות פרומפט לפוסטר מהבריף הזה.';
-  return 'יצירת הפוסטר נכשלה כרגע 🙏 ודא/י שמנוע ה-ComfyUI פעיל, ונסה/י שוב.';
+  return 'יצירת הפוסטר נכשלה כרגע 🙏 נסה/י שוב בעוד רגע.';
 }
 
 // PREVIEW-ONLY Hebrew advertising overlay composited over the (transient) ComfyUI
@@ -284,7 +284,9 @@ function gentleError(e) {
   const msg = String(e?.message || '');
   // M2 J3C S1: the brain-selection button was removed, so this hint no longer
   // points at it. Same trigger regex; calm retry copy only.
-  if (/Ollama|מקומי|המנוע|עולה אחרי/i.test(msg)) return '⚠️ המנוע המקומי עדיין עולה. תן/י לו ~30 שניות ונסה/י שוב.';
+  // The matcher still recognizes the legacy local-engine error TEXT, but the
+  // message shown names no engine and gives no start-it-yourself instruction.
+  if (/Ollama|מקומי|המנוע|עולה אחרי/i.test(msg)) return '⚠️ השירות עדיין מתאתחל. נסה/י שוב בעוד כ-30 שניות.';
   return 'מצטער, לא הצלחתי לעבד את זה כרגע 🙏 נסה/י שוב בעוד רגע, או לנסח קצת אחרת.';
 }
 
@@ -1460,7 +1462,7 @@ export default function Assistant() {
                           ) : null}
 
                           <div className="ai-camp-card" style={{ textAlign: 'center' }}>
-                            <button className="btn btn-sm ai-approve" onClick={() => generatePoster(b)}>🎨 צור פוסטר עם ComfyUI</button>
+                            <button className="btn btn-sm ai-approve" onClick={() => generatePoster(b)}>🎨 צור פוסטר לקמפיין</button>
                           </div>
                         </div>
                       );
@@ -1468,18 +1470,18 @@ export default function Assistant() {
                   ) : m.posterProgress ? (
                     <div key={i} className="ai-msg assistant ai-campaign">
                       <div className="ai-camp-strategy">
-                        <div className="ai-camp-key">🎨 מייצר פוסטר עם ComfyUI…</div>
+                        <div className="ai-camp-key">🎨 מייצר פוסטר לקמפיין…</div>
                         {m.posterProgress.service ? <div className="ai-camp-dir">{m.posterProgress.service}</div> : null}
                       </div>
                       <div className="ai-camp-card">
-                        <div className="ai-camp-row"><span className="ai-typing"><i /><i /><i /></span> מרנדר מקומית — זה עשוי לקחת מספר עשרות שניות.</div>
+                        <div className="ai-camp-row"><span className="ai-typing"><i /><i /><i /></span> זה עשוי לקחת מספר עשרות שניות.</div>
                       </div>
                     </div>
                   ) : m.posterResult ? (
                     <div key={i} className="ai-msg assistant ai-campaign">
                       <div className="ai-camp-strategy">
                         <div className="ai-camp-key">🖼️ פוסטר{m.posterResult.service ? ` — ${m.posterResult.service}` : ''}</div>
-                        <div className="ai-camp-dir">נוצר מקומית · ComfyUI</div>
+                        <div className="ai-camp-dir">פוסטר קמפיין</div>
                       </div>
                       <div className="ai-camp-card">
                         <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden' }}>
