@@ -44,15 +44,19 @@ function resolveStorage(storage) {
  */
 export function createCampaignStore(deps = {}) {
   const storage = resolveStorage(deps.storage);
+  // S0F.1 (D6): the key is INJECTED so records are scoped per account
+  // (userScopeKey at the composition root). Falling back to the bare
+  // module constant keeps every existing test/local behavior identical.
+  const storageKey = (typeof deps.storageKey === 'string' && deps.storageKey) || STORAGE_KEY;
   let counter = 0;
   const genId = typeof deps.id === 'function' ? deps.id : () => `cmp_${Date.now().toString(36)}_${(counter += 1)}`;
   const nowIso = typeof deps.clock === 'function' ? deps.clock : () => new Date().toISOString();
 
   const readAll = () => {
-    try { const raw = storage.getItem(STORAGE_KEY); const arr = raw ? JSON.parse(raw) : []; return Array.isArray(arr) ? arr : []; }
+    try { const raw = storage.getItem(storageKey); const arr = raw ? JSON.parse(raw) : []; return Array.isArray(arr) ? arr : []; }
     catch { return []; }
   };
-  const writeAll = (list) => { try { storage.setItem(STORAGE_KEY, JSON.stringify(list)); } catch { /* ignore */ } };
+  const writeAll = (list) => { try { storage.setItem(storageKey, JSON.stringify(list)); } catch { /* ignore */ } };
   const indexOf = (list, id) => list.findIndex((r) => r && r.id === id);
 
   function assertTransition(from, to) {

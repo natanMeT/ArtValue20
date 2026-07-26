@@ -206,18 +206,27 @@ describe('S4.2 · direct-browser-Gemini retirement + Gateway wiring (source guar
     expect(/callAiGateway\('studio\.prompt_enhance',\s*\{\s*prompt:\s*buildStudioEnhancePrompt\(/.test(STUDIO)).toBe(true);
   });
 
+  // S0F.1 (D5): the engine argument is now `p` — the user's prompt after the
+  // account's brand-palette block is (optionally) appended. The guard keeps its
+  // full strength: the exact imported engine call per mode, the aspect preset id
+  // in text mode, AND that `p` is produced by withBrandPalette from the user's
+  // prompt (so no other value can be smuggled into the engine call).
+  it('the engine prompt is the palette-composed prompt, derived from the user prompt', () => {
+    expect(STUDIO.includes('const p = withBrandPalette(prompt, data?.businessProfile, paletteOn);')).toBe(true);
+  });
+
   it('text mode passes the aspect preset id into generateImage opts', () => {
-    expect(/generateImage\(prompt,\s*\{[^}]*aspect\s*\}\)/.test(STUDIO)).toBe(true);
+    expect(/generateImage\(p,\s*\{[^}]*aspect\s*\}\)/.test(STUDIO)).toBe(true);
   });
 
   it('every non-text ImageStudio mode keeps its exact imported engine call (#12)', () => {
     for (const call of [
-      'editImage(file, prompt)',
-      'generateImg2Img(file, prompt, { strength })',
-      'qwenCompose(file, endFile, prompt',
-      'inpaintImage(file, mask, prompt)',
-      'flfVideo(file, endFile, prompt',
-      'ltxVideo(file, prompt',
+      'editImage(file, p)',
+      'generateImg2Img(file, p, { strength })',
+      'qwenCompose(file, endFile, p',
+      'inpaintImage(file, mask, p)',
+      'flfVideo(file, endFile, p',
+      'ltxVideo(file, p',
       'animateImage(file, {})',
     ]) {
       expect(STUDIO.includes(call), call).toBe(true);

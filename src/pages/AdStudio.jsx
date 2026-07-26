@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { SectionHeader } from '../components/ui/atoms.jsx';
 import Icon from '../components/ui/Icon.jsx';
 import { useStore } from '../store/store.jsx';
@@ -7,7 +7,9 @@ import {
   isGeminiConfigured, MECHANISM_HE, mechanismStyle, toEnglishImagePrompt,
 } from '../lib/gemini.js';
 import { generateMaxRealism } from '../lib/geminiImage.js';
-import { addImage as addToGallery, srcToBlob } from '../lib/galleryStore.js';
+import { createGalleryStore, srcToBlob } from '../lib/galleryStore.js';
+import { isSupabaseConfigured } from '../lib/supabase.js';
+import BetaUnavailable from '../components/ui/BetaUnavailable.jsx';
 
 // ===================================================================
 // סטודיו פרסום — Creative Director Engine (agency-grade, inside AdStudio):
@@ -70,7 +72,10 @@ async function composePoster(src, headline, subline, accent) {
 function triggerDownload(dataUrl, name) { const a = document.createElement('a'); a.href = dataUrl; a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
 
 export default function AdStudio() {
-  const { toast } = useStore();
+  const { toast, session } = useStore();
+  // Account-scoped gallery handle (S0F.1 D6). AdStudio is cloud-contained, so in
+  // practice this is the local/demo bucket — but it never touches a global one.
+  const gallery = useMemo(() => createGalleryStore(session), [session]);
   const [url, setUrl] = useState('');
   const [phase, setPhase] = useState('idle'); // idle|scanning|analyzed|strategy|concepts|imaging|done
   const [brand, setBrand] = useState(null);
@@ -79,12 +84,23 @@ export default function AdStudio() {
   const [error, setError] = useState('');
   const [progress, setProgress] = useState('');
 
+  // S0F.1 (D4) — AdStudio is CONTAINED (not retired) in authenticated cloud
+  // beta. Its lane is ArtValue-seeded and, with no text engine configured in a
+  // hosted build, its analyzer/director stages return demo stubs — so a signed-in
+  // account would see placeholder creative presented as real output and could
+  // spend real image generation on it. The gate is placed AFTER all hooks and
+  // BEFORE every handler runs: no client-side site scan, no demo analyzer, no
+  // image generation, no gallery write. Local/demo renders the full studio.
+  if (isSupabaseConfigured) {
+    return <BetaUnavailable title="סטודיו פרסום" sub="במאי קריאייטיב: אתר → מוח העסק → אסטרטגיה → קונספטים → פוסטרים" />;
+  }
+
   const busy = ['scanning', 'strategy', 'concepts', 'imaging'].includes(phase);
 
   const render = async (concept) => {
     const eng = concept.engPrompt || await toEnglishImagePrompt(concept.image_prompt, { typography: concept.useTypography, word: concept.word });
     const r = await generateMaxRealism(eng, styleOpts(mechanismStyle(concept.mechanism)));
-    try { await addToGallery(await srcToBlob(r.src)); } catch { /* noop */ }
+    try { await gallery.add(await srcToBlob(r.src)); } catch { /* noop */ }
     return r.src;
   };
 

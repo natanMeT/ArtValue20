@@ -16,7 +16,10 @@
 export const CREATIVE_PRESETS = [
   {
     id: 'premium_business_visual',
-    title: 'ArtValue Premium Business Visual',
+    // S0F.1: neutral product label — a preset title is shown to every signed-in
+    // account and must not name one tenant's business. The id is UNCHANGED
+    // (it is referenced by saved gallery metadata and by the UI).
+    title: 'Premium Business Visual',
     titleHe: 'ויזואל עסקי פרימיום',
     category: 'brand',
     useCase: 'תמונת גיבור / ויזואל מותג פרימיום לעסק',

@@ -126,10 +126,11 @@ describe('sidebarNav — beta false-success containment (S0A)', () => {
     }
   });
 
-  it('only the S0A Memory-Only modules AND the S0D-contained Growth routes are flagged betaHidden', () => {
+  it('only the S0A Memory-Only modules, the S0D-contained Growth routes and S0F.1 /adstudio are flagged betaHidden', () => {
     const flagged = SIDEBAR_ROUTE_ITEMS.filter((i) => i.betaHidden).map((i) => i.to).sort();
     // S0D: the entire Growth OS is beta-contained (GROWTH_NAV items betaHidden).
-    const expected = [...BETA_HIDDEN, ...GROWTH_NAV.map((g) => g.to)].sort();
+    // S0F.1 (D4): /adstudio is contained for truthfulness (demo-stub creative output).
+    const expected = [...BETA_HIDDEN, ...GROWTH_NAV.map((g) => g.to), '/adstudio'].sort();
     expect(flagged).toEqual(expected);
   });
 

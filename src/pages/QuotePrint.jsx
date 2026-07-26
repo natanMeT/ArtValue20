@@ -3,6 +3,7 @@ import { useStore } from '../store/store.jsx';
 import Icon from '../components/ui/Icon.jsx';
 import { formatCurrency, formatDate, addDays } from '../lib/format.js';
 import { quoteSubtotal, quoteVat, quoteTotal } from '../lib/calc.js';
+import { resolveQuoteIssuer, QUOTE_DOC_TITLE } from '../lib/quoteIssuer.js';
 import '../styles/print.css';
 
 export default function QuotePrint() {
@@ -11,6 +12,11 @@ export default function QuotePrint() {
   const { data } = useStore();
   const quote = data.quotes.find((q) => q.id === id);
   const client = quote && data.clients.find((c) => c.id === quote.clientId);
+  // S0F.1 — the issuing business is the ACTIVE account's approved one, or none.
+  // Resolved ONCE here, so the on-screen preview and the printed/downloaded PDF
+  // (window.print() over this same DOM) can never disagree. Never "Art Value"
+  // as a fallback, and nothing is invented when the account has no profile.
+  const issuer = resolveQuoteIssuer(data.businessProfile);
 
   if (!quote) {
     return (
@@ -41,19 +47,14 @@ export default function QuotePrint() {
         {/* Header */}
         <div className="qp-head">
           <div className="qp-brand">
-            <div className="qp-logo">
-              <svg viewBox="0 0 64 64" width="30" height="30" aria-hidden="true">
-                <path d="M20 44 L32 18 L44 44" fill="none" stroke="#11160a" strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round" />
-                <line x1="25" y1="37" x2="39" y2="37" stroke="#11160a" strokeWidth="5.5" strokeLinecap="round" />
-              </svg>
-            </div>
-            <div>
-              <div className="qp-brand-name">Art Value</div>
-              <div className="qp-brand-sub">סטודיו למיתוג ועיצוב דיגיטלי</div>
-            </div>
+            {issuer && (
+              <div>
+                <div className="qp-brand-name">{issuer.name}</div>
+              </div>
+            )}
           </div>
           <div className="qp-doc-meta">
-            <div className="qp-doc-title">הצעת מחיר</div>
+            <div className="qp-doc-title">{QUOTE_DOC_TITLE}</div>
             <div className="qp-doc-num">{quote.number}</div>
           </div>
         </div>
@@ -113,8 +114,7 @@ export default function QuotePrint() {
 
         {/* Footer */}
         <div className="qp-foot">
-          <div>תודה על האמון · Art Value</div>
-          <div>natanturgeman365@gmail.com</div>
+          <div>{issuer ? `תודה על האמון · ${issuer.name}` : 'תודה על האמון'}</div>
         </div>
       </div>
     </div>

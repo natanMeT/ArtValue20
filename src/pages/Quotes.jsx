@@ -10,6 +10,7 @@ import { StatusBadge, SectionHeader, EmptyState } from '../components/ui/atoms.j
 import { QUOTE_STATUS, uid } from '../data/seed.js';
 import { formatCurrency, formatDate, STATUS_LABELS } from '../lib/format.js';
 import { quoteTotal } from '../lib/calc.js';
+import { buildQuoteShareMessage } from '../lib/quoteIssuer.js';
 
 const FILTERS = [{ key: 'all', label: 'הכל' }, ...QUOTE_STATUS.map((s) => ({ key: s, label: STATUS_LABELS[s] }))];
 
@@ -181,7 +182,7 @@ export default function Quotes() {
                 <div className="row gap-2 wrap">
                   <button className="icon-action call" onClick={() => openPrint(quote)} title="תצוגה / PDF" aria-label="הדפסה"><Icon name="print" size={16} /></button>
                   <button className="icon-action" onClick={() => shareLink(quote)} title="העתקת קישור" aria-label="קישור"><Icon name="link" size={16} /></button>
-                  <a className="icon-action wa" href={waLink(clientPhone(quote.clientId), `שלום, מצורפת הצעת מחיר ${quote.number} מ-Art Value על סך ${formatCurrency(quoteTotal(quote))}.`)} target="_blank" rel="noreferrer" title="שליחה בוואטסאפ" aria-label="וואטסאפ"><Icon name="whatsapp" size={17} /></a>
+                  <a className="icon-action wa" href={waLink(clientPhone(quote.clientId), buildQuoteShareMessage({ businessProfile: data.businessProfile, quoteNumber: quote.number, totalText: formatCurrency(quoteTotal(quote)) }))} target="_blank" rel="noreferrer" title="שליחה בוואטסאפ" aria-label="וואטסאפ"><Icon name="whatsapp" size={17} /></a>
                   <div className="grow" />
                   <button className="icon-action" onClick={() => setEditing(quote)} title="עריכה" aria-label="עריכה"><Icon name="edit" size={16} /></button>
                   <button className="icon-action del" onClick={() => setToDelete(quote)} title="מחיקה" aria-label="מחיקה"><Icon name="trash" size={16} /></button>
