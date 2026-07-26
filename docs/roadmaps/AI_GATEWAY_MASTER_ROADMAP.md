@@ -12,9 +12,9 @@
 | מנהל ארכיטקטורה ומסמך | ChatGPT |
 | סוכן יישום | Claude / Fable לפי משימה מאושרת |
 | Repository | natanMeT/ArtValue20 |
-| עוגן קוד ההשקה הפעיל (S0E) — מקור הפרודקשן | 272fc148984b68c26aa46d24e1cdefc2878cddb9 (repository main HEAD נפתר חי בכל preflight; עשוי לכלול commits מאוחרים של תיעוד בלבד) |
-| גרסה | 5.4 — עודכן בתאריך 26.07.2026 |
-| סטטוס נוכחי | Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED. S0E — Guided Business Onboarding נסגר LIVE בפרודקשן **ללא כל שינוי ב־Gateway/Edge** (כמו S0D לפניו). ai-gateway v34 ACTIVE עם verify_jwt=true; router, contracts ו־payloads ללא שינוי. ה־Business Context של החשבון מורכב ומוזרק על ידי ה־frontend לפני קריאת ה־Gateway. הסלייס הבא ממתין להחלטת Nathan. |
+| עוגן קוד ההשקה הפעיל (S0F.1) — מקור הפרודקשן | 983f4899a7c9736669d97b49ed1575129f820653 (repository main HEAD נפתר חי בכל preflight; עשוי לכלול commits מאוחרים של תיעוד בלבד) |
+| גרסה | 5.5 — עודכן בתאריך 26.07.2026 |
+| סטטוס נוכחי | Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED. **S0F.1 — Creative Trust, Account Isolation & Brand-Palette Consumption נסגר LIVE בפרודקשן. ai-gateway v35 ACTIVE עם verify_jwt=true; השינוי היחיד ב־Edge היה קבוע טקסט הפרסונה של ג׳יק (והערה נלווית לו).** router, actionTypes, contracts, payloads, provider routing, ולידציה, תקציב/usage וכל הפרופילים שאינם הפרסונה — ללא שינוי. ה־Business Context של החשבון **ובלוק פלטת המותג** מורכבים ומוזרקים על ידי ה־frontend לפני קריאת ה־Gateway הקיימת. הסלייס הבא ממתין להחלטת Nathan. |
 
 | C1 + C2 | CLOSED / LIVE GREEN — מאומת בפרודקשן |
 | --- | --- |
@@ -59,6 +59,9 @@
 | --- | --- |
 
 | S0E | CLOSED / LIVE VERIFIED — PR #103 + corrective PR #104; active release source 272fc14; **ZERO Gateway/Edge change**; ai-gateway v34/JWT-on unchanged; the onboarding first-value CTA only prefills the existing frontend Jake composer — no Gateway call, no auto-send, no action execution, no contract change. |
+| --- | --- |
+
+| S0F.1 | CLOSED / LIVE VERIFIED — PR #106; active release source 983f489; **PERSONA-TEXT-ONLY Edge change**; ai-gateway **v34→v35** ACTIVE with verify_jwt=true. Jake works solely from the active account's approved Business Context. Router, action types, contracts/payloads, provider routing, validation, budgets/usage controls and every non-persona profile are UNCHANGED. The ImageStudio brand-palette block is composed frontend-side into the existing studio.generate_image prompt and validated against the existing canonical 2,000-character input limit. |
 | --- | --- |
 
 | כלל זהב | סטטוס משתנה רק לפי ראיות: diff, tests, merge, deploy ו־live smoke. |
@@ -110,7 +113,7 @@
 | רכיב | סטטוס | ראיה / משמעות |
 | --- | --- | --- |
 | Router vocabulary | קיים | טבלת actionType, cost tier ושרשרת ספקים. |
-| Edge Function | LIVE GREEN | ai-gateway ב־Supabase עם JWT verification ON. גרסה v34. |
+| Edge Function | LIVE GREEN | ai-gateway ב־Supabase עם JWT verification ON. **גרסה v35** (S0F.1: פריסה של טקסט פרסונה בלבד). |
 | Authentication | LIVE GREEN | משתמש Supabase אמיתי נדרש לפני validation. |
 | C1 — strict input | LIVE GREEN | חוזי קלט מדויקים; rejection לפני budget/provider. |
 | C2 — multi-turn | LIVE GREEN | user/assistant messages + context.summary; normalization ל־Gemini. |
@@ -121,11 +124,12 @@
 | Slice B | LIVE GREEN | jake.draft_message פועל בפרודקשן דרך Gateway; Network 200 וללא Google ישיר. |
 | Hosted local engines | LIVE GREEN | PR #75: קריאות localhost חסומות ב־Production כברירת מחדל. נעילה זו קדמה ל־S0C. |
 | CRM schema/RLS repair | LIVE GREEN | PR #76 + #77; SQL executed; schema/FK/RLS and persisted CRUD verified. |
-| Jake — chat/actions | LIVE — VERIFIED | Gateway-only; פעולות Durable נשארות במסלול אישור. S0A חוסם פעולות Memory-Only/unknown בצד המוצר. S0D: ה־Business Context של החשבון מוזרק על ידי ה־frontend כנתונים בלבד. |
-| Outreach — crm.lead_ideas | LIVE — VERIFIED | מסלול מובנה דרך Gateway ושמירת leads נבדקו; לא השתנה ב־S0A/S0C/S0D. |
-| Diagnose — crm.diagnose_quote | LIVE — VERIFIED | פלט מובנה דרך Gateway ללא קריאת ספק ישירה; לא השתנה ב־S0A/S0C/S0D. |
-| ImageStudio Gateway | LIVE — VERIFIED | שיפור פרומפט ויצירת JPEG דרך Gateway בלבד נבדקו מקצה לקצה; לא השתנו ב־S0A/S0C/S0D. |
+| Jake — chat/actions | LIVE — VERIFIED | Gateway-only; פעולות Durable נשארות במסלול אישור. S0A חוסם פעולות Memory-Only/unknown בצד המוצר. S0D: ה־Business Context של החשבון מוזרק על ידי ה־frontend כנתונים בלבד. **S0F.1: פרסונה מעודכנת (טקסט בלבד) — ArtValue היא מותג המוצר, וג׳יק פועל אך ורק לפי ההקשר המאושר של החשבון הפעיל.** |
+| Outreach — crm.lead_ideas | LIVE — VERIFIED | מסלול מובנה דרך Gateway ושמירת leads נבדקו; **חוזה ה־Gateway לא השתנה ב־S0A/S0C/S0D/S0E/S0F.1.** נוסח הפנייה מודע־החשבון של S0F.1 נבנה בצד ה־frontend. |
+| Diagnose — crm.diagnose_quote | LIVE — VERIFIED | פלט מובנה דרך Gateway ללא קריאת ספק ישירה; לא השתנה ב־S0A/S0C/S0D/S0E/S0F.1. |
+| ImageStudio Gateway | LIVE — VERIFIED | שיפור פרומפט ויצירת JPEG דרך Gateway בלבד נבדקו מקצה לקצה; **החוזה לא השתנה ב־S0A/S0C/S0D/S0E/S0F.1.** |
 | Account Business Context (S0D) | LIVE — VERIFIED (frontend) | פרופיל עסק עמיד לכל חשבון (business_profile, RLS owner-isolation) מורכב ומוזרק על ידי ה־frontend כ־bounded data לפני קריאת ה־Gateway הקיימת. **אין actionType חדש, חוזה חדש או שינוי Edge.** |
+| Brand palette in image prompt (S0F.1) | LIVE — VERIFIED (frontend) | בלוק פלטת מותג תחום מורכב **בצד ה־frontend** ומצורף לשדה ה־prompt הקיים של `studio.generate_image`. **אין actionType חדש, אין שדה payload חדש ואין שינוי חוזה.** הפרומפט הסופי נבדק מול מגבלת הקלט הקנונית הקיימת (2,000 תווים) ונחסם בצד הלקוח לפני קריאת Gateway בחריגה. |
 
 ## פעולות executable בפרודקשן הנוכחי
 
@@ -137,7 +141,7 @@
 - jake.chat / jake.force_actions / jake.draft_message
 - crm.lead_ideas / crm.diagnose_quote
 
-| Release gate | S0E CLOSED / LIVE VERIFIED בפרודקשן על עוגן קוד ההשקה הפעיל 272fc148984b68c26aa46d24e1cdefc2878cddb9 (S0D נסגר לפניו על 22ee2f3). **אין שינוי Edge/Gateway בסלייס זה** — ai-gateway נשאר v34 ולא בוצע לו deploy. כל מסלולי ה־Gateway שכבר נסגרו נשארים LIVE — VERIFIED; אין לפתוח אותם מחדש ללא ראיה חדשה. |
+| Release gate | S0F.1 CLOSED / LIVE VERIFIED בפרודקשן על עוגן קוד ההשקה הפעיל 983f4899a7c9736669d97b49ed1575129f820653 (S0E נסגר לפניו על 272fc14). **השינוי היחיד ב־Edge בסלייס זה הוא טקסט פרסונה — ai-gateway עבר v34→v35, ACTIVE עם verify_jwt=true.** router / actionTypes / חוזים / payloads / provider routing / ולידציה / תקציב ו־usage / כל הפרופילים שאינם הפרסונה — ללא שינוי. כל מסלולי ה־Gateway שכבר נסגרו נשארים LIVE — VERIFIED; אין לפתוח אותם מחדש ללא ראיה חדשה. |
 | --- | --- |
 
 ## איפה אנחנו עדיין מקובעים ל־Gemini
@@ -149,17 +153,19 @@
 | שדה | מצב |
 | --- | --- |
 | Gateway PR (Slice B) | #72 — MERGED / DEPLOYED |
-| S0E PRs | #103 — Guided Business Onboarding (merge c10ac55); #104 — תיקון שני סיורי ההתחלה (merge 272fc14) |
-| Frontend production | Cloudflare Pages — 272fc148984b68c26aa46d24e1cdefc2878cddb9 — https://artvalue-product.pages.dev (deploy 4b86993d-5b4f-4587-87ea-17d68a10adef; bundle index-DRaTE7f5.js) |
-| Preview מאומת (S0E) | ea0dcc02-5eb6-4c2a-aef8-db43499c381f (branch s0e-preview-272fc14; bundle index-DRaTE7f5.js; בדיקת קבלה על חשבון לא מוגדר PASS). קודמו ההיסטורי: Preview S0D f4da6153 (branch s0d-preview-22ee2f3). |
-| Frontend rollback | 69f8a175-08b2-4c65-aac5-c8e4b61d7962 (source 22ee2f3; bundle index-DnfLj9lz.js) — נשמר וזמין. קודמים היסטוריים: cec116b9 (S0C), 31cb521d (S0B), 4cb17aee (S0A). |
+| S0F.1 PR | #106 — Creative Trust, Account Isolation & Brand-Palette Consumption (merge 983f4899a7c9736669d97b49ed1575129f820653) |
+| S0E PRs (היסטורי) | #103 — Guided Business Onboarding (merge c10ac55); #104 — תיקון שני סיורי ההתחלה (merge 272fc14) |
+| Frontend production | Cloudflare Pages — 983f4899a7c9736669d97b49ed1575129f820653 — https://artvalue-product.pages.dev (deploy e63198b7-ebd6-4b7d-9872-c9bcd1a5ab0a; bundle index-lvfFFwEn.js) |
+| Preview מאומת (S0F.1) | 0760f00e-d54d-4285-b5dd-93919e2842f5 (branch s0f1-preview-983f489; bundle index-lvfFFwEn.js; בדיקת קבלה בשלושה חשבונות A/B/D PASS). קודמו ההיסטורי: Preview S0E ea0dcc02 (branch s0e-preview-272fc14). |
+| Frontend rollback | 4b86993d-5b4f-4587-87ea-17d68a10adef (source 272fc14; bundle index-DRaTE7f5.js) — נשמר וזמין (HTTP 200). קודמים היסטוריים: 69f8a175 (S0D), cec116b9 (S0C), 31cb521d (S0B), 4cb17aee (S0A). |
+| Git rollback tag | pre-s0f-creative-trust-brand-palette → 5efbeb9103710875fc3dad882ae78aca4b2938bc |
 | Local-engine gate | #75 — MERGED / DEPLOYED (קודם ל־S0C) |
 | CRM migrations | #73 + #74 — EXECUTED / VERIFIED |
 | CRM hotfix | #76 + #77 — MERGED / SQL EXECUTED / VERIFIED / CRUD PERSISTED |
-| Migrations | חמש מיגרציות הוחלו, אין ממתינה. **ל־S0E אין migration כלל.** מיגרציית S0D 20260724120000_s0d_business_profile.sql — APPLIED / VERIFIED (public.business_profile). |
-| Full tests latest | 111 קובצי בדיקה — 2885 עברו / 1 skip קיים מראש / 0 נכשלו; production build ירוק. (S0D בזמנו: 107 קבצים / 2759 עברו.) |
-| עוגן קוד ההשקה הפעיל (S0E) — מקור הפרודקשן | 272fc148984b68c26aa46d24e1cdefc2878cddb9 — זהו מקור האפליקציה הפרוסה בפועל, **ולא** טענה קבועה על HEAD של repository main; את ה־HEAD יש לפתור חי בכל preflight עתידי (main עשוי לכלול commits מאוחרים של תיעוד בלבד ללא drift אפליקטיבי). |
-| Release state | Production online. **S0E CLOSED / LIVE VERIFIED**; ai-gateway **v34 ACTIVE/JWT-on — unchanged ולא נפרס מחדש על ידי S0E**. Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED. Frontend rollback 69f8a175 נשמר. |
+| Migrations | חמש מיגרציות הוחלו, אין ממתינה. **ל־S0F.1 אין migration כלל** (ולא נוספה סכימת Products/Inventory/Campaigns/Asset Library). מיגרציית S0D 20260724120000_s0d_business_profile.sql — APPLIED / VERIFIED (public.business_profile). |
+| Full tests latest | 118 קובצי בדיקה — 2978 עברו / 1 skip קיים מראש / 0 נכשלו; production build ירוק. (S0E בזמנו: 111 קבצים / 2885 עברו.) |
+| עוגן קוד ההשקה הפעיל (S0F.1) — מקור הפרודקשן | 983f4899a7c9736669d97b49ed1575129f820653 — זהו מקור האפליקציה הפרוסה בפועל, **ולא** טענה קבועה על HEAD של repository main; את ה־HEAD יש לפתור חי בכל preflight עתידי (main עשוי לכלול commits מאוחרים של תיעוד בלבד ללא drift אפליקטיבי). |
+| Release state | Production online. **S0F.1 CLOSED / LIVE VERIFIED**; ai-gateway **v35 ACTIVE/JWT-on — נפרס ב־S0F.1 עם שינוי טקסט פרסונה בלבד**. Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED. Frontend rollback 4b86993d נשמר. |
 
 # 3. ארכיטקטורת היעד
 
@@ -210,7 +216,7 @@ Fallback ייכנס רק אחרי שני adapters עובדים. הוא דורש 
 | M3 | OpenAI adapter | מתוכנן | Server secret, normalized text/JSON, errors, cost/tests, live smoke. |
 | M4 | Anthropic adapter | מתוכנן | Claude messages/system mapping, errors, usage/tests, live smoke. |
 | M5 | Routing and fallback policy | מתוכנן | Capability routing; retry policy; budget semantics; fallback off by default. |
-| M6 | Migrate product actions | LIVE — 4 LANES VERIFIED / FROZEN | Jake, Outreach, Diagnose ו־ImageStudio הועברו ואומתו. כל החלטת migration נוספת היא סלייס נפרד ואינה נפתחת עקב S0A/S0C/S0D. |
+| M6 | Migrate product actions | LIVE — 4 LANES VERIFIED / FROZEN | Jake, Outreach, Diagnose ו־ImageStudio הועברו ואומתו. כל החלטת migration נוספת היא סלייס נפרד ואינה נפתחת עקב S0A/S0C/S0D/S0E/S0F.1. |
 | M7 | Business context layer | עתידי | Per-business bounded context, privacy classes, tenant isolation, versioned prompts — **בשכבת ה־Gateway**. S0D סיפק Business Context ברמת המוצר/frontend (הזרקה כ־bounded data), ואינו מהווה את שכבת ה־Gateway M7. עבודת Gateway כלשהי כאן נשארת סלייס עתידי מאושר בנפרד. |
 | M8 | Cost & observability | עתידי | Latency, actual token/cost reconciliation, dashboards, alerts, provider health. |
 | M9 | Approved tool execution | עתידי | Tools, confirmation cards, permissions, audit, idempotency; no autonomous mutation. |
@@ -395,6 +401,8 @@ Fallback ייכנס רק אחרי שני adapters עובדים. הוא דורש 
 | D-032 | Hosting ופריסות יתועדו ב־ArtValue Release & Hosting Runbook נפרד. Cloudflare Pages Direct Upload הוא המנגנון הקיים; היעדר wrangler.toml או GitHub Actions הוא מכוון. | Locked |
 | D-033 | S0C ו־S0D הם שינויי מוצר/frontend מעל ה־Gateway. S0C הגביל את ה־Edge לשני קבועי טקסט של פרסונת Jake בלבד; **S0D לא שינה את ה־Edge כלל.** ה־Business Context של החשבון (business_profile, RLS owner-isolation) מורכב ומוזרק על ידי ה־frontend כ־bounded data לפני קריאת ה־Gateway הקיימת — ללא actionType חדש, חוזה חדש, שינוי payload/routing/validation/usage/profile או deploy ל־Edge. | Locked |
 | D-034 | ״Account-aware Growth & Creative Context״ הוא סלייס מוצר עתידי מאושר בנפרד. הוא אינו מחייב ואינו מתזמן עבודת חוזה Gateway; אם וכאשר יידרש שינוי Gateway, הוא ייפתח כסלייס נפרד עם scope, ראיות ואישור Nathan. | Locked |
+| D-035 | S0F.1 הוא שינוי מוצר/frontend מעל ה־Gateway, למעט חריג אחד מאושר: **קבוע טקסט הפרסונה של ג׳יק ב־actionProfiles.ts (והערה נלווית לו)**, שנפרס כ־ai-gateway v35 עם verify_jwt=true. הפרסונה קובעת ש־ArtValue היא מותג המוצר/המערכת ושג׳יק פועל אך ורק לפי ההקשר העסקי המאושר של החשבון הפעיל, ללא המצאת עובדות חסרות. router / actionTypes / חוזים / payloads / provider routing / ולידציה / תקציב ו־usage / זרימת האישור / כל הפרופילים שאינם הפרסונה — ללא שינוי. הפרסונה בצד השרת נשארת העתק verbatim מוגן drift של ה־frontend Jake pack. | Locked |
+| D-036 | הרכבת בלוק פלטת המותג של ImageStudio נשארת **בצד ה־frontend** ומצורפת לשדה ה־prompt הקיים של `studio.generate_image` — ללא actionType חדש, ללא שדה payload חדש וללא שינוי חוזה. הפרומפט הסופי (טקסט המשתמש + בלוק הפלטה) נבדק מול **מגבלת הקלט הקנונית הקיימת של 2,000 תווים**; חריגה נחסמת בצד הלקוח **לפני** כל קריאת Gateway, ואין להעלות את המגבלה או לקצץ בשקט. לא נחשף שום מודל או ספק חדש. | Locked |
 
 # 8. פרוטוקול העבודה היומי
 
@@ -467,30 +475,31 @@ Fallback ייכנס רק אחרי שני adapters עובדים. הוא דורש 
 | תאריך בקרה | 26.07.2026 |
 | --- | --- |
 
-| Milestone פעיל | אין Milestone Gateway פעיל. S0E — Guided Business Onboarding נסגר LIVE **ללא שינוי Gateway**; בחירת הסלייס הבא ממתינה להחלטת Nathan. |
+| Milestone פעיל | אין Milestone Gateway פעיל. S0F.1 — Creative Trust, Account Isolation & Brand-Palette Consumption נסגר LIVE **עם שינוי Edge של טקסט פרסונה בלבד**; בחירת הסלייס הבא ממתינה להחלטת Nathan. |
 | --- | --- |
 
-| שער נוכחי | ai-gateway v34 ACTIVE עם verify_jwt=true. Jake, Outreach, Diagnose ו־ImageStudio LIVE — VERIFIED ומוקפאים. אין שינוי נוסף ללא ראיה והיקף מאושר. |
+| שער נוכחי | ai-gateway **v35** ACTIVE עם verify_jwt=true. Jake, Outreach, Diagnose ו־ImageStudio LIVE — VERIFIED ומוקפאים. אין שינוי נוסף ללא ראיה והיקף מאושר. |
 | --- | --- |
 
 | שדה | מצב נוכחי |
 | --- | --- |
-| עוגן קוד ההשקה הפעיל (S0E) — מקור הפרודקשן | 272fc148984b68c26aa46d24e1cdefc2878cddb9 (repository main HEAD נפתר חי בכל preflight) |
-| Production frontend | Cloudflare Pages production — deploy 4b86993d-5b4f-4587-87ea-17d68a10adef; source 272fc148984b68c26aa46d24e1cdefc2878cddb9; https://artvalue-product.pages.dev; HTTPS 200; bundle index-DRaTE7f5.js. |
-| Pull Request | #103 — MERGED; S0E guided onboarding (merge c10ac55). #104 — MERGED; dual-tour cloud containment, head-gated to d371630; merge-commit 272fc14 (parents c10ac55 + d371630). |
-| Current blocker | None for S0E. Onboarding is closed and LIVE VERIFIED, and it was never a Gateway blocker. Remaining product blockers (module durability, packaging/support) are outside the Gateway. |
-| Security state | ai-gateway v34 ACTIVE; verify_jwt=true. Strict contracts, content-free usage logging and Gateway-only provider access retained. **S0E changed nothing in the Edge/Gateway.** |
-| Public UI finding | Guided business onboarding is live over the durable per-account Business Context (RLS owner-isolation) and the legacy demo tour is manual-only in authenticated cloud mode. Growth OS is contained (5 routes BetaUnavailable); Outreach remains LIVE. Projects/Inventory/Templates/Activity remain unavailable; Local engine URLs remain gated off in hosted production. |
-| Architecture decisions | The account Business Context is assembled and injected by the frontend chat/draft seam before the existing Gateway call. The onboarding first-value CTA only prefills the existing frontend Jake composer. No new actionType, contract, payload, routing, validation, usage, or profile change; no Edge deploy. |
-| Do not do yet | Do not reopen LIVE — VERIFIED lanes or change router/contracts/payloads/profiles without new evidence and an approved bounded scope. Account-aware Growth & Creative Context is a future, separately approved product slice; it does not schedule Gateway contract work. **No future Gateway work may be inferred or scheduled from S0E.** |
+| עוגן קוד ההשקה הפעיל (S0F.1) — מקור הפרודקשן | 983f4899a7c9736669d97b49ed1575129f820653 (repository main HEAD נפתר חי בכל preflight) |
+| Production frontend | Cloudflare Pages production — deploy e63198b7-ebd6-4b7d-9872-c9bcd1a5ab0a; source 983f4899a7c9736669d97b49ed1575129f820653; https://artvalue-product.pages.dev; HTTPS 200; bundle index-lvfFFwEn.js. |
+| Pull Request | #106 — MERGED; S0F.1 Creative Trust, Account Isolation & Brand-Palette Consumption; merge-commit 983f4899a7c9736669d97b49ed1575129f820653. (היסטורי: #103 + #104 — S0E.) |
+| Current blocker | None for S0F.1. It is closed and LIVE VERIFIED. Remaining product blockers (durable Asset Library, durable Campaigns, module durability, organization boundaries, credits/cost controls, packaging/support) are **outside** the Gateway. |
+| Security state | ai-gateway v35 ACTIVE; verify_jwt=true. Strict contracts, content-free usage logging and Gateway-only provider access retained. **S0F.1 changed only the Jake persona text constant in the Edge — no router, contract, payload, routing, validation, budget, usage or non-persona profile change, and no secret/configuration change.** |
+| Public UI finding | The authenticated-cloud creative lanes are truthfully contained: the Jake campaign lane returns an honest unavailable message with **zero Gateway calls and zero writes**, and AdStudio is hidden from navigation with a BetaUnavailable direct route. Outreach and quote issuance are account-aware; ImageStudio consumes the account's approved palette. Growth OS remains contained (5 routes BetaUnavailable); Outreach remains LIVE. Projects/Inventory/Templates/Activity remain unavailable; Local engine URLs remain gated off in hosted production. |
+| Architecture decisions | The account Business Context is assembled and injected by the frontend chat/draft seam before the existing Gateway call. **The ImageStudio brand-palette block is likewise composed frontend-side into the existing `studio.generate_image` prompt field and validated against the existing canonical 2,000-character input limit — no new actionType, payload field or contract.** No routing, validation, usage or non-persona profile change. |
+| Do not do yet | Do not reopen LIVE — VERIFIED lanes or change router/contracts/payloads/profiles without new evidence and an approved bounded scope. **No Gateway work may be inferred or scheduled for reopening Growth from S0F.1** — the Growth prerequisites (durable Campaigns, durable Asset Library, account-aware Growth data model) are product-layer items. A Website Scanner would require a separately designed, separately approved secure server-side extraction path; **its Gateway contract is NOT designed or scheduled here.** |
 | Next evidence expected | Product next slice remains PENDING NATHAN DECISION; no Gateway implementation is authorized. |
-| Next owner action | Use Business OS Roadmap v0.8 for product priority and this v5.4 roadmap for AI infrastructure. Require separate approvals for every future merge and deploy. |
-| Closure target | ACHIEVED — S0E frontend deployed and verified with zero Gateway/Edge change; ai-gateway v34 unchanged; all previously released AI lanes remain LIVE — VERIFIED. |
+| Next owner action | Use Business OS Roadmap v0.9 for product priority and this v5.5 roadmap for AI infrastructure. Require separate approvals for every future merge and deploy. |
+| Closure target | ACHIEVED — S0F.1 Edge persona deployed (v34→v35, JWT on) and the frontend released and verified; all previously released AI lanes remain LIVE — VERIFIED with unchanged contracts. |
 
 ## Change Log
 
 | גרסה | תאריך | שינוי | עורך |
 | --- | --- | --- | --- |
+| 5.5 | 26.07.2026 | **S0F.1 — Creative Trust, Account Isolation & Brand-Palette Consumption CLOSED / LIVE VERIFIED with a PERSONA-TEXT-ONLY Edge change.** PR #106 merged at main 983f4899a7c9736669d97b49ed1575129f820653; **ai-gateway deployed v34→v35, ACTIVE, verify_jwt=true**; Preview 0760f00e accepted across Accounts A/B/D; Production frontend e63198b7 serves index-lvfFFwEn.js. The Edge diff was limited to the Jake persona text constant and its directly related comment: ArtValue is the product/system brand and Jake works solely from the active account's approved Business Context, inventing no missing account facts. **Router, action types, contracts, request/response payloads, provider routing, input validation, budget/usage controls, confirmation behavior and every non-persona profile are UNCHANGED; no secret or configuration changed.** The ImageStudio brand-palette block is composed **frontend-side** into the existing `studio.generate_image` prompt field — no new actionType, no new payload field, no contract change — and the final prompt is validated against the **existing canonical 2,000-character** input limit, with over-limit requests blocked client-side before any Gateway call. The contained Jake campaign lane makes **zero Gateway calls**. Decisions D-035 and D-036 recorded. **No migration; no schema change. No Gateway work should be inferred or scheduled for reopening Growth from S0F.1.** Tests 118 files / 2978 passed / 1 pre-existing skip. | ChatGPT |
 | 5.4 | 26.07.2026 | **S0E — Guided Business Onboarding CLOSED / LIVE VERIFIED with ZERO Gateway/Edge change.** PR #103 merged at main c10ac55; corrective PR #104 merged; active application release source 272fc14; corrected Preview ea0dcc02 accepted on an unconfigured account; Production frontend 4b86993d serves index-DRaTE7f5.js. **ai-gateway remains v34 with JWT verification ON — not redeployed.** Router, action types, contracts, request/response payloads, provider routing, input validation, usage/budget controls, confirmation behavior and all Gateway profiles are UNCHANGED. The onboarding first-value CTA only prefills the existing frontend Jake composer — it does not call the Gateway, does not auto-send, does not execute an action and does not alter the Gateway contract. Business Context continues to reach Jake through the existing approved frontend context-injection seam (D-033). **No migration; no schema change. No future Gateway work should be inferred or scheduled from S0E.** Tests 111 files / 2885 passed / 1 pre-existing skip. | ChatGPT |
 | 5.3 | 24.07.2026 | S0D — Business Context CLOSED / LIVE VERIFIED **with ZERO Gateway/Edge change.** PR #101 merged at main 22ee2f3; migration 20260724120000_s0d_business_profile.sql APPLIED; Preview f4da6153 two-account acceptance PASS; Production frontend 69f8a175 serves index-DnfLj9lz.js. ai-gateway remains v34 with JWT verification ON. Router, action types, contracts, request/response payloads, provider routing, input validation, usage/budget controls, confirmation behavior and all Gateway profiles are UNCHANGED. The approved account Business Context (business_profile, RLS owner-isolation) is assembled and injected by the frontend before the existing Gateway call. Decisions D-033 (S0D no-Edge-change / frontend injection) and D-034 (Account-aware Growth & Creative Context is a future separately-approved product slice that does not schedule Gateway work) recorded; risks R17/R18 added. Tests 107 files / 2759 passed / 1 pre-existing skip. | ChatGPT |
 | 5.2 | 24.07.2026 | S0C CLOSED / LIVE VERIFIED. PR #100 merged at main 3ee62aee; ai-gateway v34 deployed with JWT verification retained. Jake persona is now the generic ArtValue business assistant and draft_message no longer forces a personal signature. Router, contracts, payloads, routing, validation, budget controls, confirmation flow and all non-Jake profiles remained unchanged. Frontend Production cec116b9 serves index-CE6IJ-rJ.js. | ChatGPT |
@@ -536,7 +545,7 @@ Fallback ייכנס רק אחרי שני adapters עובדים. הוא דורש 
 
 # נספח — נקודות מעבר היסטוריות
 
-> הסעיפים הבאים נשמרים כארכיון של נקודות המעבר v4.4–v5.3 לצורך רצף היסטורי. הם אינם מקור האמת הנוכחי; המצב הפעיל מתואר ב־Current Control Panel וב־Change Log לעיל. **הערת עריכה:** תמצית התוצאה, ה־SHA והסטטוס של כל נקודת מעבר נשמרו; בלוקי ה־prompt התפעוליים החד־פעמיים לפייבל (audit/יישום/release) ופִסקאות ה־״פתיח לסשן חדש״ שהופיעו במקור v5.2 קוצרו כאן ולא שוכפלו מילה־במילה, מכיוון שהם הוראות עבודה חד־פעמיות שכבר בוצעו ונסגרו — לא החלטות, סיכונים או תוכן roadmap. כל ההחלטות (D-001…D-034), היסטוריית הסטטוס, הסיכונים ויומן השינויים המלא (1.0…5.3) שמורים לעיל.
+> הסעיפים הבאים נשמרים כארכיון של נקודות המעבר v4.4–v5.5 לצורך רצף היסטורי. הם אינם מקור האמת הנוכחי; המצב הפעיל מתואר ב־Current Control Panel וב־Change Log לעיל. **הערת עריכה:** תמצית התוצאה, ה־SHA והסטטוס של כל נקודת מעבר נשמרו; בלוקי ה־prompt התפעוליים החד־פעמיים לפייבל (audit/יישום/release) ופִסקאות ה־״פתיח לסשן חדש״ שהופיעו במקור v5.2 קוצרו כאן ולא שוכפלו מילה־במילה, מכיוון שהם הוראות עבודה חד־פעמיות שכבר בוצעו ונסגרו — לא החלטות, סיכונים או תוכן roadmap. כל ההחלטות (D-001…D-036), היסטוריית הסטטוס, הסיכונים ויומן השינויים המלא (1.0…5.5) שמורים לעיל.
 
 ## עדכון נקודת מעבר v4.4 — M2 J2 Preview Hotfix
 
@@ -598,6 +607,23 @@ Main מאומת: 22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4; PR #101 מוזג. Pro
 - **אין להסיק או לתזמן עבודת Gateway עתידית כלשהי מ־S0E.**
 
 ללא migration וללא שינוי schema. ראיית איכות: 111 קובצי בדיקה, 2885 עברו, 1 skip קיים מראש. Rollback: frontend deployment 69f8a175 נשמר (HTTP 200); pre-s0e-demo-tour-containment @ c10ac55; pre-s0e-guided-onboarding @ becd070.
+
+## עדכון נקודת מעבר v5.5 — S0F.1 CREATIVE TRUST / ACCOUNT ISOLATION / BRAND PALETTE CLOSED / LIVE VERIFIED
+
+מקור השחרור הפעיל: `983f4899a7c9736669d97b49ed1575129f820653` (PR #106). Production frontend deploy **e63198b7-ebd6-4b7d-9872-c9bcd1a5ab0a** מגיש את `index-lvfFFwEn.js` ב־https://artvalue-product.pages.dev; Preview **0760f00e-d54d-4285-b5dd-93919e2842f5** (branch `s0f1-preview-983f489`) עבר בדיקת קבלה בשלושה חשבונות (A/B/D).
+
+**ai-gateway v35 ACTIVE עם verify_jwt=true — שינוי טקסט פרסונה בלבד.**
+
+- ה־diff ב־Edge הוגבל ל־**קבוע `JAKE_PACK_PERSONA` ב־`actionProfiles.ts` ולהערה הנלווית לו**. הפרסונה בצד השרת נשארת העתק verbatim מוגן drift של ה־frontend Jake pack.
+- ArtValue היא **מותג המוצר/המערכת**; ג׳יק פועל אך ורק לפי ההקשר העסקי המאושר של החשבון הפעיל, אומר בכנות כשההקשר חסר, ואינו ממציא עובדות חשבון.
+- **ללא שינוי:** router, actionTypes, חוזים, request/response payloads, provider routing, input validation, budget/usage controls, confirmation flow וכל הפרופילים שאינם הפרסונה. לא שונו סודות או קונפיגורציה.
+- **מסלול הקמפיין המוכל של ג׳יק אינו מבצע אף קריאת Gateway** — ההכלה קודמת לכל בקשה.
+- **הרכבת בלוק פלטת המותג נשארת בצד ה־frontend** ומצורפת לשדה ה־prompt הקיים של `studio.generate_image`: אין actionType חדש, אין שדה payload חדש ואין שינוי חוזה. הפרומפט הסופי נבדק מול **מגבלת הקלט הקנונית הקיימת של 2,000 תווים**, וחריגה נחסמת בצד הלקוח לפני קריאת Gateway (ללא קיצוץ שקט וללא העלאת המגבלה).
+- **לא נחשפה בחירת מודל או ספק חדשה.**
+
+ללא migration וללא שינוי schema. ראיית איכות: 118 קובצי בדיקה, 2978 עברו, 1 skip קיים מראש. Rollback: frontend deployment 4b86993d נשמר (HTTP 200); `pre-s0f-creative-trust-brand-palette` @ `5efbeb9103710875fc3dad882ae78aca4b2938bc`.
+
+**גבולות אי־ההסקה:** אין להסיק או לתזמן עבודת Gateway כלשהי מ־S0F.1. תנאי הפתיחה מחדש של Growth — **Campaigns עמידים, Asset Library עמידה ומודל נתוני Growth מודע־חשבון** — הם פריטי שכבת מוצר ואינם עבודת חוזה Gateway. **Website Scanner** מוזכר כאן כעבודה עתידית בלבד: אם וכאשר יאושר, הוא ידרוש מסלול חילוץ מאובטח בצד השרת שיתוכנן בנפרד (SSRF/IP פרטי/הפניות/גודל/זמן/rate-limit) — **חוזה ה־Gateway שלו אינו מתוכנן ואינו מתוזמן כאן.**
 
 ### השלב הבא
 
