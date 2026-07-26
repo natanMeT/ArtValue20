@@ -181,7 +181,7 @@ Recorded here only as a **planned future product slice / candidate**, not as an 
 
 ## Studio / Local-Engine UI Containment — **IN FLIGHT / NOT RELEASED** (2026-07-26)
 
-**Status: implementation PR open; NOT merged, NOT built for release, NOT deployed to Preview or Production, NOT live.**
+**Status: implementation PR open and REVIEW-CLEAN; NOT merged, NOT built for release, NOT deployed to Preview or Production, NOT live.** Codex round 2 found no major issues (`bb8e955ef2`); 0 unresolved review threads. Merge-ready from a code-review standpoint — **authenticated cloud acceptance on Preview is still outstanding and remains a release gate.**
 Production remains **`476830a2-f8ea-45dc-b0ce-a71876bc48dd` / `index-BrR14XIC.js`** (source `7e30199`), unchanged by this slice.
 Rollback tag `pre-studio-local-engine-containment` @ `4f4180b`; branch `studio/local-engine-ui-containment`.
 
@@ -299,8 +299,13 @@ for every local render. Fixed by deriving the family from the applied **preset's
   build offered **9** modes with album and presenter present. **Both runs: 0 local-engine fetches on open, 0 console
   errors, 0 engine terms in the DOM**, and 0 further requests after idling 18s on `/studio`.
 
+### Review outcome — round 2: CLEAN
+Codex re-reviewed the corrected head and reported **"Didn't find any major issues"** — **reviewed commit `bb8e955ef2`**. Both original P2 threads were answered with the corrected evidence and are now **RESOLVED; 0 unresolved threads remain**.
+
+The only commit after the reviewed one (`c6871ab`) is **documentation-only**: 6 added lines in this file recording the browser re-verification, 0 deletions, no code. Independently confirmed — the `src/` tree hash is **identical** at both commits (`255bd4c7edb0aa2fbd181a1b22cb528fa6de9aee`), and a diff over `src/ .env.example supabase/ package.json vite.config.js index.html` between them is **empty**. The technical head is therefore the reviewed head; tests and build were not rerun because no code changed.
+
 ### Verification still required before Preview and Production
-1. **A fresh Codex review of the corrected head** (`@codex review` requested) and any substantiated finding addressed.
+1. ~~A fresh Codex review of the corrected head~~ — **DONE, clean (`bb8e955ef2`), 0 unresolved threads.**
 2. Preview deploy and **authenticated cloud acceptance** — the runtime smoke above was local/demo only; the
    authenticated cloud path (where the engine gate is closed and the local-only modes are hidden) has **not** been
    exercised in a browser.
