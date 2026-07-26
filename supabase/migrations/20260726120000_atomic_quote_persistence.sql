@@ -227,10 +227,12 @@ begin
     join pg_class t on t.oid = con.conrelid
     join pg_namespace n on n.oid = t.relnamespace
     where n.nspname = 'public' and t.relname = 'quotes' and con.contype = 'p'
-      and (select array_agg(a.attname order by k.ord)
+      -- pg_attribute.attname is `name`, so both sides are cast to text[]
+      -- explicitly: `name[] = text[]` has no operator (42883).
+      and (select array_agg(a.attname::text order by k.ord)
              from unnest(con.conkey) with ordinality as k(attnum, ord)
              join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k.attnum
-          ) = array['id']
+          ) = array['id']::text[]
   ) then
     raise exception 'save_quote_atomic PREFLIGHT FAILED: quotes must have PRIMARY KEY (id). Nothing was changed.';
   end if;
@@ -239,10 +241,11 @@ begin
     join pg_class t on t.oid = con.conrelid
     join pg_namespace n on n.oid = t.relnamespace
     where n.nspname = 'public' and t.relname = 'quote_items' and con.contype = 'p'
-      and (select array_agg(a.attname order by k.ord)
+      -- same explicit text[] cast on both sides (see the quotes PK check).
+      and (select array_agg(a.attname::text order by k.ord)
              from unnest(con.conkey) with ordinality as k(attnum, ord)
              join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k.attnum
-          ) = array['id']
+          ) = array['id']::text[]
   ) then
     raise exception 'save_quote_atomic PREFLIGHT FAILED: quote_items must have PRIMARY KEY (id). Nothing was changed.';
   end if;
