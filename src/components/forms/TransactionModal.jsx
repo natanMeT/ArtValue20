@@ -10,7 +10,11 @@ const empty = {
   description: '',
 };
 
-export default function TransactionModal({ open, onClose, onSave, initial }) {
+// `saving` (optional): visible in-flight save state owned by the page — while
+// true the submit button is disabled and shows a truthful pending label, so a
+// pending cloud write cannot be re-submitted from the UI. Form state is never
+// cleared by it; validation and payload shape are unchanged.
+export default function TransactionModal({ open, onClose, onSave, initial, saving = false }) {
   const [form, setForm] = useState(empty);
   const [err, setErr] = useState(false);
 
@@ -45,7 +49,9 @@ export default function TransactionModal({ open, onClose, onSave, initial }) {
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>ביטול</button>
-          <button className="btn btn-primary" onClick={submit}>{initial ? 'שמירה' : 'הוספה'}</button>
+          <button className="btn btn-primary" onClick={submit} disabled={saving} style={saving ? { opacity: 0.5, pointerEvents: 'none' } : undefined}>
+            {saving ? 'שומר…' : (initial ? 'שמירה' : 'הוספה')}
+          </button>
         </>
       }
     >

@@ -17,7 +17,11 @@ function blankItem() {
   return { id: uid('li'), desc: '', qty: 1, price: 0 };
 }
 
-export default function QuoteModal({ open, onClose, onSave, clients, quotes, initial, presetClientId }) {
+// `saving` (optional): visible in-flight save state owned by the page — while
+// true the submit button is disabled and shows a truthful pending label, so a
+// pending cloud write cannot be re-submitted from the UI. Form state is never
+// cleared by it; validation and payload shape are unchanged.
+export default function QuoteModal({ open, onClose, onSave, clients, quotes, initial, presetClientId, saving = false }) {
   const [form, setForm] = useState(null);
 
   useEffect(() => {
@@ -67,8 +71,8 @@ export default function QuoteModal({ open, onClose, onSave, clients, quotes, ini
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>ביטול</button>
-          <button className="btn btn-primary" onClick={submit} disabled={!valid} style={!valid ? { opacity: 0.5, pointerEvents: 'none' } : undefined}>
-            {initial ? 'שמירת שינויים' : 'יצירת הצעה'}
+          <button className="btn btn-primary" onClick={submit} disabled={!valid || saving} style={(!valid || saving) ? { opacity: 0.5, pointerEvents: 'none' } : undefined}>
+            {saving ? 'שומר…' : (initial ? 'שמירת שינויים' : 'יצירת הצעה')}
           </button>
         </>
       }

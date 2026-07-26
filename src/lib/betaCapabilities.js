@@ -202,6 +202,11 @@ export const BETA_MESSAGES = {
   creativeCampaignUnavailable:
     'בניית קמפיין קריאייטיבי עדיין אינה זמינה בגרסת הבטא בענן, אז לא הרצתי אותה ולא שמרתי כלום. '
     + 'בינתיים אפשר לנסח איתי תוכן וטיוטות בצ׳אט, וליצור ויזואלים במחולל התמונות.',
+  // Quote→project conversion (Quotes page): ADD_PROJECT is Memory-Only in
+  // cloud beta, so the conversion is truthfully unavailable — nothing runs,
+  // nothing is saved, no navigation to a project that was never created.
+  quoteToProjectUnavailable:
+    'המרת הצעה לפרויקט עדיין אינה זמינה בגרסת הבטא — פרויקטים עדיין אינם נשמרים בענן.',
 };
 
 // One concise, truthful Hebrew message explaining why Jake did not perform the
