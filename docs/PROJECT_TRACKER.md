@@ -292,6 +292,12 @@ for every local render. Fixed by deriving the family from the applied **preset's
   (`EmptyLatentImage`, no `FluxGuidance`). Family is read from graph structure, so no label is trusted.
 - **Negative controls run (both bite):** forcing `presetModelFamily` to return `undefined` fails the FLUX execution test;
   restoring the fail-open predicate fails 6 capability tests. A green result here is therefore meaningful.
+- **Browser re-verification at the corrected head (`bb8e955`), engine gate OPEN (`127.0.0.1:8188`) — both directions:**
+  with the stacks **undeclared**, the Studio offered **7** modes — album and presenter correctly absent — while character
+  series stayed available (Kontext fallback preserved) and `hasPulidModel`/`hasQwenEdit` read `false` despite
+  `hasLocalComfy === true`; with the stacks **declared** (`VITE_COMFYUI_PULID=1`, `VITE_COMFYUI_QWEN_EDIT=1`) the same
+  build offered **9** modes with album and presenter present. **Both runs: 0 local-engine fetches on open, 0 console
+  errors, 0 engine terms in the DOM**, and 0 further requests after idling 18s on `/studio`.
 
 ### Verification still required before Preview and Production
 1. **A fresh Codex review of the corrected head** (`@codex review` requested) and any substantiated finding addressed.
