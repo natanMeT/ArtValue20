@@ -7,6 +7,7 @@ import {
   isGeminiConfigured, MECHANISM_HE, mechanismStyle, toEnglishImagePrompt,
 } from '../lib/gemini.js';
 import { generateMaxRealism } from '../lib/geminiImage.js';
+import { userFacingError } from '../lib/userFacingError.js';
 import { createGalleryStore, srcToBlob } from '../lib/galleryStore.js';
 import { isSupabaseConfigured } from '../lib/supabase.js';
 import BetaUnavailable from '../components/ui/BetaUnavailable.jsx';
@@ -154,7 +155,7 @@ export default function AdStudio() {
   const remakeOne = async (i) => {
     setAds((p) => p.map((a, idx) => (idx === i ? { ...a, imgBusy: true, imgError: '' } : a)));
     try { const src = await render(ads[i]); setAds((p) => p.map((a, idx) => (idx === i ? { ...a, src, imgBusy: false } : a))); }
-    catch (e) { setAds((p) => p.map((a, idx) => (idx === i ? { ...a, imgBusy: false, imgError: e.message || 'נכשל' } : a))); }
+    catch (e) { setAds((p) => p.map((a, idx) => (idx === i ? { ...a, imgBusy: false, imgError: userFacingError(e, 'היצירה נכשלה כרגע') } : a))); }
   };
   const copyText = (a) => {
     const txt = `${a.copy?.headline || ''}\n${a.copy?.subline || ''}\n\n${a.copy?.cta || ''}`.trim();

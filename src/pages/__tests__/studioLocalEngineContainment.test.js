@@ -125,18 +125,22 @@ describe('Studio containment · no local-engine request on mount', () => {
     // which threw a temporal-dead-zone ReferenceError and blanked the whole
     // Studio at runtime. No source-string assertion caught it — only rendering
     // the page did — so the ordering itself is pinned here.
-    const iPulid = studioCode.indexOf('const pulidReady =');
-    const iQwen = studioCode.indexOf('const qwenReady =');
+    // The hosted-containment correction replaced the inline predicate with the
+    // shared authority, so the value `modes` now reads is `studioCaps`. The
+    // ordering invariant is unchanged and still pinned — only its subject moved.
+    const iCaps = studioCode.indexOf('const studioCaps = liveStudioCapabilities()');
     const iModes = studioCode.indexOf('const modes = MODES.filter');
-    expect(iPulid).toBeGreaterThan(-1);
-    expect(iQwen).toBeGreaterThan(-1);
+    expect(iCaps).toBeGreaterThan(-1);
     expect(iModes).toBeGreaterThan(-1);
-    expect(iModes, 'pulidReady must precede modes').toBeGreaterThan(iPulid);
-    expect(iModes, 'qwenReady must precede modes').toBeGreaterThan(iQwen);
-    // and `modes` really does depend on them (guard stays meaningful)
+    expect(iModes, 'studioCaps must precede modes').toBeGreaterThan(iCaps);
+    // and `modes` really does depend on it (guard stays meaningful)
     const modesLine = studioCode.slice(iModes, studioCode.indexOf('\n', iModes));
-    expect(modesLine).toContain('pulidReady');
-    expect(modesLine).toContain('qwenReady');
+    expect(modesLine).toContain('studioCaps');
+    // the capability ref used by the hand-off/safety-net effects is also
+    // declared before the effects that read it
+    const iRef = studioCode.indexOf('const studioCapsRef =');
+    expect(iRef).toBeGreaterThan(-1);
+    expect(studioCode.indexOf('useLayoutEffect'), 'studioCapsRef must precede its effects').toBeGreaterThan(iRef);
   });
 
   it('the new flags are derived from configuration only (no network in their definition)', () => {

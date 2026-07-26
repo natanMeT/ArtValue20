@@ -68,8 +68,13 @@ describe('BUSINESS_BRAIN · structure', () => {
 });
 
 describe('systemCapabilities · derived registry', () => {
+  // systemCapabilities now takes the AUTHORITATIVE set of Studio modes this
+  // configuration can open (injected by lib/jakeBusinessContext.js). Supplying
+  // every live mode reproduces the original "everything is available" contract.
+  const ALL_LIVE_MODES = liveWorkflows().map((w) => w.mode).filter(Boolean);
+
   it('includes every live workflow (safe fields only) and marks it studio-kind', () => {
-    const caps = systemCapabilities();
+    const caps = systemCapabilities(ALL_LIVE_MODES);
     for (const w of liveWorkflows()) {
       const cap = caps.find((c) => c.id === w.id);
       expect(cap, w.id).toBeTruthy();
@@ -78,6 +83,14 @@ describe('systemCapabilities · derived registry', () => {
       expect(cap.engine).toBe(w.engine);
       if (w.mode) expect(cap.mode).toBe(w.mode);
     }
+  });
+
+  it('FAILS CLOSED when the available-mode set is omitted', () => {
+    // A caller that forgets to inject availability must under-advertise rather
+    // than promise a creative mode the Studio would refuse to open.
+    const caps = systemCapabilities();
+    expect(caps.filter((c) => c.mode)).toEqual([]);
+    expect(caps.length).toBeGreaterThan(0); // non-studio surfaces still listed
   });
 
   it('never includes soon/deferred workflow cards', () => {

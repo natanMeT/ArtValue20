@@ -10,6 +10,7 @@
 // ===================================================================
 
 import { resolveLocalEngineUrl } from './localEngines.js';
+import { userError, engineError } from './userFacingError.js';
 import { isSupabaseConfigured } from './supabase.js';
 import { callAiGateway } from './aiGatewayClient.js';
 
@@ -257,9 +258,9 @@ async function comfySubmit(graph) {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt: graph, client_id: clientId }),
   });
-  if (!res.ok) throw new Error(`comfy ${res.status}`);
+  if (!res.ok) throw engineError(`comfy ${res.status}`, 'היצירה נכשלה כרגע. נסה/י שוב בעוד רגע.');
   const { prompt_id } = await res.json();
-  if (!prompt_id) throw new Error('comfy: no prompt id');
+  if (!prompt_id) throw engineError('comfy: no prompt id', 'היצירה נכשלה כרגע. נסה/י שוב בעוד רגע.');
   for (const cb of [...jobListeners]) {
     try { cb({ promptId: prompt_id, clientId, tag, graph, at: Date.now() }); } catch { /* noop */ }
   }
@@ -282,9 +283,9 @@ async function comfyWait(promptId, maxTries = 200) {
         }
       }
     }
-    if (entry?.status?.status_str === 'error') throw new Error('comfy: generation error');
+    if (entry?.status?.status_str === 'error') throw engineError('comfy: generation error', 'היצירה נכשלה כרגע. נסה/י שוב בעוד רגע.');
   }
-  throw new Error('comfy: timeout');
+  throw engineError('comfy: timeout', 'היצירה לוקחת יותר מדי זמן. נסה/י שוב בעוד רגע.');
 }
 
 // Upload a File/Blob to ComfyUI and return its server-side name.
@@ -349,7 +350,7 @@ export async function listImageModels() {
 
 // Image-to-image: upload + repaint. strength 0.2 (subtle) .. 0.95 (heavy change).
 export async function generateImg2Img(file, prompt, opts = {}) {
-  if (!COMFY_URL) throw new Error('עריכת תמונה אינה זמינה כרגע');
+  if (!COMFY_URL) throw userError('עריכת תמונה אינה זמינה כרגע');
   const strength = Math.min(0.95, Math.max(0.2, opts.strength ?? 0.6));
   const name = await uploadToComfy(file);
   const graph = img2imgGraph(name, (prompt || '').trim(), strength, rndSeed());
@@ -360,7 +361,7 @@ export async function generateImg2Img(file, prompt, opts = {}) {
 // Smart photo editing (FLUX.1 Kontext): keep the original, apply an instruction.
 // e.g. "change the background to a sunset beach", "make the swimsuit red".
 export async function editImage(file, instruction) {
-  if (!hasKontextModel) throw new Error('עריכה חכמה אינה זמינה כרגע');
+  if (!hasKontextModel) throw userError('עריכה חכמה אינה זמינה כרגע');
   const text = (instruction || '').trim();
   if (!text) throw new Error('יש לכתוב מה לשנות בתמונה');
   const name = await uploadToComfy(file);
@@ -390,7 +391,7 @@ export const CHARACTER_POSES = [
 // sequentially (FLUX can't parallelize on 16GB), and reports each as it lands so
 // the UI can stream results + save them to the gallery for later animation.
 export async function characterPack(file, count = 6, onResult) {
-  if (!hasKontextModel) throw new Error('ערכת דמות אינה זמינה כרגע');
+  if (!hasKontextModel) throw userError('ערכת דמות אינה זמינה כרגע');
   if (!file) throw new Error('יש להעלות תמונת ייחוס של הדמות');
   const name = await uploadToComfy(file);
   const poses = CHARACTER_POSES.slice(0, Math.max(1, Math.min(count, CHARACTER_POSES.length)));
@@ -693,7 +694,7 @@ export async function hasQwenEditNode() {
 
 // Max-Realism (FLUX text→image) with full knob control. Returns { src, ... }.
 export async function generateMaxRealism(prompt, opts = {}) {
-  if (!COMFY_URL) throw new Error('היצירה אינה זמינה כרגע');
+  if (!COMFY_URL) throw userError('היצירה אינה זמינה כרגע');
   const text = (prompt || '').trim();
   if (!text) throw new Error('יש להזין תיאור לתמונה');
   const faceDetail = opts.faceDetail !== false && await hasFaceDetailerNode();
@@ -714,11 +715,11 @@ export async function generateMaxRealism(prompt, opts = {}) {
 // approximate by design (exact product replication needs future IP-Adapter/
 // ControlNet work). ADDITIVE — reuses upload/submit/wait, touches nothing else.
 export async function qwenCompose(presenterFile, productFile, instruction, opts = {}) {
-  if (!presenterFile) throw new Error('יש להעלות תמונת פרזנטור');
-  if (!productFile) throw new Error('יש להעלות תמונת מוצר');
+  if (!presenterFile) throw userError('יש להעלות תמונת פרזנטור');
+  if (!productFile) throw userError('יש להעלות תמונת מוצר');
   const text = (instruction || '').trim();
-  if (!text) throw new Error('יש לכתוב הוראת שילוב — מה לעשות עם המוצר');
-  if (!await hasQwenEditNode()) throw new Error('Qwen-Image-Edit אינו מותקן במנוע');
+  if (!text) throw userError('יש לכתוב הוראת שילוב — מה לעשות עם המוצר');
+  if (!await hasQwenEditNode()) throw engineError('Qwen-Image-Edit אינו מותקן במנוע', 'יצירת ויזואל מוצר אינה זמינה כרגע');
   const presenterName = await uploadToComfy(presenterFile);
   const productName = await uploadToComfy(productFile);
   const graph = qwenComposeGraph(presenterName, productName, text, rndSeed(), opts);
@@ -746,7 +747,7 @@ export const MODEL_ALBUM_ANGLES = [
 // uses base-FLUX (face hidden, so PuLID's face-forward bias is irrelevant there).
 export async function generateModelAlbum(file, clothing, onResult, opts = {}) {
   if (!file) throw new Error('יש להעלות תמונת דוגמנית (פנים)');
-  if (!await hasPulidNode()) throw new Error('אלבום דוגמנית אינו זמין כרגע');
+  if (!await hasPulidNode()) throw userError('אלבום דוגמנית אינו זמין כרגע');
   const cloth = (clothing || '').trim() || 'a simple minimalist plain lingerie set with thin straps';
   const faceDetail = opts.faceDetail !== false && await hasFaceDetailerNode();
   const upscale = opts.upscale !== false && await hasUpscaleModel();
@@ -803,7 +804,7 @@ export async function characterPackPulid(file, count = 6, onResult, opts = {}) {
 
 // Inpaint: edit only a masked region (uncensored realism SDXL). maskBlob = PNG, white = edit.
 export async function inpaintImage(file, maskBlob, prompt) {
-  if (!COMFY_URL) throw new Error('עריכת אזור אינה זמינה כרגע');
+  if (!COMFY_URL) throw userError('עריכת אזור אינה זמינה כרגע');
   const text = (prompt || '').trim();
   if (!text) throw new Error('יש לכתוב מה למלא באזור המסומן');
   if (!maskBlob) throw new Error('יש לסמן אזור על התמונה (מברשת)');
@@ -839,7 +840,7 @@ export function productLockBlendGraph(imageName, maskName, prompt, seed) {
 // Blend a Product Lock composite: upload composite + ring mask, inpaint the
 // ring, paste back. Normal SDXL wait budget (200 ≈ 5 min) — never the Qwen one.
 export async function productLockBlend(compositeBlob, maskBlob, prompt) {
-  if (!COMFY_URL) throw new Error('שיפור החיבור אינו זמין כרגע');
+  if (!COMFY_URL) throw userError('שיפור החיבור אינו זמין כרגע');
   if (!compositeBlob) throw new Error('אין קומפוזיט לשיפור');
   if (!maskBlob) throw new Error('יצירת מסכת החיבור נכשלה');
   const text = (prompt || '').trim();
@@ -853,7 +854,7 @@ export async function productLockBlend(compositeBlob, maskBlob, prompt) {
 
 // Montage: stitch several images into one slideshow clip (animated WebP).
 export async function montageFromImages(blobs, opts = {}) {
-  if (!COMFY_URL) throw new Error('הרכבת סרטון אינה זמינה כרגע');
+  if (!COMFY_URL) throw userError('הרכבת סרטון אינה זמינה כרגע');
   if (!blobs || !blobs.length) throw new Error('בחר תמונות להרכבה');
   const fps = opts.fps || 12;
   const hold = opts.hold || 18; // frames each image is held (~1.5s at 12fps)
@@ -907,7 +908,7 @@ function ltxGraph(imageName, prompt, seed, opts = {}) {
 }
 
 export async function ltxVideo(file, prompt, opts = {}) {
-  if (!COMFY_URL) throw new Error('יצירת וידאו אינה זמינה כרגע');
+  if (!COMFY_URL) throw userError('יצירת וידאו אינה זמינה כרגע');
   const name = await uploadToComfy(file);
   const src = await comfyWait(await comfySubmit(ltxGraph(name, prompt, rndSeed(), opts)), 320);
   return { src, engine: 'local', demo: false, isVideo: true, ltx: true };
@@ -953,7 +954,7 @@ function flfGraph(startName, endName, prompt, seed, opts = {}) {
 
 // Before/after: upload a START frame + END frame → a clip that morphs between them.
 export async function flfVideo(startFile, endFile, prompt, opts = {}) {
-  if (!COMFY_URL) throw new Error('יצירת וידאו אינה זמינה כרגע');
+  if (!COMFY_URL) throw userError('יצירת וידאו אינה זמינה כרגע');
   if (!startFile || !endFile) throw new Error('צריך גם תמונת התחלה וגם תמונת סיום');
   const startName = await uploadToComfy(startFile);
   const endName = await uploadToComfy(endFile);
@@ -963,7 +964,7 @@ export async function flfVideo(startFile, endFile, prompt, opts = {}) {
 
 // Image-to-video: upload one image → short animated clip (animated WebP).
 export async function animateImage(file, opts = {}) {
-  if (!COMFY_URL) throw new Error('אנימציה אינה זמינה כרגע');
+  if (!COMFY_URL) throw userError('אנימציה אינה זמינה כרגע');
   const name = await uploadToComfy(file);
   const graph = svdGraph(name, rndSeed(), opts);
   const src = await comfyWait(await comfySubmit(graph), 320); // video is slower
@@ -1080,4 +1081,20 @@ export async function downloadImage(src, name = 'artvalue-image.png') {
   } catch {
     window.open(src, '_blank');
   }
+}
+
+// Live capability snapshot for the authoritative mode set (src/lib/studioModes.js)
+// and for Jake's advertised capabilities. Derived ONLY from the configuration
+// flags above — no probing, no request. With the local-engine gate closed every
+// engine-backed capability is false, so hosted builds neither offer nor
+// advertise those modes.
+export function liveStudioCapabilities() {
+  return {
+    comfy: hasLocalComfy,
+    video: hasVideoModel,
+    ltx: hasLtxVideo,
+    kontext: hasKontextModel,
+    pulid: hasPulidModel,
+    qwen: hasQwenEdit,
+  };
 }

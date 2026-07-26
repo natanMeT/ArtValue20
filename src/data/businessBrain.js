@@ -161,8 +161,23 @@ const STATIC_CAPABILITIES = deepFreeze([
   { id: 'product-lock-blend', kind: 'system', title: 'שיפור חיבור וצללים (Product Lock B2)', description: 'בתוך "מוצר מדויק": AI מוסיף צל מגע וחיבור טבעי סביב הקצוות בלבד — פיקסלי המוצר נשמרים 1:1.' },
 ]);
 
-export function systemCapabilities() {
-  const studio = liveWorkflows().map((w) => ({
+// Jake may only advertise creative workflows the ACTIVE configuration can
+// actually open. `liveWorkflows()` is the catalog of what EXISTS; it is not a
+// statement of availability — in a hosted build the engine-backed workflows are
+// listed but hidden in the UI, so advertising them made Jake untruthful AND
+// handed the user a route into a mode the Studio cannot open.
+//
+// Availability is INJECTED, never imported: this module must stay free of
+// engine/assistant imports (pinned by its own boundary test). The caller
+// (lib/jakeBusinessContext.js) passes the authoritative set from studioModes.js.
+// Default = empty => FAIL CLOSED: a caller that forgets under-advertises rather
+// than promising a mode the Studio would refuse to open. Workflows with no
+// `mode` are non-Studio capabilities and are always listed.
+export function systemCapabilities(availableModes = []) {
+  const allowed = availableModes instanceof Set
+    ? availableModes
+    : new Set(Array.isArray(availableModes) ? availableModes : []);
+  const studio = liveWorkflows().filter((w) => !w.mode || allowed.has(w.mode)).map((w) => ({
     id: w.id,
     kind: 'studio',
     title: w.title,
@@ -217,6 +232,8 @@ export function buildBusinessBrainContext(options = {}) {
   const includeServices = options.includeServices ?? true;
   const maxServices = clampInt(options.maxServices, 1, SERVICES.length, 8);
   const maxCapabilities = clampInt(options.maxCapabilities, 1, 24, 12);
+  // Injected by the caller from the authoritative mode set. Omitted => fail closed.
+  const availableModes = options.availableModes || [];
 
   const parts = [
     'הקשר עסקי — ArtValue Business Brain:',
@@ -238,7 +255,7 @@ export function buildBusinessBrainContext(options = {}) {
 
   if (includeCapabilities) {
     parts.push('', 'יכולות המערכת (לשימוש כהצעות ביצוע ידניות):');
-    for (const c of systemCapabilities().slice(0, maxCapabilities)) {
+    for (const c of systemCapabilities(availableModes).slice(0, maxCapabilities)) {
       parts.push(`- ${c.title}${c.mode ? ` [מצב: ${c.mode}]` : ''}: ${c.description}`);
     }
   }
@@ -296,6 +313,7 @@ function accountProfileLines(p) {
 // facts. Always ends with the universal capabilities + safety block.
 export function buildAccountBusinessContext(profile, options = {}) {
   const maxCapabilities = clampInt(options.maxCapabilities, 1, 24, 8);
+  const availableModes = options.availableModes || [];
   const parts = [];
   if (hasDurableProfile(profile)) {
     parts.push('הקשר עסקי — פרופיל העסק (מאושר ע״י המשתמש):', '', ...accountProfileLines(profile));
@@ -306,7 +324,7 @@ export function buildAccountBusinessContext(profile, options = {}) {
     );
   }
   parts.push('', 'יכולות המערכת (לשימוש כהצעות ביצוע ידניות):');
-  for (const c of systemCapabilities().slice(0, maxCapabilities)) {
+  for (const c of systemCapabilities(availableModes).slice(0, maxCapabilities)) {
     parts.push(`- ${c.title}${c.mode ? ` [מצב: ${c.mode}]` : ''}: ${c.description}`);
   }
   parts.push('', safetyBlock());

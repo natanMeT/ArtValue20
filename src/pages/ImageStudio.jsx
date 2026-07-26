@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useStore } from '../store/store.jsx';
@@ -14,6 +14,7 @@ import {
   isImageAiConfigured, hasLocalComfy, hasVideoModel, hasLtxVideo, hasKontextModel,
   localEngineUrl, characterPack, characterPackPulid, hasPulidModel,
   generateModelAlbum, onComfyJob, markNextComfyJob, hasQwenEdit, qwenCompose, productLockBlend,
+  liveStudioCapabilities,
 } from '../lib/geminiImage.js';
 import { watchJob, cancelJob } from '../lib/comfyProgress.js';
 import { createGalleryStore, srcToBlob, GALLERY_MAX, filterGalleryItems } from '../lib/galleryStore.js';
@@ -24,6 +25,8 @@ import PosterEditor from '../components/studio/PosterEditor.jsx';
 import MockupStudio from '../components/studio/MockupStudio.jsx';
 import ProductPlacer from '../components/studio/ProductPlacer.jsx';
 import { readStudioHandoff } from '../lib/studioHandoff.js';
+import { isStudioModeAvailable, resolveStudioMode } from '../lib/studioModes.js';
+import { userFacingError } from '../lib/userFacingError.js';
 
 // ---- prompt enhancement (routed through the protected AI Gateway) ----
 // The enhancement INSTRUCTION (per mode: generate / edit / inpaint) is assembled
@@ -164,14 +167,14 @@ const IDEA_POOL = [
 
 const MODES = [
   { id: 'text', label: 'טקסט → תמונה', sub: 'תיאור הופך לתמונה', icon: 'wand' },
-  { id: 'img2img', label: hasKontextModel ? 'עריכה חכמה' : 'תמונה → תמונה', sub: 'עריכה עם AI', icon: 'image', needs: 'comfy' },
-  { id: 'inpaint', label: 'עריכת אזור', sub: 'החלפת אזור מסומן', icon: 'wand', needs: 'comfy' },
-  { id: 'video', label: 'תמונה → וידאו', sub: 'הנפשה מתמונה', icon: 'spark', needs: 'video' },
-  { id: 'flf', label: 'לפני / אחרי', sub: 'מעבר בין 2 פריימים', icon: 'spark', needs: 'ltx' },
-  { id: 'presenter', label: 'פרזנטור מוצר', sub: 'פרזנטור + מוצר → ויזואל', icon: 'image', needs: 'qwen' },
+  { id: 'img2img', label: hasKontextModel ? 'עריכה חכמה' : 'תמונה → תמונה', sub: 'עריכה עם AI', icon: 'image' },
+  { id: 'inpaint', label: 'עריכת אזור', sub: 'החלפת אזור מסומן', icon: 'wand' },
+  { id: 'video', label: 'תמונה → וידאו', sub: 'הנפשה מתמונה', icon: 'spark' },
+  { id: 'flf', label: 'לפני / אחרי', sub: 'מעבר בין 2 פריימים', icon: 'spark' },
+  { id: 'presenter', label: 'פרזנטור מוצר', sub: 'פרזנטור + מוצר → ויזואל', icon: 'image' },
   { id: 'lock', label: 'מוצר מדויק', sub: 'Product Lock · קומפוזיט', icon: 'edit' },
-  { id: 'character', label: 'ערכת דמות', sub: 'דמות עקבית · וריאציות', icon: 'image', needs: 'character' },
-  { id: 'album', label: 'אלבום דוגמנית', sub: '8 זוויות מתמונה + בגד', icon: 'image', needs: 'pulid' },
+  { id: 'character', label: 'ערכת דמות', sub: 'דמות עקבית · וריאציות', icon: 'image' },
+  { id: 'album', label: 'אלבום דוגמנית', sub: '8 זוויות מתמונה + בגד', icon: 'image' },
 ];
 
 // Quick clothing/style presets for the model album.
@@ -314,6 +317,7 @@ export default function ImageStudio() {
   const handoffKeyRef = useRef(null);              // one-shot guard per location entry
   const [handoffNotice, setHandoffNotice] = useState(''); // small "prompt came from Jake" hint
   const [mode, setMode] = useState('text');
+  const studioCapsRef = useRef(liveStudioCapabilities()); // configuration-derived; constant for the session
   const [prompt, setPrompt] = useState('');
   const [quality, setQuality] = useState('fast');
   const [presenterQuality, setPresenterQuality] = useState('fast'); // Product Presenter: 'fast' | 'quality'
@@ -430,7 +434,10 @@ export default function ImageStudio() {
   const pulidReady = hasPulidModel;
   const qwenReady = hasQwenEdit;
 
-  const modes = MODES.filter((m) => !m.needs || (m.needs === 'comfy' && hasLocalComfy) || (m.needs === 'video' && (hasVideoModel || hasLtxVideo)) || (m.needs === 'ltx' && hasLtxVideo) || (m.needs === 'kontext' && hasKontextModel) || (m.needs === 'character' && (hasKontextModel || pulidReady)) || (m.needs === 'pulid' && pulidReady) || (m.needs === 'qwen' && qwenReady));
+  // The capability-filtered set is AUTHORITATIVE for every entry path, not
+  // just for the tiles we draw. `studioModes.js` owns the requirements.
+  const studioCaps = liveStudioCapabilities();
+  const modes = MODES.filter((m) => isStudioModeAvailable(m.id, studioCaps));
 
   // S0F.1 (P1) - every async gallery read passes through the commit gate, so a
   // read started for the previous account can never land in the new account's
@@ -469,10 +476,31 @@ export default function ImageStudio() {
     if (!prefill) return;
     handoffKeyRef.current = location.key;
     setPrompt(prefill.prompt);
-    if (prefill.mode) { setMode(prefill.mode); setResult(null); setError(''); }
-    setHandoffNotice('הפרומפט הגיע מג׳ייק — לחץ Generate כדי ליצור.');
+    // A hand-off is an INDIRECT entry path: it must be validated against the
+    // authoritative available-mode set, or it can select a hidden local-only
+    // mode and render its panel in a hosted build (proven in the DOM).
+    let contained = false;
+    if (prefill.mode) {
+      const resolved = resolveStudioMode(prefill.mode, studioCapsRef.current);
+      contained = resolved.contained;
+      setMode(resolved.mode); setResult(null); setError('');
+    }
+    setHandoffNotice(contained
+      ? 'הפרומפט הגיע מג׳ייק. סוג היצירה שביקשת אינו זמין כאן, אז פתחנו יצירת תמונה — אפשר ליצור עם הפרומפט הזה.'
+      : 'הפרומפט הגיע מג׳ייק — לחץ Generate כדי ליצור.');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.key]);
+
+  // Safety net for ANY other indirect input (restored state, deep link, a
+  // future transition): if `mode` is not in the authoritative set, snap back
+  // to a valid business-facing state. useLayoutEffect => before paint, so the
+  // unavailable panel is never rendered to the user even for one frame.
+  useLayoutEffect(() => {
+    if (!isStudioModeAvailable(mode, studioCapsRef.current)) {
+      setMode(resolveStudioMode(mode, studioCapsRef.current).mode);
+      setResult(null); setError('');
+    }
+  }, [mode]);
 
   const activePreset = CREATIVE_PRESETS.find((p) => p.id === activePresetId) || null;
 
@@ -606,7 +634,7 @@ export default function ImageStudio() {
     } catch (e) {
       if (token !== runTokenRef.current) return; // stale run — already handled by cancel
       if (cancelledRef.current) toast('היצירה בוטלה');
-      else setError(e.message || 'שגיאה ביצירת התוכן');
+      else setError(userFacingError(e, 'שגיאה ביצירת התוכן'));
     } finally {
       if (token === runTokenRef.current) {
         setLoading(false);
@@ -633,7 +661,7 @@ export default function ImageStudio() {
       await refreshGallery();
       toast('ערכת הדמות מוכנה ✓ — נשמרה לגלריה');
     } catch (e) {
-      setError(e.message || 'שגיאה ביצירת ערכת הדמות');
+      setError(userFacingError(e, 'שגיאה ביצירת ערכת הדמות'));
     } finally {
       setPackBusy(false);
     }
@@ -653,7 +681,7 @@ export default function ImageStudio() {
       await refreshGallery();
       toast('האלבום מוכן ✓ (8 זוויות) — נשמר בגלריה');
     } catch (e) {
-      setError(e.message || 'שגיאה ביצירת האלבום');
+      setError(userFacingError(e, 'שגיאה ביצירת האלבום'));
     } finally {
       setPackBusy(false);
     }
@@ -690,7 +718,7 @@ export default function ImageStudio() {
       await refreshGallery();
       toast('הקומפוזיט המדויק נשמר בגלריה ✓');
     } catch (e) {
-      setError(e.message || 'שגיאה ביצירת הקומפוזיט');
+      setError(userFacingError(e, 'שגיאה ביצירת הקומפוזיט'));
     } finally {
       setLockBusy(false);
     }
@@ -722,7 +750,7 @@ export default function ImageStudio() {
     } catch (e) {
       if (token !== runTokenRef.current) return; // stale run — already handled by cancel
       if (cancelledRef.current) toast('היצירה בוטלה');
-      else setError(e.message || 'שגיאה בשיפור החיבור');
+      else setError(userFacingError(e, 'שגיאה בשיפור החיבור'));
     } finally {
       if (token === runTokenRef.current) {
         setLockBlendBusy(false);
@@ -767,7 +795,7 @@ export default function ImageStudio() {
       if (r?.src) { try { await galleryStore.add(await srcToBlob(r.src), galleryMeta(r, 'montage')); await refreshGallery(); } catch { /* noop */ } }
       toast('הסרטון הורכב!');
     } catch (e) {
-      setError(e.message || 'שגיאה בהרכבת הסרטון');
+      setError(userFacingError(e, 'שגיאה בהרכבת הסרטון'));
     } finally {
       setGalleryBusy(false); setLoading(false);
     }
@@ -805,7 +833,7 @@ export default function ImageStudio() {
       await refreshGallery();
       toast('כל הסרטונים מוכנים ✓');
     } catch (e) {
-      setError(e.message || 'שגיאה ביצירת הסרטונים');
+      setError(userFacingError(e, 'שגיאה ביצירת הסרטונים'));
     } finally {
       setClipBusy(false);
     }
@@ -852,7 +880,7 @@ export default function ImageStudio() {
       const r = hasLtxVideo ? await ltxVideo(f, prompt, { length: len, ...res }) : await animateImage(f, {});
       setResult(r);
     } catch (e) {
-      setError(e.message || 'שגיאה ביצירת האנימציה');
+      setError(userFacingError(e, 'שגיאה ביצירת האנימציה'));
     } finally {
       setLoading(false);
     }
