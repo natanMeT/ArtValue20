@@ -244,7 +244,7 @@ redirect to `/studio`.
 - **This runtime smoke caught a real regression that 3,094 source-level tests did not:** moving the capability flags from
   `useState` to plain `const` placed them *after* the `modes` list that reads them → a temporal-dead-zone
   `ReferenceError` that blanked the entire Studio. Fixed, and the declaration order is now pinned by a test.
-- **Tests:** 121 files / **3,098 passed, 1 skipped, 0 failed**. New suite
+- **Tests (first head):** 121 files / 3,098 passed, 1 skipped, 0 failed. **After the fail-closed correction the FOCUSED affected surface was run** — every test file touching `geminiImage` / the changed flags / the Studio pages: **27 files / 1,608 passed / 0 failed** — plus a green production build. The full suite was last green at the previous head; it was not rerun, because the changed exports have exactly two production consumers (`geminiImage.js`, `ImageStudio.jsx`) and every test file importing them was included. New suite
   `src/pages/__tests__/studioLocalEngineContainment.test.js` (30 cases). Three pre-existing assertions were updated to
   the new, stronger guarantees (the result badge now names no engine on *any* lane, not just the Gateway lane).
 - **Build:** green. **Built-artifact scan:** `ComfyUI`, `Fooocus`, `PuLID`, `start_engine`, and every removed Hebrew
@@ -259,23 +259,42 @@ AI Gateway contracts and cloud routing, Edge `ai-gateway` **v35** (not redeploye
 (none added), Production deployment, Growth containment (still fully `BetaUnavailable`), and all user data — nothing
 migrated, deleted or rewritten. No new provider.
 
-### Review findings (Codex) — both CONFIRMED and FIXED
-Codex raised **2 P2 findings** on the first commit; both were verified against the code before acting, and both are fixed in `b807fa1`:
-1. **Optional stacks were no longer gated by anything.** `COMFY_PULID_MODEL` / `QWEN_UNET` / `QWEN_CLIP` / `QWEN_VAE` all
-   carry a non-empty `||` default, so `hasPulidModel` / `hasQwenEdit` collapsed to `Boolean(COMFY_URL)` — a rig with
-   ComfyUI but without those optional custom nodes would have shown the album/presenter modes and always routed character
-   packs through PuLID instead of the Kontext fallback. Fixed with an explicit opt-out
-   (`VITE_COMFYUI_PULID` / `VITE_COMFYUI_QWEN_EDIT` = `0`/`false`/`off`/`no`) rather than a restored page-load probe.
-   **Stated limitation: this is operator-declared, not discovered — coarser than the removed runtime node checks.**
-2. **FLUX presets silently fell back to the SDXL graph.** Dropping `arch` with the picker made `useFlux` false for every
-   local render. Fixed by deriving the family from the applied **preset's own metadata** (`presetArch`), which is a
-   business choice the user already made — no checkpoint filename returns, and the Gateway payload is unchanged.
+### Review findings (Codex) — round 1 (2 x P2), plus a follow-up correction
+Codex reviewed the first commit and raised **2 P2 findings**. Both were verified against the code before acting.
 
-Re-verified at runtime after the fixes: Studio renders, 9 modes, **0** local-engine fetches on open, **0** console errors,
-**0** engine terms in the DOM. Tests **121/3098/1skip**; build green.
+**Finding 1 — optional stacks were no longer gated by anything.** `COMFY_PULID_MODEL` / `QWEN_UNET` / `QWEN_CLIP` /
+`QWEN_VAE` all carry a non-empty `||` default, so `hasPulidModel` / `hasQwenEdit` collapsed to `Boolean(COMFY_URL)`: a rig
+with ComfyUI but without those optional custom nodes would have shown the album/presenter modes and always routed
+character packs through PuLID instead of the Kontext fallback.
+- **First attempt (`b807fa1`) was INSUFFICIENT and is superseded.** It added an opt-*out*
+  (`VITE_COMFYUI_PULID=0`), which still treated **missing/undefined configuration as available** — i.e. fail **open**.
+  Nathan's review caught that it did not satisfy the capability invariant.
+- **Corrected (`d3f8ef1`): optional capabilities now FAIL CLOSED.** A capability is unavailable unless **positively
+  declared** (`1`/`true`/`on`/`yes`); missing, undefined, empty, unknown or malformed configuration => **unavailable**.
+  The Kontext fallback is preserved rather than routed into, and the Studio still performs no discovery request on open
+  or while idle. **Stated limitation:** this is a positive *declaration*, not runtime discovery — it cannot detect a stack
+  that is installed but undeclared (that rig declares it once, in `.env`), which is the safe direction to be wrong in.
+
+**Finding 2 — FLUX presets silently fell back to the SDXL graph.** Dropping `arch` with the picker made `useFlux` false
+for every local render. Fixed by deriving the family from the applied **preset's own metadata** via the exported pure
+`presetModelFamily()`; no checkpoint filename returns and the Gateway payload is unchanged.
+
+### Evidence for the correction — execution-level, with negative controls
+`src/pages/__tests__/studioCapabilityAndRouting.test.js` (15 cases) proves behaviour, not source text:
+- **Capability matrix (executed):** engine configured + undeclared -> **unavailable**; positively declared
+  (`1`/`true`/`on`/`yes`) -> available; explicitly `0`/`false`/`off`/`no` -> unavailable; malformed
+  (`maybe`, `2`, whitespace, `undefined`) -> unavailable; no engine -> unavailable even if declared.
+- **Dependent modes + fallback (executed):** undeclared stacks do not expose album/presenter; character series stays
+  available via Kontext and `usePulid` is false, so work is never routed into an absent stack.
+- **FLUX routing (executed through the REAL call seam):** `presetModelFamily(preset)` -> `generateImage()` -> `comfyUI()`
+  -> `comfySubmit()` -> `fetch('/prompt')`, with the submitted **graph** inspected. A FLUX business preset produces a
+  graph containing `FluxGuidance` + `EmptySD3LatentImage`; a non-FLUX preset and "no preset" produce the SDXL graph
+  (`EmptyLatentImage`, no `FluxGuidance`). Family is read from graph structure, so no label is trusted.
+- **Negative controls run (both bite):** forcing `presetModelFamily` to return `undefined` fails the FLUX execution test;
+  restoring the fail-open predicate fails 6 capability tests. A green result here is therefore meaningful.
 
 ### Verification still required before Preview and Production
-1. Any further review findings addressed.
+1. **A fresh Codex review of the corrected head** (`@codex review` requested) and any substantiated finding addressed.
 2. Preview deploy and **authenticated cloud acceptance** — the runtime smoke above was local/demo only; the
    authenticated cloud path (where the engine gate is closed and the local-only modes are hidden) has **not** been
    exercised in a browser.

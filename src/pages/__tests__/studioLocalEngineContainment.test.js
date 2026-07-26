@@ -156,44 +156,38 @@ describe('Studio containment · no local-engine request on mount', () => {
     expect(geminiImage).toContain("import { resolveLocalEngineUrl } from './localEngines.js'");
   });
 
-  it('RUNTIME: the optional PuLID / Qwen stacks can be turned OFF without a probe', async () => {
-    // Codex review (PR #114): every model constant carries a non-empty `||`
-    // default, so an engine URL alone would light up the album/presenter modes
-    // — and always route character packs through PuLID — on a rig that has
-    // neither stack installed. An explicit opt-out restores an accurate signal
-    // while still issuing no request when the Studio opens.
+  it('RUNTIME: an optional capability defaults to UNAVAILABLE when undeclared', async () => {
+    // Fail-closed containment (PR #114 review). Full behavioural matrix —
+    // declared / undeclared / explicitly-off / malformed / no-engine, plus the
+    // preserved Kontext fallback — lives in studioCapabilityAndRouting.test.js.
+    // Pinned here too because it is a containment property, not just a flag.
     const { vi } = await import('vitest');
-    const load = async (env) => {
-      for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
-      vi.resetModules();
-      const m = await import('../../lib/geminiImage.js');
-      const out = { pulid: m.hasPulidModel, qwen: m.hasQwenEdit };
-      vi.unstubAllEnvs();
-      return out;
-    };
-    // engine configured, stacks not opted out → both available (today's rig)
-    expect(await load({ VITE_COMFYUI_URL: 'http://127.0.0.1:8188' })).toEqual({ pulid: true, qwen: true });
-    // engine configured, stacks explicitly absent → both unavailable
-    expect(await load({
-      VITE_COMFYUI_URL: 'http://127.0.0.1:8188', VITE_COMFYUI_PULID: '0', VITE_COMFYUI_QWEN_EDIT: 'false',
-    })).toEqual({ pulid: false, qwen: false });
-    // no engine at all (every hosted build) → both unavailable regardless
-    expect(await load({ VITE_COMFYUI_URL: '' })).toEqual({ pulid: false, qwen: false });
+    vi.stubEnv('VITE_COMFYUI_URL', 'http://127.0.0.1:8188');
+    vi.stubEnv('VITE_COMFYUI_PULID', '');
+    vi.stubEnv('VITE_COMFYUI_QWEN_EDIT', '');
+    vi.resetModules();
+    const m = await import('../../lib/geminiImage.js');
+    const seen = { comfy: m.hasLocalComfy, pulid: m.hasPulidModel, qwen: m.hasQwenEdit };
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    // The engine is configured, yet the OPTIONAL stacks stay closed: an engine
+    // URL must never be read as "these custom-node stacks are installed".
+    expect(seen).toEqual({ comfy: true, pulid: false, qwen: false });
   });
 });
 
 describe('Studio containment · preset routing survives the hidden picker', () => {
-  it('an applied FLUX preset still selects the flux family — without naming a checkpoint', () => {
+  it('the family comes from the applied preset, and no checkpoint is reintroduced', () => {
     // Codex review (PR #114): dropping `arch` with the picker made every local
-    // render fall back to the SDXL graph, so the FLUX-authored recipes no
-    // longer ran on the engine they were written for. The family now comes
-    // from the PRESET's own metadata, never from a user-facing control.
-    expect(studioCode).toContain("activePreset.modelFamily === 'flux'");
+    // render fall back to the SDXL graph, so FLUX-authored recipes no longer
+    // ran on the engine they were written for. The decision now lives in the
+    // exported pure `presetModelFamily`, proven by EXECUTION through the real
+    // generateImage → /prompt seam in studioCapabilityAndRouting.test.js.
+    // These remain source-level (proxy) checks on the wiring only.
+    expect(imageStudio).toContain('export function presetModelFamily(preset)');
+    expect(imageStudio).toContain("preset.modelFamily === 'flux' ? 'flux' : undefined");
+    expect(studioCode).toContain('const presetArch = presetModelFamily(activePreset);');
     expect(studioCode).toContain('arch: presetArch');
-    const start = studioCode.indexOf('const presetArch =');
-    expect(start).toBeGreaterThan(-1);
-    const decl = studioCode.slice(start, studioCode.indexOf(';', start));
-    expect(decl).toContain('isTextImagePreset(activePreset)');
     // …and no checkpoint filename is reintroduced anywhere.
     expect(studioCode.includes('recommendedModel')).toBe(false);
     expect(studioCode.includes('model:')).toBe(false);

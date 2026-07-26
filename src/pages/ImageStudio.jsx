@@ -288,6 +288,18 @@ export function imagePromptTooLongMessage({ length, limit }, paletteApplied) {
   return `${head}${how} לא נשלחה בקשה ליצירה.`;
 }
 
+// The model FAMILY an applied preset was authored for, as a pure exported
+// decision so it can be executed against the real generation seam rather than
+// pinned as source text. This is the PRESET's own business metadata — the user
+// picks "ויזואל עסקי פרימיום", not a checkpoint — so the routing survives the
+// removal of the technical picker without exposing any engine detail.
+// Returns undefined for no preset, a non-text preset, or a non-FLUX family,
+// which lets the engine apply its own default (identical to today's behavior).
+export function presetModelFamily(preset) {
+  if (!preset || !isTextImagePreset(preset)) return undefined;
+  return preset.modelFamily === 'flux' ? 'flux' : undefined;
+}
+
 export default function ImageStudio() {
   const { toast, data, session } = useStore();
   const location = useLocation();
@@ -464,15 +476,9 @@ export default function ImageStudio() {
 
   const activePreset = CREATIVE_PRESETS.find((p) => p.id === activePresetId) || null;
 
-  // The model FAMILY an applied text-image preset was authored for. This is the
-  // preset's own business metadata, not a technical control the user operates —
-  // it keeps the FLUX-authored recipes rendering on the FLUX graph now that the
-  // checkpoint picker is gone. `undefined` (no preset, or a non-text preset) lets
-  // the engine choose its default, and the hosted Gateway ignores it entirely
-  // (its payload is prompt + aspectRatio only).
-  const presetArch = activePreset && isTextImagePreset(activePreset) && activePreset.modelFamily === 'flux'
-    ? 'flux'
-    : undefined;
+  // Family of the applied preset (pure decision, exported + execution-tested).
+  // The hosted Gateway ignores it entirely — its payload is prompt + aspectRatio.
+  const presetArch = presetModelFamily(activePreset);
 
   // Apply a business preset into the existing Text-to-Image controls. Explicit
   // user click only — NEVER generates. Always fills the prompt scaffold; for

@@ -54,27 +54,28 @@ export const hasKontextModel = Boolean(COMFY_URL && COMFY_KONTEXT_MODEL && COMFY
 // now derived from configuration exactly like every flag above, so opening the
 // Studio performs ZERO local-engine requests. With the localEngines gate closed
 // (every hosted build) COMFY_URL is '' and both are false, unchanged.
-// PuLID and Qwen-Edit are OPTIONAL custom-node stacks — a ComfyUI install can
-// be perfectly healthy without them. Their model constants above all carry a
-// non-empty `||` default, so they cannot themselves signal "installed"; an
-// engine URL alone would light up the album/presenter modes on a rig that has
-// neither, and would always route character packs through PuLID instead of
-// falling back to Kontext. So the two stacks are explicitly opt-OUT-able:
-// set VITE_COMFYUI_PULID / VITE_COMFYUI_QWEN_EDIT to 0 (or false) on a rig
-// without them. Configuration-derived, so opening the Studio still probes
-// nothing; coarser than the removed runtime node checks, and deliberately so.
-function optionalStackEnabled(raw) {
+// PuLID (identity lock) and Qwen-Edit (multi-image compose) are OPTIONAL
+// custom-node stacks — a ComfyUI install is perfectly healthy without them, and
+// NONE of the model constants above can prove presence: each carries a
+// non-empty `||` default, so an engine URL alone tells us nothing.
+//
+// They therefore FAIL CLOSED: a capability is unavailable unless it is
+// POSITIVELY declared. Missing, undefined, empty, unknown or malformed
+// configuration => UNAVAILABLE. A rig that has never declared these stacks can
+// never be shown a mode it cannot actually run, and character packs keep
+// falling back to the Kontext path instead of being routed into an absent one.
+//
+// Declaring is a deployment/configuration act, never a user-facing control, and
+// it costs nothing at runtime — opening or idling in the Studio still issues no
+// local-engine request. This is a positive declaration, not runtime discovery:
+// it cannot detect a stack that was installed but never declared (that rig
+// declares it once, in config) — which is the safe direction to be wrong in.
+export function optionalCapabilityDeclared(raw) {
   const v = String(raw ?? '').trim().toLowerCase();
-  return v !== '0' && v !== 'false' && v !== 'off' && v !== 'no';
+  return v === '1' || v === 'true' || v === 'on' || v === 'yes';
 }
-export const hasPulidModel = Boolean(                                       // identity-locked series
-  COMFY_URL && COMFY_PULID_MODEL && COMFY_FLUX_MODEL
-  && optionalStackEnabled(import.meta.env.VITE_COMFYUI_PULID),
-);
-export const hasQwenEdit = Boolean(                                         // multi-image compose
-  COMFY_URL && QWEN_UNET && QWEN_CLIP && QWEN_VAE
-  && optionalStackEnabled(import.meta.env.VITE_COMFYUI_QWEN_EDIT),
-);
+export const hasPulidModel = Boolean(COMFY_URL && optionalCapabilityDeclared(import.meta.env.VITE_COMFYUI_PULID));
+export const hasQwenEdit = Boolean(COMFY_URL && optionalCapabilityDeclared(import.meta.env.VITE_COMFYUI_QWEN_EDIT));
 export const localEngineUrl = COMFY_URL;
 
 // Ping the local engine. Returns true if ComfyUI is up and reachable.
