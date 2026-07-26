@@ -18,6 +18,7 @@ import {
 import { watchJob, cancelJob } from '../lib/comfyProgress.js';
 import { createGalleryStore, srcToBlob, GALLERY_MAX, filterGalleryItems } from '../lib/galleryStore.js';
 import { activeBrandPalette, withBrandPalette } from '../lib/brandPalette.js';
+import { AI_GATEWAY_INPUT_LIMITS } from '../lib/aiGatewayInput.js';
 import { CREATIVE_PRESETS, isTextImagePreset } from '../data/creativePresets.js';
 import PosterEditor from '../components/studio/PosterEditor.jsx';
 import MockupStudio from '../components/studio/MockupStudio.jsx';
@@ -267,6 +268,69 @@ function JobElapsed({ at }) {
   return <span className="dim job-elapsed"><bdi>{Math.floor(sec / 60)}:{String(sec % 60).padStart(2, '0')}</bdi></span>;
 }
 
+// ===================================================================
+// S0F.1 review corrections - two pure, exported helpers so the behavior can
+// be proven with real deferred promises instead of source pinning.
+// ===================================================================
+
+// P1 - account-switch commit gate. A gallery read started for account A must
+// never call setGallery after the active namespace has moved to B. Guarded on
+// BOTH request generation and store identity, so it never relies on promise
+// ordering: start() captures the generation at request time, and any later
+// setActiveStore() (an account switch) invalidates every in-flight read.
+export function createGalleryCommitGate() {
+  let activeStore = null;
+  let generation = 0;
+  return {
+    // Called when the active account/namespace changes.
+    setActiveStore(store) { activeStore = store; generation += 1; },
+    // Captured at request time -> () => boolean 'this result may still commit'.
+    start(store) {
+      const at = generation;
+      return () => store === activeStore && at === generation;
+    },
+  };
+}
+
+// Release the object URLs of a gallery batch we are about to DISCARD (a stale
+// result, or the outgoing account's list). Each list() mints fresh URLs, so a
+// discarded batch never shares URLs with the batch currently rendered - this
+// can not revoke a URL still owned by active state. Pure + injectable revoker.
+export function disposeGalleryItems(items, revoke) {
+  const fn = revoke || (typeof URL !== 'undefined' && URL.revokeObjectURL
+    ? (u) => URL.revokeObjectURL(u) : null);
+  if (!fn) return 0;
+  let n = 0;
+  for (const it of Array.isArray(items) ? items : []) {
+    if (it && typeof it.url === 'string' && it.url) { try { fn(it.url); n += 1; } catch { /* ignore */ } }
+  }
+  return n;
+}
+
+// P2 - the hosted Gateway validates the TRIMMED prompt against
+// MAX_IMAGE_PROMPT_CHARS and REJECTS over-limit input (it never truncates), so
+// appending the brand-palette block can push a previously-valid prompt over the
+// line. We measure the FINAL composed prompt exactly as it will be sent and
+// block locally BEFORE any request. Returns null when it fits (or when the
+// request is not Gateway-bound), else { length, limit }. Never truncates and
+// never alters an approved HEX value.
+export function gatewayImagePromptOverflow(composedPrompt, opts = {}) {
+  if (!opts.gatewayLane) return null;
+  const limit = typeof opts.limit === 'number' ? opts.limit : AI_GATEWAY_INPUT_LIMITS.MAX_IMAGE_PROMPT_CHARS;
+  const length = String(composedPrompt == null ? '' : composedPrompt).trim().length;
+  return length > limit ? { length, limit } : null;
+}
+
+// Truthful Hebrew error: says nothing was sent, and names the palette as the
+// lever ONLY when palette guidance actually contributed to the length.
+export function imagePromptTooLongMessage({ length, limit }, paletteApplied) {
+  const head = `הפרומפט ארוך מדי — ${length} תווים מתוך ${limit} המותרים.`;
+  const how = paletteApplied
+    ? ' הנחיית פלטת המותג מתווספת לפרומפט; קצר/י את התיאור או כבה/י את הנחיית הפלטה ליצירה הזו.'
+    : ' קצר/י את התיאור ונסה/י שוב.';
+  return `${head}${how} לא נשלחה בקשה ליצירה.`;
+}
+
 export default function ImageStudio() {
   const { toast, data, session } = useStore();
   const location = useLocation();
@@ -391,10 +455,32 @@ export default function ImageStudio() {
 
   const modes = MODES.filter((m) => !m.needs || (m.needs === 'comfy' && hasLocalComfy) || (m.needs === 'video' && (hasVideoModel || hasLtxVideo)) || (m.needs === 'ltx' && hasLtxVideo) || (m.needs === 'kontext' && hasKontextModel) || (m.needs === 'character' && (hasKontextModel || pulidReady)) || (m.needs === 'pulid' && pulidReady) || (m.needs === 'qwen' && qwenReady));
 
-  const refreshGallery = async () => { try { setGallery(await galleryStore.list()); } catch { /* noop */ } };
+  // S0F.1 (P1) - every async gallery read passes through the commit gate, so a
+  // read started for the previous account can never land in the new account's
+  // state, no matter how the promises interleave. A stale batch is disposed
+  // (its object URLs revoked) instead of being rendered.
+  const galleryRef = useRef([]);
+  galleryRef.current = gallery;
+  const gateRef = useRef(null);
+  if (!gateRef.current) gateRef.current = createGalleryCommitGate();
+
+  const refreshGallery = async () => {
+    const store = galleryStore;
+    const mayCommit = gateRef.current.start(store);
+    let items;
+    try { items = await store.list(); } catch { return; }
+    if (!mayCommit()) { disposeGalleryItems(items); return; } // account switched mid-flight
+    setGallery(items);
+  };
   // S0F.1: re-read when the account (and therefore the gallery namespace)
   // changes, so a switch never leaves the previous account's list on screen.
-  useEffect(() => { setGallery([]); refreshGallery(); }, [galleryStore]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Registering the new store also invalidates every in-flight read.
+  useEffect(() => {
+    gateRef.current.setActiveStore(galleryStore);
+    disposeGalleryItems(galleryRef.current); // outgoing account's URLs
+    setGallery([]);
+    refreshGallery();
+  }, [galleryStore]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Jake handoff prefill (Phase 2): consume a router-state payload ONCE per
   // location entry — prefill the prompt (and mode, if the workflow maps to a
@@ -501,6 +587,13 @@ export default function ImageStudio() {
     engine: r?.engine || 'local',
   });
 
+  // S0F.1 (P2) — will THIS request be served by the hosted AI Gateway (and so be
+  // subject to the server's image-prompt limit)? generateImage prefers a local
+  // ComfyUI engine and only falls through to the Gateway when none is resolved;
+  // text-to-image is the sole mode with a Gateway lane (every other mode is
+  // ComfyUI-only). Local-engine behavior is therefore left exactly as it was.
+  const usesGatewayImageLane = mode === 'text' && !localEngineUrl && isImageAiConfigured;
+
   const run = async () => {
     if (mode === 'text' && !prompt.trim()) { setError('יש להזין תיאור לתמונה'); return; }
     if (mode !== 'text' && !file) { setError(mode === 'flf' ? 'העלה תמונת "לפני"' : mode === 'presenter' ? 'העלה תמונת פרזנטור' : 'יש להעלות תמונה תחילה'); return; }
@@ -508,18 +601,25 @@ export default function ImageStudio() {
     if (mode === 'presenter' && !endFile) { setError('העלה גם תמונת מוצר'); return; }
     if (mode === 'presenter' && !prompt.trim()) { setError('כתוב הוראת שילוב — מה לעשות עם המוצר'); return; }
     if (mode === 'inpaint' && !maskRef.current?.hasMask()) { setError('סמן עם המברשת את האזור לעריכה'); return; }
+    // S0F.1 (D5) - brand-palette guidance. The account's EXACT stored HEX values
+    // are appended as a delimited block; with the toggle OFF, no configured
+    // palette, or a malformed one, `p` is byte-identical to the user's prompt.
+    // The Gateway payload shape and action type are unchanged - this is prompt
+    // text only. `prompt` itself stays untouched (UI + gallery metadata).
+    const p = withBrandPalette(prompt, data?.businessProfile, paletteOn);
+    // S0F.1 (P2) - the hosted Gateway REJECTS an over-limit prompt (it never
+    // truncates), so the palette block could push a previously-valid prompt over
+    // the line and surface only a generic failure. Validate the FINAL composed
+    // prompt here, before any request: zero Gateway calls, a specific truthful
+    // error, the user's input preserved, and no approved HEX value altered.
+    const overflow = gatewayImagePromptOverflow(p, { gatewayLane: usesGatewayImageLane });
+    if (overflow) { setError(imagePromptTooLongMessage(overflow, p !== prompt)); return; }
     const token = ++runTokenRef.current;
     cancelledRef.current = false;
     setJob(null);
     setLoading(true); setError(''); setResult(null); setImgReady(false); setImgAttempt(0);
     try {
       markNextComfyJob('studio-run'); // claim the next engine submission for the job card
-      // S0F.1 (D5) — brand-palette guidance. The account's EXACT stored HEX values
-      // are appended as a delimited block; with the toggle OFF, no configured
-      // palette, or a malformed one, `p` is byte-identical to the user's prompt.
-      // The Gateway payload shape and action type are unchanged — this is prompt
-      // text only. `prompt` itself stays untouched (UI + gallery metadata).
-      const p = withBrandPalette(prompt, data?.businessProfile, paletteOn);
       let r;
       if (mode === 'text') {
         const asp = ASPECTS.find((a) => a.id === aspect) || ASPECTS[0];
