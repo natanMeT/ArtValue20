@@ -244,7 +244,7 @@ redirect to `/studio`.
 - **This runtime smoke caught a real regression that 3,094 source-level tests did not:** moving the capability flags from
   `useState` to plain `const` placed them *after* the `modes` list that reads them → a temporal-dead-zone
   `ReferenceError` that blanked the entire Studio. Fixed, and the declaration order is now pinned by a test.
-- **Tests:** 121 files / **3,094 passed, 1 skipped, 0 failed**. New suite
+- **Tests:** 121 files / **3,098 passed, 1 skipped, 0 failed**. New suite
   `src/pages/__tests__/studioLocalEngineContainment.test.js` (30 cases). Three pre-existing assertions were updated to
   the new, stronger guarantees (the result badge now names no engine on *any* lane, not just the Gateway lane).
 - **Build:** green. **Built-artifact scan:** `ComfyUI`, `Fooocus`, `PuLID`, `start_engine`, and every removed Hebrew
@@ -259,8 +259,23 @@ AI Gateway contracts and cloud routing, Edge `ai-gateway` **v35** (not redeploye
 (none added), Production deployment, Growth containment (still fully `BetaUnavailable`), and all user data — nothing
 migrated, deleted or rewritten. No new provider.
 
+### Review findings (Codex) — both CONFIRMED and FIXED
+Codex raised **2 P2 findings** on the first commit; both were verified against the code before acting, and both are fixed in `b807fa1`:
+1. **Optional stacks were no longer gated by anything.** `COMFY_PULID_MODEL` / `QWEN_UNET` / `QWEN_CLIP` / `QWEN_VAE` all
+   carry a non-empty `||` default, so `hasPulidModel` / `hasQwenEdit` collapsed to `Boolean(COMFY_URL)` — a rig with
+   ComfyUI but without those optional custom nodes would have shown the album/presenter modes and always routed character
+   packs through PuLID instead of the Kontext fallback. Fixed with an explicit opt-out
+   (`VITE_COMFYUI_PULID` / `VITE_COMFYUI_QWEN_EDIT` = `0`/`false`/`off`/`no`) rather than a restored page-load probe.
+   **Stated limitation: this is operator-declared, not discovered — coarser than the removed runtime node checks.**
+2. **FLUX presets silently fell back to the SDXL graph.** Dropping `arch` with the picker made `useFlux` false for every
+   local render. Fixed by deriving the family from the applied **preset's own metadata** (`presetArch`), which is a
+   business choice the user already made — no checkpoint filename returns, and the Gateway payload is unchanged.
+
+Re-verified at runtime after the fixes: Studio renders, 9 modes, **0** local-engine fetches on open, **0** console errors,
+**0** engine terms in the DOM. Tests **121/3098/1skip**; build green.
+
 ### Verification still required before Preview and Production
-1. Merge review + Codex findings addressed.
+1. Any further review findings addressed.
 2. Preview deploy and **authenticated cloud acceptance** — the runtime smoke above was local/demo only; the
    authenticated cloud path (where the engine gate is closed and the local-only modes are hidden) has **not** been
    exercised in a browser.
