@@ -11,6 +11,9 @@ import { QUOTE_STATUS, uid } from '../data/seed.js';
 import { formatCurrency, formatDate, STATUS_LABELS } from '../lib/format.js';
 import { quoteTotal } from '../lib/calc.js';
 import { buildQuoteShareMessage } from '../lib/quoteIssuer.js';
+import { saveLabel } from '../lib/saveLabel.js';
+import { isSupabaseConfigured } from '../lib/supabase.js';
+import { BETA_MESSAGES } from '../lib/betaCapabilities.js';
 
 const FILTERS = [{ key: 'all', label: 'הכל' }, ...QUOTE_STATUS.map((s) => ({ key: s, label: STATUS_LABELS[s] }))];
 
@@ -22,7 +25,10 @@ function waLink(phone, text) {
 }
 
 export default function Quotes() {
-  const { data, dispatch, toast } = useStore();
+  const { data, dispatch, toast, mode } = useStore();
+  // Cloud beta: ADD_PROJECT is a Memory-Only dispatch (blocked by the store
+  // firewall), so quote→project conversion must not run or claim success there.
+  const cloudBeta = isSupabaseConfigured;
   const navigate = useNavigate();
   const location = useLocation();
   const [filter, setFilter] = useState('all');
@@ -54,14 +60,16 @@ export default function Quotes() {
     return m;
   }, [data.quotes]);
 
-  const save = (quote) => {
-    if (quote.id) {
-      dispatch({ type: 'UPDATE_QUOTE', payload: quote });
-      toast('ההצעה עודכנה · נשמר מקומית');
-    } else {
-      dispatch({ type: 'ADD_QUOTE', payload: quote });
-      toast('הצעת מחיר נוצרה · נשמר מקומית');
-    }
+  // Await the store's settled { ok } result — show success and close the modal
+  // ONLY on ok:true (same contract as Clients.save, S0B). On failure the store
+  // shows its error toast and restores authoritative cloud state; we keep the
+  // modal open with the submitted values for correction, no success toast.
+  const save = async (quote) => {
+    const res = await dispatch(quote.id
+      ? { type: 'UPDATE_QUOTE', payload: quote }
+      : { type: 'ADD_QUOTE', payload: quote });
+    if (res?.ok === false) return;
+    toast(quote.id ? `ההצעה עודכנה · ${saveLabel(mode)}` : `הצעת מחיר נוצרה · ${saveLabel(mode)}`);
     setEditing(null);
     setPreset(null);
   };
@@ -69,10 +77,20 @@ export default function Quotes() {
   const setStatus = (quote, status) => {
     dispatch({ type: 'UPDATE_QUOTE', payload: { id: quote.id, status } });
     toast(`סטטוס עודכן: ${STATUS_LABELS[status]}`);
-    if (status === 'accepted') setConvertOffer(quote);
+    // Cloud beta: never offer the project conversion dialog (Projects is
+    // Memory-Only there); local/demo keeps the existing offer unchanged.
+    if (status === 'accepted' && !cloudBeta) setConvertOffer(quote);
   };
 
   const toProject = (quote) => {
+    // Cloud beta containment: ADD_PROJECT would be blocked by the store
+    // firewall ({ ok:false }, nothing persisted) — so do not dispatch, do not
+    // claim success, do not navigate to a project that was never created.
+    if (cloudBeta) {
+      toast(BETA_MESSAGES.quoteToProjectUnavailable, 'error');
+      setConvertOffer(null);
+      return;
+    }
     const id = uid('pr');
     const client = data.clients.find((c) => c.id === quote.clientId);
     dispatch({
@@ -173,11 +191,18 @@ export default function Quotes() {
                   {QUOTE_STATUS.map((s) => <option key={s} value={s}>שינוי סטטוס · {STATUS_LABELS[s]}</option>)}
                 </select>
 
-                {quote.status === 'accepted' && (
+                {quote.status === 'accepted' && (cloudBeta ? (
+                  /* Truthful cloud-beta state: Projects has no cloud save path
+                     yet, so the conversion control is disabled — not a dead
+                     button that toasts success and navigates nowhere. */
+                  <div className="dim" style={{ fontSize: '0.78rem' }}>
+                    {BETA_MESSAGES.quoteToProjectUnavailable}
+                  </div>
+                ) : (
                   <button className="btn btn-primary btn-sm btn-block" onClick={() => toProject(quote)}>
                     <Icon name="briefcase" size={16} /> הפוך לפרויקט
                   </button>
-                )}
+                ))}
 
                 <div className="row gap-2 wrap">
                   <button className="icon-action call" onClick={() => openPrint(quote)} title="תצוגה / PDF" aria-label="הדפסה"><Icon name="print" size={16} /></button>

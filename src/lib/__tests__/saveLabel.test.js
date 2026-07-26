@@ -49,9 +49,9 @@ describe('saveLabel · Clients page wiring (source pins)', () => {
     // the helper itself is pure — no store/api/supabase imports
     const helper = read('../saveLabel.js');
     expect(/^import\b/m.test(helper)).toBe(false);
-    // out-of-scope pages keep their existing wording (changing them is a
-    // separate, deliberate pass — this fix is the client-save toast only)
-    expect(read('../../pages/Finance.jsx').includes('נשמר מקומית')).toBe(true);
-    expect(read('../../pages/Quotes.jsx').includes('נשמר מקומית')).toBe(true);
+    // Quotes + Finance adopted saveLabel(mode) in the quote/finance
+    // save-truthfulness fix — no hardcoded local wording remains there either.
+    expect(read('../../pages/Finance.jsx').includes('נשמר מקומית')).toBe(false);
+    expect(read('../../pages/Quotes.jsx').includes('נשמר מקומית')).toBe(false);
   });
 });
