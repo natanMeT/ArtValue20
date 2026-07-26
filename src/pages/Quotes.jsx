@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useStore } from '../store/store.jsx';
@@ -36,6 +36,11 @@ export default function Quotes() {
   const [preset, setPreset] = useState(null);
   const [toDelete, setToDelete] = useState(null);
   const [convertOffer, setConvertOffer] = useState(null);
+  // In-flight save guard. The ref is the SYNCHRONOUS latch (two click events can
+  // run in the same tick, before any rerender — state alone cannot block that);
+  // `saving` is the visible pending state that disables the modal submit.
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
 
   const clientName = (id) => data.clients.find((c) => c.id === id)?.name || 'לקוח לא ידוע';
   const clientPhone = (id) => data.clients.find((c) => c.id === id)?.phone || '';
@@ -64,14 +69,26 @@ export default function Quotes() {
   // ONLY on ok:true (same contract as Clients.save, S0B). On failure the store
   // shows its error toast and restores authoritative cloud state; we keep the
   // modal open with the submitted values for correction, no success toast.
+  // The savingRef latch guarantees EXACTLY ONE dispatch per in-flight save —
+  // a second submit while the write is pending returns immediately (no second
+  // row, no duplicate quote). Both latch and visible state release in finally,
+  // so after a failure the user can correct and resubmit.
   const save = async (quote) => {
-    const res = await dispatch(quote.id
-      ? { type: 'UPDATE_QUOTE', payload: quote }
-      : { type: 'ADD_QUOTE', payload: quote });
-    if (res?.ok === false) return;
-    toast(quote.id ? `ההצעה עודכנה · ${saveLabel(mode)}` : `הצעת מחיר נוצרה · ${saveLabel(mode)}`);
-    setEditing(null);
-    setPreset(null);
+    if (savingRef.current) return; // already in flight — block same-tick re-entry
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const res = await dispatch(quote.id
+        ? { type: 'UPDATE_QUOTE', payload: quote }
+        : { type: 'ADD_QUOTE', payload: quote });
+      if (res?.ok === false) return;
+      toast(quote.id ? `ההצעה עודכנה · ${saveLabel(mode)}` : `הצעת מחיר נוצרה · ${saveLabel(mode)}`);
+      setEditing(null);
+      setPreset(null);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   const setStatus = (quote, status) => {
@@ -226,6 +243,7 @@ export default function Quotes() {
         quotes={data.quotes}
         initial={editing && editing !== 'new' ? editing : null}
         presetClientId={preset}
+        saving={saving}
       />
 
       <ConfirmDialog

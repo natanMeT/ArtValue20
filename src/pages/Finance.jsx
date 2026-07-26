@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useStore } from '../store/store.jsx';
 import { StaggerGroup, Reveal, ScrollReveal } from '../components/ui/motion.jsx';
@@ -36,6 +36,11 @@ export default function Finance() {
   const [editing, setEditing] = useState(null); // 'new' | tx
   const [toDelete, setToDelete] = useState(null);
   const [typeFilter, setTypeFilter] = useState('all');
+  // In-flight save guard. The ref is the SYNCHRONOUS latch (two click events can
+  // run in the same tick, before any rerender — state alone cannot block that);
+  // `saving` is the visible pending state that disables the modal submit.
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
 
   const totals = useMemo(() => financeTotals(data.transactions), [data.transactions]);
   const series = useMemo(() => monthlySeries(data.transactions, 12), [data.transactions]);
@@ -53,13 +58,25 @@ export default function Finance() {
   // ONLY on ok:true (same contract as Clients.save, S0B). On failure the store
   // shows its error toast and restores authoritative cloud state; we keep the
   // modal open with the submitted values for correction, no success toast.
+  // The savingRef latch guarantees EXACTLY ONE dispatch per in-flight save —
+  // a second submit while the write is pending returns immediately (no second
+  // row, no duplicate transaction). Both latch and visible state release in
+  // finally, so after a failure the user can correct and resubmit.
   const save = async (tx) => {
-    const res = await dispatch(tx.id
-      ? { type: 'UPDATE_TX', payload: tx }
-      : { type: 'ADD_TX', payload: tx });
-    if (res?.ok === false) return;
-    toast(tx.id ? `התנועה עודכנה · ${saveLabel(mode)}` : `תנועה נוספה · ${saveLabel(mode)}`);
-    setEditing(null);
+    if (savingRef.current) return; // already in flight — block same-tick re-entry
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const res = await dispatch(tx.id
+        ? { type: 'UPDATE_TX', payload: tx }
+        : { type: 'ADD_TX', payload: tx });
+      if (res?.ok === false) return;
+      toast(tx.id ? `התנועה עודכנה · ${saveLabel(mode)}` : `תנועה נוספה · ${saveLabel(mode)}`);
+      setEditing(null);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   const remove = () => {
@@ -174,7 +191,7 @@ export default function Finance() {
         </div>
       </ScrollReveal>
 
-      <TransactionModal open={!!editing} onClose={() => setEditing(null)} onSave={save} initial={editing && editing !== 'new' ? editing : null} />
+      <TransactionModal open={!!editing} onClose={() => setEditing(null)} onSave={save} initial={editing && editing !== 'new' ? editing : null} saving={saving} />
       <ConfirmDialog open={!!toDelete} onClose={() => setToDelete(null)} onConfirm={remove} message={`למחוק את התנועה על סך ${formatCurrency(toDelete?.amount || 0)}?`} />
     </div>
   );
