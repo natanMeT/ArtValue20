@@ -4,7 +4,7 @@
 
 ArtValue היא מערכת שמבינה עסק, מתכננת את הצעד הבא ומובילה אותו לביצוע מדיד — תחת אחריות אנושית.
 
-**טיוטה אסטרטגית v0.7 — 24 ביולי 2026**
+**טיוטה אסטרטגית v0.8 — 26 ביולי 2026**
 
 מסמך מוצר כללי — משלים ואינו מחליף את AI Gateway Master Roadmap.
 
@@ -38,13 +38,15 @@ ArtValue Business OS היא מערכת הפעלה עסקית סגורת־לול�
 
 **כלל סטטוס:** אם אין ראיה מספקת ליכולת קיימת, אין להסיק שהיא ממומשת. יש לסמן: STATUS UNKNOWN — REQUIRES AUDIT.
 
-## נקודת העבודה הנוכחית — 24 ביולי 2026
+## נקודת העבודה הנוכחית — 26 ביולי 2026
 
-S0A — False-Success Containment, S0B — Cloud Persistence ו־S0C — Identity & User-Isolation Trust Hardening נשארים סגורים ומאומתים בפרודקשן. **S0D — Business Context (Business Profile עמיד לכל חשבון) נסגר, נפרס ונבדק בפרודקשן** על main `22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4`. מסלולי Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED.
+S0A — False-Success Containment, S0B — Cloud Persistence, S0C — Identity & User-Isolation Trust Hardening ו־S0D — Business Context נשארים סגורים ומאומתים בפרודקשן. **S0E — Guided Business Onboarding (כולל תיקון שני סיורי ההתחלה) נסגר, נפרס ונבדק בפרודקשן** על עוגן קוד ההשקה `272fc148984b68c26aa46d24e1cdefc2878cddb9`. מסלולי Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED.
 
 S0D הוסיף הקשר עסקי עמיד ומבודד לכל חשבון: פרופיל עסק, קהלים, טון, בידול ושירותים, לצד פלטת מותג אופציונלית. Jake צורך את ההקשר של החשבון הפעיל בכל שיחה וטיוטה חופשית; חשבון לא מוגדר מקבל התנהגות ניטרלית, ללא נפילה חזרה לזהות ArtValue.
 
-מצב תשתית AI: LIVE — VERIFIED. ai-gateway v34 פעיל עם `verify_jwt=true`; **S0D לא שינה את ה־Edge כלל** — ההקשר העסקי מורכב ומוזרק על ידי ה־frontend לפני קריאת ה־Gateway הקיימת.
+S0E הפך את ההקשר העמיד הזה למסלול הקמה מונחה: אשף חמישה שלבים בעברית RTL שמביא חשבון לא מוגדר מהגדרת זהות העסק ועד שמירה עמידה ואישור — **אינו onboarding גנרי של אתר, אלא הגדרת ה־Business Context העמיד לכל חשבון** שמשמש את ה־Business OS ואת Jake.
+
+מצב תשתית AI: LIVE — VERIFIED. ai-gateway v34 פעיל עם `verify_jwt=true`; **S0D ו־S0E לא שינו את ה־Edge כלל** — ההקשר העסקי מורכב ומוזרק על ידי ה־frontend לפני קריאת ה־Gateway הקיימת.
 
 מצב S0A: CLOSED — LIVE VERIFIED בפרודקשן; מניעת False Success נשמרה.
 
@@ -54,23 +56,25 @@ S0D הוסיף הקשר עסקי עמיד ומבודד לכל חשבון: פרו
 
 מצב S0D: CLOSED — LIVE VERIFIED בפרודקשן; Business Context עמיד לכל חשבון, בידוד בעלות RLS, פלטת מותג אופציונלית ושמירה אמינה persist-first.
 
-מצב מוכנות מוצר כוללת: חסמי הזהות, הפרדת היסטוריית Jake והיעדר Business Context עמיד נסגרו. בטא מוזמנת, בטא בתשלום והשקה ציבורית עדיין תלויות ב־Onboarding, בהרחבת עמידות למודולים נוספים ובהחלטות ההשקה.
+מצב S0E: CLOSED — LIVE VERIFIED בפרודקשן; אשף הקמה מונחה בן חמישה שלבים, פתיחה אוטומטית רק לאחר hydration מאומת ומוצלח, מעקף לחשבונות מוגדרים, שמירה אמינה persist-first, ו־prefill ניתן לעריכה של Jake שאינו נשלח אוטומטית. סיור ההדגמה הישן הפך ידני-בלבד בענן המאומת, כך ששני מסלולי ההתחלה אינם נפתחים יחד.
 
-הפעולה הבאה: PENDING NATHAN DECISION. אין במסמך זה בחירה אוטומטית בין Onboarding, Account-aware Growth & Creative Context או הרחבת עמידות למודולים נוספים.
+מצב מוכנות מוצר כוללת: חסמי הזהות, הפרדת היסטוריית Jake, היעדר Business Context עמיד **וה־Onboarding** נסגרו. בטא מוזמנת, בטא בתשלום והשקה ציבורית עדיין תלויות בהרחבת עמידות למודולים נוספים, בתנאים/תמיכה ובהחלטות ההשקה.
 
-## סגירת Product Readiness Audit, S0A, S0B, S0C ו־S0D — מצב מאומת
+הפעולה הבאה: PENDING NATHAN DECISION. אין במסמך זה בחירה אוטומטית בין Account-aware Growth & Creative Context, הרחבת עמידות למודולים נוספים או שיפור UX של רענון שיחת Jake.
+
+## סגירת Product Readiness Audit, S0A, S0B, S0C, S0D ו־S0E — מצב מאומת
 
 ביקורת המוצר הושלמה. Clients, Outreach Leads, Quotes, Transactions, Tasks, שדות הפולואפ next_action/next_action_date, וכעת **Business Context לכל חשבון** נשמרים בענן. גלריית ImageStudio נשמרת מקומית; היסטוריית Jake המקומית מופרדת לפי משתמש. Projects, Inventory, Activity, Communications ותוצרי Templates עדיין אינם בעלי מסלול שמירה ענני מלא.
 
 P0 — PARTIALLY CLOSED: שורש בעיית השמירה של Tasks ושל פולואפים ללקוח נסגר ב־S0B; שורש היעדר ה־Business Context העמיד נסגר ב־S0D. שורש הבעיה נשאר פתוח עבור Projects ו־Inventory; Projects, Inventory, Templates ו־Activity נשארים לא זמינים בבטא. Jake ממשיך להיכשל סגור עבור פעולות Memory-Only, פעולות לא מסווגות ומחיקת אצווה של Tasks.
 
-Invite-only beta ready: NO — Tasks/Follow-ups, זהות משתמש, הפרדת היסטוריית Jake ו־Business Context עמיד כבר אינם החסם. נותר Onboarding.
+Invite-only beta ready: **חסם ה־Onboarding נסגר ב־S0E.** Tasks/Follow-ups, זהות משתמש, הפרדת היסטוריית Jake, Business Context עמיד ו־Onboarding מונחה כבר אינם החסם. נותרו החלטות ההשקה, קהל הבטא ומסלול הליבה הנעול.
 
-Controlled paid beta ready: NO — חסרים Onboarding, תנאים ותמיכה.
+Controlled paid beta ready: NO — **Onboarding קיים**, אך עדיין חסרים תנאים, תמיכה ואריזה.
 
 Public multi-tenant launch ready: NO — שכבת Organizations/Memberships אינה קיימת.
 
-חסמי אמון פתוחים: Onboarding. **מסלולי Local בפרודקשן כבר נעולים כברירת מחדל באמצעות `localEngines.js` / PR #75 ואינם חסם פתוח** — נעילה זו קדמה ל־S0C ואינה תלויה בו.
+חסמי אמון פתוחים: אין חסם Onboarding. **מסלולי Local בפרודקשן כבר נעולים כברירת מחדל באמצעות `localEngines.js` / PR #75 ואינם חסם פתוח** — נעילה זו קדמה ל־S0C ואינה תלויה בו.
 
 כלל היקף: אין להחזיר Projects/Inventory/Templates/Activity לבטא לפני מסלול שמירה מאומת. בחירת הסלייס הבא נשארת החלטת מוצר של נתן.
 
@@ -170,7 +174,69 @@ Rollback: פריסת frontend 31cb521d-3185-4c55-ad83-1a44fe617c6d נשמרה; �
 
 Rollback: pre-s0d-business-context @ 3ee62aee (בסיס S0D = commit הפרודקשן של S0C); frontend rollback cec116b9 נשמר (HTTP 200); branch המקור s0d/business-context-mvp @ 7750bd3f נשמר (local + origin).
 
-משמעות מוצרית: היעדר Business Context עמיד ומבודד לכל חשבון אינו עוד חסם בטא. Onboarding נשאר פתוח; בחירת הסלייס הבא ממתינה לנתן.
+משמעות מוצרית: היעדר Business Context עמיד ומבודד לכל חשבון אינו עוד חסם בטא. Onboarding נסגר לאחר מכן ב־S0E; בחירת הסלייס הבא ממתינה לנתן.
+
+## S0E — Guided Business Onboarding (+ תיקון שני סיורי ההתחלה): CLOSED / LIVE VERIFIED
+
+**הבהרה מוצרית:** S0E אינו onboarding גנרי של אתר. הוא מגדיר את **ה־Business Context העמיד לכל חשבון** — אותו הקשר שנסגר ב־S0D — ששכבת ה־Business OS ו־Jake צורכים בפועל.
+
+ראיית קוד: PR #103 מוזג → main c10ac5590967410d0931a89b08a7bdab12030b25; לאחריו PR #104 המתקן. **עוגן קוד ההשקה הפעיל של S0E (מקור הפרודקשן) הוא 272fc148984b68c26aa46d24e1cdefc2878cddb9** — את ה־HEAD של repository main יש לפתור חי בכל preflight (main עשוי לכלול commits מאוחרים של תיעוד בלבד ללא drift אפליקטיבי).
+
+שרשרת שחרור: PR #103 → main c10ac55 → PR #104 → מקור השחרור הפעיל 272fc14 → **Preview מתוקן ea0dcc02-5eb6-4c2a-aef8-db43499c381f** (branch s0e-preview-272fc14) + **בדיקת קבלה על חשבון לא מוגדר PASS** → **Production 4b86993d-5b4f-4587-87ea-17d68a10adef** (bundle index-DRaTE7f5.js, זהה בייטים ל־Preview — "Uploaded 0 files (12 already uploaded)") + **בדיקת prod לא־משנה על Account A PASS**. לא נלקח rollback (69f8a175 נשמר, HTTP 200).
+
+הנמסר — אשף הקמה מונחה בן חמישה שלבים בעברית RTL:
+
+1. זהות העסק.
+2. הצעה ושירותים.
+3. קהלים, טון ובידול.
+4. פלטת מותג אופציונלית.
+5. סקירה, אישור ושמירה עמידה.
+
+כללי השלמה וכניסה:
+
+- ההשלמה נגזרת **אך ורק** מה־Business Context העמיד שבבעלות החשבון.
+- רף ההשלמה: שם עסק תקין, מיצוב ולפחות שירות אחד בעל שם.
+- פתיחה אוטומטית מתרחשת **רק לאחר hydration ענני מאומת ומוצלח**.
+- חשבונות מוגדרים עוקפים את ה־Onboarding האוטומטי.
+- **hydration כושל אינו יכול לחשוף או לפתוח אוטומטית** אף נקודת כניסה ל־Onboarding (אשף, באנר או משגר ההגדרות).
+
+דחייה וכניסה חוזרת:
+
+- ״אחר כך״ מבטל את הפתיחה האוטומטית אך משאיר את באנר ההקמה זמין.
+- מסך ההגדרות שומר **גם** את משגר ה־Onboarding **וגם** את עורך ה־Business Context הגרנולרי.
+- מצב הטיוטה והדחייה מוגבל לפי מזהה משתמש יציב.
+- **בסיס טיוטה מגורסן** מונע מטיוטה מקומית ישנה לדרוס נתוני ענן חדשים יותר.
+
+ולידציה ושמירה:
+
+- הוולידציה המשותפת של S0D נשארת סמכותית — ללא כללים מתחרים.
+- שגיאות ולידציה מנותבות לשלב האשף הרלוונטי עם הודעת השדה המדויקת.
+- השמירה היא **persist-first ואמינה**: אין השלמה ואין הצלחה לפני אישור Supabase.
+- כשל שמירה משמר את הקלט ה־dirty ואינו יוצר השלמת שווא.
+
+ערך ראשון:
+
+- השלמה מוצלחת מציעה **prefill ניתן לעריכה בתיבת הכתיבה של Jake**.
+- ה־prefill **לעולם אינו נשלח אוטומטית**, אינו מבצע פעולה, אינו משנה היסטוריית שיחה ואינו חוצה חשבונות.
+
+**תיקון שני סיורי ההתחלה (PR #104):** לפני התיקון, AppShell הרכיב גם את סיור ההדגמה הישן וגם את בעל ה־Onboarding, וסיור ההדגמה נפתח אוטומטית על סמך היעדר מפתח ה־localStorage בלבד — כך שדפדפן חדש של חשבון ענן לא מוגדר קיבל את שני המסלולים יחד.
+
+- **ענן מאומת:** סיור ההדגמה הפך **ידני-בלבד** (כפתור ״מצב הדגמה״ בלוח הבקרה דרך אירוע `artvalue:demo:open` הקיים); הוא אינו נפתח אוטומטית ואינו מסומן ״נצפה״ באופן משתמע.
+- **מקומי/דמו:** התנהגות הפתיחה־האוטומטית־פעם־אחת נשמרה ללא שינוי.
+- **S0E וסיור ההדגמה אינם נפתחים עוד יחד.**
+- היקף התיקון: קובץ ייצור אחד (`src/components/ai/DemoMode.jsx`, ‎+23/−5) ועוד קובץ בדיקות ממוקד אחד.
+
+ראיית קבלה (Preview מתוקן, חשבון QA לא מוגדר — Account D, origin נקי): האשף של S0E נפתח אוטומטית ונראה **בדיוק overlay אחד** של מסלול התחלה; סיור ההדגמה לא נפתח ומפתח ה״נצפה״ שלו מעולם לא נכתב; ״אחר כך״ סגר את האשף בעוד הבאנר נשאר; כפתור ״מצב הדגמה״ פתח את הסיור ידנית ללא פתיחה חוזרת של האשף; **0 קריאות Gateway, 0 הודעות console, 0 שורות שנוצרו** לחשבון.
+
+ראיית Production (Account A — חשבון הבעלים המוגדר, בדיקה לא־משנה): hydration תקין; ה־Business Context נטען; **אין אשף ואין באנר הקמה**; משגר ה־Onboarding קיים בהגדרות; Jake נפתח ללא שליחה; Tasks/Outreach/Diagnose/ImageStudio נטענים; Growth/Projects/Inventory/Templates/Activity נשארים BetaUnavailable; קריאות בלבד; **אפס שגיאות console**.
+
+ראיית איכות: 111 קובצי בדיקה, 2885 עברו, 1 skip קיים מראש, 0 נכשלו; production build ירוק.
+
+**משמעת היקף — ללא schema, ללא migration, ללא Gateway/Edge:** S0E לא הוסיף migration כלל (האשף קורא וכותב את `business_profile` הקיים של S0D דרך הוולידטור המשותף ומסלול ה־SAVE הקיים). ai-gateway v34/JWT-on לא השתנה — router / actionTypes / contracts / payloads / provider routing / validation / usage controls / profiles כולם ללא שינוי. פרטי אי־השינוי מתועדים ב־AI Gateway Master Roadmap v5.4.
+
+Rollback: pre-s0e-demo-tour-containment @ c10ac5590967410d0931a89b08a7bdab12030b25; pre-s0e-guided-onboarding @ becd070be72c5c0d59148f870db378cfad9cebea; frontend rollback 69f8a175 נשמר (HTTP 200).
+
+משמעות מוצרית: **Onboarding אינו עוד חסם בטא.** בחירת הסלייס הבא נשארת PENDING NATHAN DECISION.
 
 ## מצב Growth OS (בטא ענן מאומתת)
 
@@ -482,7 +548,7 @@ Jake OS הוא שכבת התיאום האנושית של המערכת. הוא מ
 | Website Scanner | STATUS UNKNOWN — REQUIRES AUDIT | אין להצהיר על זמינות לפני בדיקה. |
 | Landing Page Generator | STATUS UNKNOWN — REQUIRES AUDIT | כיוון מוצרי מאושר; מצב בפועל לא הוכח. |
 | Campaign Engine | STATUS UNKNOWN — REQUIRES AUDIT | נדרש אובייקט קמפיין, תזמון, פולואפ ומדידה. |
-| Client Onboarding | PLANNED | אין כיום מסלול Onboarding עסקי; נדרש מסלול עקבי מהגדרה לערך ראשון. |
+| Client Onboarding | BETA — LIVE VERIFIED (S0E) | אשף הקמה מונחה בן חמישה שלבים (זהות → הצעה/שירותים → קהלים/טון/בידול → פלטה אופציונלית → סקירה ושמירה). פתיחה אוטומטית רק לאחר hydration מוצלח; חשבון מוגדר עוקף; ״אחר כך״ משאיר באנר; שמירה persist-first; prefill ניתן לעריכה של Jake ללא שליחה אוטומטית. סיור ההדגמה הישן ידני-בלבד בענן. |
 | Multi-tenant מלא | PLANNED | כיוון מחייב לפני סקייל רחב; S0D הדגים per-user RLS ל־Business Profile בלבד. |
 
 ## 5.3 Vertical Modules
@@ -543,7 +609,7 @@ Onboarding אינו שאלון ארוך אלא תהליך של צמצום אי־
 - תוצאה ראשונה מונחית ולא מסך ריק.
 - סיכום ברור של מה המערכת יודעת ומה עדיין חסר.
 
-**מצב:** Onboarding נשאר PLANNED / פתוח. Business Context העמיד שנסגר ב־S0D הוא אבן הבניין העיקרית שעליה Wizard כזה יישען.
+**מצב:** **Onboarding נסגר ונבדק בפרודקשן ב־S0E** — Wizard קצר עם שמירה והמשך, תוצאה ראשונה מונחית (prefill של Jake ניתן לעריכה, ללא שליחה אוטומטית) וסיכום סקירה לפני שמירה, כולם נשענים על ה־Business Context העמיד של S0D. סריקת אתר וייבוא באישור נשארים **מחוץ להיקף S0E** ואינם מסווגים מחדש כאן.
 
 ## 6.3 ArtValue Internal / Dogfooding
 
@@ -624,7 +690,7 @@ Dogfooding הוא גם QA וגם פעילות שיווקית, אך אינו תח
 
 ### Track B — Business Context & Onboarding
 
-הגדרת פרופיל עסקי מינימלי, Brand Kit בסיסי, יעד ראשון ו־Wizard שמביא את הלקוח לתוצאה ביום הראשון. **רובד ה־Business Context העמיד נסגר ב־S0D; נותר Onboarding Wizard.**
+הגדרת פרופיל עסקי מינימלי, Brand Kit בסיסי, יעד ראשון ו־Wizard שמביא את הלקוח לתוצאה ביום הראשון. **רובד ה־Business Context העמיד נסגר ב־S0D; ה־Onboarding Wizard נסגר ונבדק בפרודקשן ב־S0E.** נותרים במסלול זה רק העמקות עתידיות (למשל ייבוא נכסים באישור ו־Brand Kit מלא).
 
 ### Track C — Closed-loop Growth
 
@@ -721,13 +787,15 @@ Dogfooding הוא גם QA וגם פעילות שיווקית, אך אינו תח
 
 **הערת S0D:** S0D נסגר LIVE ברמת המוצר **ללא כל שינוי ב־Gateway/Edge** — ai-gateway v34 נשאר זהה; ה־Business Context של החשבון מוזרק על ידי ה־frontend לפני קריאת ה־Gateway הקיימת. פרטי אי־השינוי בתשתית מתועדים ב־AI Gateway Master Roadmap v5.3.
 
+**הערת S0E:** גם S0E נסגר LIVE **ללא כל שינוי ב־Gateway/Edge** — ai-gateway נשאר v34 עם verify_jwt=true. ה־CTA של הערך הראשון בסיום ה־Onboarding רק ממלא מראש את תיבת הכתיבה הקיימת של Jake ב־frontend; הוא אינו קורא ל־Gateway, אינו שולח אוטומטית, אינו מבצע פעולה ואינו משנה את חוזה ה־Gateway. אין להסיק או לתזמן עבודת Gateway כלשהי מ־S0E. פרטי אי־השינוי מתועדים ב־AI Gateway Master Roadmap v5.4.
+
 ## 7.8 מסלולים אפשריים להמשך — הבחירה ממתינה להחלטת נתן
 
 - S0B — Cloud Persistence for Tasks/Follow-ups: הושלם, נסגר ונבדק בפרודקשן.
 - S0C — Identity & User-Isolation Trust Hardening: הושלם, נסגר ונבדק בפרודקשן.
 - S0D — Business Context (per-account Business Profile): הושלם, נסגר ונבדק בפרודקשן.
+- S0E — Guided Business Onboarding (כולל תיקון שני סיורי ההתחלה): הושלם, נסגר ונבדק בפרודקשן.
 - בחירת הסלייס הבא — PENDING NATHAN DECISION. אין במסמך זה החלטה אוטומטית בין חסמי האמון וההשקה שנותרו.
-- מועמד: Onboarding / business-setup wizard — זמן קצר לערך ראשון, נשען על Business Context העמיד.
 - מועמד: Account-aware Growth & Creative Context — Growth ו־Creative V2 / ImageStudio צורכים את ה־Business Context והפלטה של החשבון לפני פתיחת Growth מחדש.
 - מועמד: Projects / Inventory / Templates / Activity durability — מסלול שמירה ענני מאומת לפני החזרה לבטא.
 - מועמד: Jake conversation-refresh UX — תקשור/אוטומציה של רענון ההקשר לאחר שמירת Business Context (שיפור, לא חסם).
@@ -761,10 +829,11 @@ Dogfooding הוא גם QA וגם פעילות שיווקית, אך אינו תח
 
 **המלצה:** לא לדחות את ההשקה עד שכל חזון ה־Business OS מוכן. להשיק מסלול אחד שלם ואמין בתוך 5–7 שבועות, למדוד אותו אצל ArtValue ואצל שני פיילוטים, ורק אז להרחיב מודולים ורב־ארגוניות.
 
-המסמך הוא טיוטה אסטרטגית v0.7. Product Readiness Audit הושלם; S0A, S0B, S0C ו־S0D נסגרו LIVE — VERIFIED בפרודקשן. Tasks ופולואפים של לקוחות עמידים בענן; זהות המשתמש והיסטוריית Jake מופרדות לפי חשבון; Business Context עמיד ומבודד לכל חשבון. לפני בטא יש לבחור את הסלייס הבא, לסגור Onboarding, ולנעול את קהל ההשקה ואת מסלול הליבה.
+המסמך הוא טיוטה אסטרטגית v0.8. Product Readiness Audit הושלם; S0A, S0B, S0C, S0D ו־S0E נסגרו LIVE — VERIFIED בפרודקשן. Tasks ופולואפים של לקוחות עמידים בענן; זהות המשתמש והיסטוריית Jake מופרדות לפי חשבון; Business Context עמיד ומבודד לכל חשבון; **ההקמה המונחית חיה**. לפני בטא יש לבחור את הסלייס הבא ולנעול את קהל ההשקה ואת מסלול הליבה.
 
 # נספח ד — יומן שינויים
 
+- **v0.8 — 26 ביולי 2026:** S0E — Guided Business Onboarding (כולל תיקון שני סיורי ההתחלה) סומן CLOSED / LIVE VERIFIED (PR #103 → main c10ac55 → PR #104 → מקור השחרור הפעיל 272fc14 → Preview מתוקן ea0dcc02 + בדיקת קבלה על חשבון לא מוגדר PASS → Production 4b86993d / index-DRaTE7f5.js + בדיקת prod לא־משנה על Account A PASS). נוסף אשף הקמה מונחה בן חמישה שלבים בעברית RTL מעל ה־Business Context העמיד, עם רף השלמה (שם עסק תקין, מיצוב ולפחות שירות אחד), פתיחה אוטומטית רק לאחר hydration מוצלח, מעקף לחשבונות מוגדרים, חסימת כל נקודות הכניסה בעת hydration כושל, דחיית ״אחר כך״ עם באנר נשמר, טיוטה ודחייה מוגבלות לפי מזהה משתמש, בסיס טיוטה מגורסן, ניתוב שגיאות ולידציה לשלב הרלוונטי, שמירה persist-first אמינה ו־prefill ניתן לעריכה של Jake שאינו נשלח אוטומטית. נרשם תיקון שני סיורי ההתחלה: סיור ההדגמה ידני-בלבד בענן המאומת, ללא שינוי במקומי/דמו. עודכנה טבלת מצב המוצר (Client Onboarding → BETA — LIVE VERIFIED). **Onboarding הוסר מרשימת החסמים הפעילה.** ללא schema, migration, Gateway או Edge; ai-gateway נשאר v34 עם JWT. Growth נשאר BetaUnavailable ושאר החסמים והמסלולים העתידיים נשמרו. הסלייס הבא נשאר PENDING NATHAN DECISION.
 - **v0.7 — 24 ביולי 2026:** S0D — Business Context (Durable per-account Business Profile) סומן CLOSED / LIVE VERIFIED (PR #101 → merge 22ee2f3 → migration 20260724120000_s0d_business_profile.sql APPLIED → Preview f4da6153 + two-account acceptance PASS → Production 69f8a175 / index-DnfLj9lz.js + Account A prod smoke PASS). נוסף Business Context עמיד עם RLS owner-isolation, פלטת מותג אופציונלית (#RRGGBB, ראשי חובה), ולידציה משותפת, שמירה persist-first אמינה, resync סמכותי, התנהגות ניטרלית ללא פרופיל, ו־Jake הצורך את הקשר החשבון. עודכנה טבלת מצב המוצר (Business Context → BETA DURABLE; Brand Kit → פלטה בסיסית קיימת). נרשמה הכלת Growth OS (5 מסלולים BetaUnavailable, Outreach LIVE, Growth מקומי ללא שינוי) והמעקב ״Account-aware Growth & Creative Context״. נרשם ניואנס רענון שיחת Jake (לא־חסם). הובהר ש־S0D לא שינה את ה־Gateway/Edge. אושרר התיקון ההיסטורי: נעילת מסלולי ה־Local קדמה ל־S0C (localEngines.js / PR #75). הסלייס הבא נשאר PENDING NATHAN DECISION.
 - **v0.6 — 24 ביולי 2026:** S0C — Identity & User-Isolation Trust Hardening סומן CLOSED / LIVE VERIFIED; עודכנו זהות משתמש, בידוד chat/brief של Jake, ברירת המחדל לאחראי, פרסונת Jake וכלל החתימה; תוקנה טענת מסלולי Local; Business Context ו־Onboarding נשארו פתוחים והסלייס הבא נשאר ממתין להחלטת נתן.
 - **v0.5 — 23 ביולי 2026:** S0B — Cloud Persistence for Tasks & Client Follow-ups סומן CLOSED / LIVE VERIFIED; עודכנו מצב המוצר, ראיות הפריסה והבדיקות, חסמי השמירה שנותרו ורשימת המסלולים האפשריים להמשך.
