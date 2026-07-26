@@ -178,25 +178,36 @@ export async function deleteClient(id) {
   guard((await supabase.from('clients').delete().eq('id', id)).error);
 }
 
-async function writeItems(userId, quoteId, items) {
-  guard((await supabase.from('quote_items').delete().eq('quote_id', quoteId)).error);
-  if (items && items.length) {
-    const rows = items.map((it, i) => ({
-      user_id: userId, quote_id: quoteId,
-      description: it.desc || '', qty: Number(it.qty) || 1, price: Number(it.price) || 0, position: i,
-    }));
-    guard((await supabase.from('quote_items').insert(rows)).error);
-  }
+// ---- atomic quote save (P1) ----
+// The old flow wrote the quotes parent and then quote_items in SEPARATE
+// PostgREST statements — an item failure left a partially persisted quote
+// (and a retry could mint a second one). Both create and update now go
+// through ONE save_quote_atomic RPC call: the parent write and the full
+// item-snapshot replacement run inside a single database transaction, so
+// they succeed together or roll back together. Ownership is derived from
+// auth.uid() inside the function — the signed-in session, never a
+// client-supplied user_id (the userId parameter is kept for the store's
+// call signature but is NOT sent to the database).
+export function buildQuoteItemRows(items) {
+  return (items || []).map((it, i) => ({
+    description: it.desc || '', qty: Number(it.qty) || 1, price: Number(it.price) || 0, position: i,
+  }));
+}
+export function buildQuoteRpcArgs(mode, quote) {
+  return {
+    p_mode: mode,
+    p_quote: { id: quote.id, ...mapToRow(quote, QUOTE_FIELDS) },
+    // update with items undefined keeps the existing items (null → no
+    // replacement); create always sends the full snapshot ([] = no items).
+    p_items: mode === 'update' && quote.items === undefined ? null : buildQuoteItemRows(quote.items),
+  };
 }
 
 export async function createQuote(userId, quote) {
-  guard((await supabase.from('quotes').insert({ id: quote.id, user_id: userId, ...mapToRow(quote, QUOTE_FIELDS) })).error);
-  await writeItems(userId, quote.id, quote.items);
+  guard((await supabase.rpc('save_quote_atomic', buildQuoteRpcArgs('create', quote))).error);
 }
 export async function updateQuote(userId, quote) {
-  const row = mapToRow(quote, QUOTE_FIELDS);
-  if (Object.keys(row).length) guard((await supabase.from('quotes').update(row).eq('id', quote.id)).error);
-  if (quote.items !== undefined) await writeItems(userId, quote.id, quote.items);
+  guard((await supabase.rpc('save_quote_atomic', buildQuoteRpcArgs('update', quote))).error);
 }
 export async function deleteQuote(id) {
   guard((await supabase.from('quotes').delete().eq('id', id)).error);
