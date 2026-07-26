@@ -32,11 +32,14 @@ import {
   isPresetAvailable, presetUnavailableReason, availablePresets,
   providerExecutorFor, resolveStudioExecution, STUDIO_EXECUTOR_IDS, MODE_EXECUTOR_CHAIN,
 } from '../../lib/presetAvailability.js';
-import { STUDIO_EXECUTOR_FN, EXECUTION_REFUSED } from '../ImageStudio.jsx';
+import {
+  STUDIO_EXECUTOR_FN, EXECUTION_REFUSED, canAnimateResult, resolveResultAnimation,
+} from '../ImageStudio.jsx';
 import { qwenCompose, editImage, generateImg2Img, ltxVideo, animateImage } from '../../lib/geminiImage.js';
 import { moduleGraph, readSource, isComponent, rel as relTo } from './support/moduleGraph.js';
 import {
   unsafeErrorFlows, BOUNDARY_CALLS, BOUNDARY_SEMANTICS, catchBindingNames, parseModule,
+  isSideEffectFree,
 } from './support/errorFlow.js';
 import { readStudioHandoff, workflowIdToMode } from '../../lib/studioHandoff.js';
 import { userFacingError, userError, engineError } from '../../lib/userFacingError.js';
@@ -614,6 +617,93 @@ describe('CLASS A · no uncontrolled or technical error value can render', () =>
     expect(exotic.names).toEqual([]);
     const nested = catchBindingNames({ type: 'ObjectPattern', properties: [{ type: 'WeirdProperty' }] });
     expect(nested.unsupported).toBe('WeirdProperty');
+  });
+
+  // ---- CONDITION BYPASS ---------------------------------------------------
+  // The condition/comparison exemptions were POSITIONAL only: reaching an
+  // `IfStatement` whose `test` was the whole call classified the caught value as
+  // safe, although `setError` had already rendered it. Inspection now also
+  // requires the sub-expression carrying the value to be SIDE-EFFECT FREE.
+  const CONDITION_BYPASS = {
+    'render sink used as an if-condition': 'try { x(); } catch (e) { if (setError(e.message)) retry(); }',
+    'render sink as a while-condition': 'try { x(); } catch (e) { while (setError(e.message)) {} }',
+    'render sink as a do-while condition': 'try { x(); } catch (e) { do { x(); } while (toast(e.message)); }',
+    'render sink in a ternary TEST': 'try { x(); } catch (e) { const y = setError(e.message) ? 1 : 2; }',
+    'render sink inside a logical condition': 'try { x(); } catch (e) { if (ok || setError(e.message)) {} }',
+    'comparison wrapping the call': 'try { x(); } catch (e) { if (setError(e.message) === 1) {} }',
+    'unary negation wrapping the call': 'try { x(); } catch (e) { if (!setError(e.message)) {} }',
+    'for-loop test': 'try { x(); } catch (e) { for (;setError(e.message);) {} }',
+    'deeply nested condition expression': 'try { x(); } catch (e) { if (a && (b || (setError(e.message) !== 0))) {} }',
+  };
+  const LEGITIMATE_INSPECTION = {
+    'property comparison': "try { x(); } catch (e) { if (e.status === 500) { retry(); } throw e; }",
+    'negated property': "try { x(); } catch (e) { if (!e.status) { throw userError('x'); } throw e; }",
+    typeof: "try { x(); } catch (e) { if (typeof e === 'object') { throw e; } throw e; }",
+    instanceof: 'try { x(); } catch (e) { if (e instanceof TypeError) { throw e; } throw e; }',
+    'bare property condition': 'try { x(); } catch (e) { if (e.code) { throw e; } throw e; }',
+    'property in a while condition': 'try { x(); } catch (e) { while (e.retryable) { pause(); } throw e; }',
+    'property inspection in a ternary test': "try { x(); } catch (e) { const m = e.code === 'X' ? 'a' : 'b'; setError(m); }",
+    'logical property inspection': 'try { x(); } catch (e) { if (e && e.code) { throw e; } throw e; }',
+  };
+
+  it('CONDITION BYPASS: a side-effecting call receiving caught data stays unsafe in every condition position', () => {
+    for (const [label, src] of Object.entries(CONDITION_BYPASS)) {
+      expect(unsafeErrorFlows(src, label).length, label).toBeGreaterThan(0);
+    }
+  });
+
+  it('CONDITION BYPASS: direct, side-effect-free inspection remains accepted', () => {
+    for (const [label, src] of Object.entries(LEGITIMATE_INSPECTION)) {
+      expect(unsafeErrorFlows(src, label), label).toEqual([]);
+    }
+  });
+
+  it('CONDITION BYPASS: the side-effect predicate is what discriminates', () => {
+    const call = parseModule('const a = f(x);').program.body[0].declarations[0].init;
+    const member = parseModule('const a = e.status;').program.body[0].declarations[0].init;
+    const compare = parseModule('const a = e.status === 500;').program.body[0].declarations[0].init;
+    const nested = parseModule('const a = b || (f(e) !== 0);').program.body[0].declarations[0].init;
+    expect(isSideEffectFree(call)).toBe(false);
+    expect(isSideEffectFree(nested)).toBe(false);   // a call ANYWHERE inside disqualifies
+    expect(isSideEffectFree(member)).toBe(true);
+    expect(isSideEffectFree(compare)).toBe(true);
+  });
+
+  it('NEGATIVE CONTROL: the positional-only exemption accepted every bypass above', () => {
+    // the previous rule: being in a test/comparison position was sufficient
+    const positionalOnly = (src) => {
+      const ast = parseModule(src);
+      let exempt = false;
+      const visit = (n, parent) => {
+        if (!n || typeof n !== 'object') return;
+        if (Array.isArray(n)) { n.forEach((c) => visit(c, parent)); return; }
+        if (typeof n.type !== 'string') return;
+        if ((n.type === 'IfStatement' || n.type === 'ConditionalExpression' || n.type === 'WhileStatement') && n.test) exempt = true;
+        if (n.type === 'BinaryExpression' || n.type === 'UnaryExpression') exempt = true;
+        Object.keys(n).forEach((k) => (k === 'loc' ? null : visit(n[k], n)));
+      };
+      visit(ast, null);
+      return exempt;
+    };
+    // The reported bypasses — every one sat in a position the old rule exempted.
+    const REPORTED = [
+      'render sink used as an if-condition', 'render sink as a while-condition',
+      'render sink in a ternary TEST', 'render sink inside a logical condition',
+      'comparison wrapping the call', 'unary negation wrapping the call',
+      'deeply nested condition expression',
+    ];
+    for (const label of REPORTED) {
+      expect(positionalOnly(CONDITION_BYPASS[label]), `${label} sat in an exempt position`).toBe(true);
+      expect(unsafeErrorFlows(CONDITION_BYPASS[label]).length, `${label} is now flagged`).toBeGreaterThan(0);
+    }
+    // `do…while` and `for(;;)` were never exempt under the old rule (it listed
+    // only If / Conditional / While), so they were already flagged. They are
+    // covered here as CONDITION CARRIERS so the new exemption cannot be widened
+    // to them by accident — not as previously-accepted bypasses.
+    for (const label of ['render sink as a do-while condition', 'for-loop test']) {
+      expect(positionalOnly(CONDITION_BYPASS[label]), `${label} was never exempt`).toBe(false);
+      expect(unsafeErrorFlows(CONDITION_BYPASS[label]).length, label).toBeGreaterThan(0);
+    }
   });
 
   it('NEGATIVE CONTROL: the previous rule skipped destructured handlers entirely', () => {
@@ -1238,6 +1328,62 @@ describe('provider requirements are declared and enforced where the provider exe
     // chain exhausted: video needs ltx or svd, neither declared
     expect(resolveStudioExecution('video', null, { comfy: true })).toMatchObject({ ok: false, reason: 'no-executor-available', executor: '' });
     expect(resolveStudioExecution('presenter', null, { comfy: true })).toMatchObject({ ok: false, reason: 'no-executor-available' });
+  });
+
+  // ---- the result-card animation action, across ALL FOUR video configurations
+  // It was gated on `hasVideoModel` (the SVD flag) alone, so an LTX-only rig had
+  // a working video executor and an open video mode but no way to animate a
+  // generated result. Visibility and execution now share one resolution.
+  const VIDEO_CONFIGS = {
+    'LTX only': [{ comfy: true, ltx: true, video: false }, true, 'ltx-video', ltxVideo],
+    'SVD only': [{ comfy: true, ltx: false, video: true }, true, 'svd-animate', animateImage],
+    both: [{ comfy: true, ltx: true, video: true }, true, 'ltx-video', ltxVideo],
+    neither: [{ comfy: true, ltx: false, video: false }, false, '', undefined],
+  };
+
+  it('RESULT ACTION: offered exactly when the video chain resolves, in all four configurations', () => {
+    for (const [label, [caps, visible, executor]] of Object.entries(VIDEO_CONFIGS)) {
+      expect(canAnimateResult(caps), `${label}: visibility`).toBe(visible);
+      expect(resolveResultAnimation(caps).executor, `${label}: executor`).toBe(executor);
+    }
+  });
+
+  it('RESULT ACTION: each configuration routes to its OWN engine, never substituted', () => {
+    for (const [label, [caps, , executor, fn]] of Object.entries(VIDEO_CONFIGS)) {
+      expect(STUDIO_EXECUTOR_FN[resolveResultAnimation(caps).executor], `${label}: function`).toBe(fn);
+    }
+    // explicitly: LTX-only never lands on SVD, SVD-only never lands on LTX
+    expect(STUDIO_EXECUTOR_FN[resolveResultAnimation(VIDEO_CONFIGS['LTX only'][0]).executor]).not.toBe(animateImage);
+    expect(STUDIO_EXECUTOR_FN[resolveResultAnimation(VIDEO_CONFIGS['SVD only'][0]).executor]).not.toBe(ltxVideo);
+  });
+
+  it('RESULT ACTION: with both capabilities the DECLARED order decides, deterministically', () => {
+    const both = VIDEO_CONFIGS.both[0];
+    expect(MODE_EXECUTOR_CHAIN.video.map((s) => s.id)).toEqual(['ltx-video', 'svd-animate']);
+    for (let i = 0; i < 5; i += 1) expect(resolveResultAnimation(both).executor).toBe('ltx-video');
+  });
+
+  it('RESULT ACTION: neither capability hides it AND refuses execution', () => {
+    const none = VIDEO_CONFIGS.neither[0];
+    expect(canAnimateResult(none)).toBe(false);
+    expect(resolveResultAnimation(none)).toMatchObject({ ok: false, reason: 'no-executor-available', executor: '' });
+    expect(canAnimateResult(HOSTED)).toBe(false);
+    expect(canAnimateResult(undefined)).toBe(false);       // fail closed
+  });
+
+  it('RESULT ACTION: visibility and execution read the SAME resolution', () => {
+    expect(IMAGE_STUDIO).toMatch(/const resultAnimation = resolveResultAnimation\(studioCaps\)/);
+    expect(IMAGE_STUDIO).toMatch(/\{!result\.isVideo && resultAnimation\.ok &&/);   // the gate
+    expect(IMAGE_STUDIO).toMatch(/const vx = resultAnimation;/);                    // the run
+    expect(IMAGE_STUDIO).not.toMatch(/!result\.isVideo && hasVideoModel/);          // the SVD-only gate is gone
+  });
+
+  it('NEGATIVE CONTROL: the SVD-only flag hid the action on an LTX-only rig', () => {
+    const ltxOnly = VIDEO_CONFIGS['LTX only'][0];
+    const preFix = Boolean(ltxOnly.video);          // what `hasVideoModel` evaluated to
+    expect(preFix).toBe(false);                     // -> button hidden...
+    expect(isStudioModeAvailable('video', ltxOnly)).toBe(true);  // ...while the mode was open
+    expect(canAnimateResult(ltxOnly)).toBe(true);   // and the executor existed all along
   });
 
   it('EXECUTION: every resolvable path id has a real function behind it', () => {

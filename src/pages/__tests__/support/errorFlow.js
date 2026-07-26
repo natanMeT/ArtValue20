@@ -112,6 +112,46 @@ function boundarySafeArgs(node) {
 // Index of the top-level argument of `call` that contains `child`, or -1.
 const argIndexOf = (call, child) => call.arguments.indexOf(child);
 
+// Nodes that DO something rather than merely read. If any appears in a subtree,
+// that subtree is not "inspection" — evaluating it can already have rendered.
+const EFFECTFUL = new Set([
+  'CallExpression', 'OptionalCallExpression', 'NewExpression', 'TaggedTemplateExpression',
+  'AssignmentExpression', 'UpdateExpression', 'AwaitExpression', 'YieldExpression',
+]);
+
+// Is this whole sub-expression free of side effects? Conservative: unknown node
+// types are traversed, and anything effectful anywhere inside disqualifies it.
+export function isSideEffectFree(node) {
+  let clean = true;
+  const visit = (n) => {
+    if (!clean || !n || typeof n !== 'object') return;
+    if (Array.isArray(n)) { n.forEach(visit); return; }
+    if (typeof n.type !== 'string') return;
+    if (EFFECTFUL.has(n.type)) { clean = false; return; }
+    for (const key of Object.keys(n)) {
+      if (key === 'loc' || key === 'leadingComments' || key === 'trailingComments' || key === 'comments') continue;
+      visit(n[key]);
+    }
+  };
+  visit(node);
+  return clean;
+}
+
+// Statements/expressions whose `test` is evaluated as a condition.
+const TEST_CARRIERS = new Set(['IfStatement', 'ConditionalExpression', 'WhileStatement', 'DoWhileStatement', 'ForStatement', 'SwitchCase']);
+
+// Contexts in which a value is TESTED rather than surfaced. Being one of these
+// is necessary but NOT sufficient — see the side-effect requirement at the use.
+function isInspection(node, child) {
+  if (node.type === 'BinaryExpression') {
+    return ['instanceof', 'in', '===', '!==', '==', '!=', '<', '>', '<=', '>='].includes(node.operator);
+  }
+  if (node.type === 'UnaryExpression') return node.operator === 'typeof' || node.operator === '!';
+  // a condition position — `if (e.code) …`, `while (e.retryable) …`
+  if (TEST_CARRIERS.has(node.type)) return node.test === child;
+  return false;
+}
+
 // Is this identifier use safe? `ancestors` runs outermost-first and ends at the
 // identifier's direct parent.
 function isSafeUse(ident, ancestors) {
@@ -137,11 +177,15 @@ function isSafeUse(ident, ancestors) {
     // bare rethrow: `throw e;`
     if (node.type === 'ThrowStatement' && node.argument === ident) return true;
 
-    // inspection, never surfacing
-    if (node.type === 'BinaryExpression' && (node.operator === 'instanceof' || node.operator === 'in')) return true;
-    if (node.type === 'UnaryExpression' && (node.operator === 'typeof' || node.operator === '!')) return true;
-    if (node.type === 'BinaryExpression' && ['===', '!==', '==', '!=', '<', '>', '<=', '>='].includes(node.operator)) return true;
-    if ((node.type === 'IfStatement' || node.type === 'ConditionalExpression' || node.type === 'WhileStatement') && node.test === child) return true;
+    // INSPECTION — and only inspection. Each exemption below additionally
+    // requires the sub-expression carrying the caught value to be SIDE-EFFECT
+    // FREE. Without that requirement the exemptions were positional only, so
+    // `if (setError(e.message)) retry();` reached the IfStatement with the whole
+    // call as `node.test` and was classified safe — the value had already been
+    // rendered by the time the condition was evaluated. The same held for
+    // `!setError(e.message)` and `setError(e.message) === 1` via the unary and
+    // comparison exemptions. A call is never inspection.
+    if (isInspection(node, child) && isSideEffectFree(child)) return true;
 
     // stop climbing at the handler boundary
     if (node.type === 'CatchClause' || node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') break;

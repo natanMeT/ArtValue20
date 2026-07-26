@@ -308,6 +308,16 @@ export function presetModelFamily(preset) {
 // never shown which engine was expected, and no other engine is substituted.
 export const EXECUTION_REFUSED = 'המתכון הזה דורש יכולת שאינה זמינה בהגדרה הנוכחית, ולכן לא הופעל.';
 
+// May the result card offer "create animation"? The action was gated on
+// `hasVideoModel` — the SVD flag alone — so an LTX-only rig had a working video
+// executor and an open video mode, yet no way to animate a generated result.
+// Visibility and execution now come from the SAME authority: the action is
+// offered exactly when the video chain resolves to something, and whatever it
+// resolves to is what runs. Exported so all four capability configurations can
+// be executed directly rather than pinned as source text.
+export const resolveResultAnimation = (caps) => resolveStudioExecution('video', null, caps);
+export const canAnimateResult = (caps) => resolveResultAnimation(caps).ok;
+
 // THE EXECUTION MAP: execution-path id -> the function that actually runs it.
 // Exported so routing can be proven by FUNCTION IDENTITY rather than by reading
 // the source — e.g. that a Qwen-declared recipe reaches `qwenCompose` itself.
@@ -473,6 +483,10 @@ export default function ImageStudio() {
   // text and its note all come from this record. Nothing here re-states the
   // requirement, so the action and the guidance cannot diverge again.
   const lockBlend = studioSubfeature('product-lock-blend', studioCaps);
+  // ONE resolution drives both the result-card action's VISIBILITY and its
+  // execution, so the button cannot be offered without a path or hidden when
+  // one exists.
+  const resultAnimation = resolveResultAnimation(studioCaps);
 
   // S0F.1 (P1) - every async gallery read passes through the commit gate, so a
   // read started for the previous account can never land in the new account's
@@ -943,10 +957,9 @@ export default function ImageStudio() {
       // match the result image's orientation to the LTX base resolution
       const portrait = (ASPECTS.find((a) => a.id === aspect) || ASPECTS[0]).h > (ASPECTS.find((a) => a.id === aspect) || ASPECTS[0]).w;
       const res = portrait ? { width: 512, height: 768 } : { width: 768, height: 512 };
-      // Second execution seam — same authority. Nothing is promised here (this
-      // path carries no preset), so the mode's capability chain decides; it must
-      // still not read a raw flag, or the two seams can disagree.
-      const vx = resolveStudioExecution('video', null, studioCaps);
+      // Second execution seam — the SAME resolution that decided whether this
+      // action was offered at all, so visibility and execution cannot disagree.
+      const vx = resultAnimation;
       let r;
       if (vx.executor === 'ltx-video') r = await ltxVideo(f, prompt, { length: len, ...res });
       else if (vx.executor === 'svd-animate') r = await animateImage(f, {});
@@ -1517,7 +1530,7 @@ export default function ImageStudio() {
                   {!result.isVideo && (
                     <button className="btn btn-ghost btn-sm" onClick={() => setPosterSrc(result.src)}><Icon name="edit" size={15} style={{ color: 'var(--lime-deep)' }} /> עורך פוסטר (טקסט)</button>
                   )}
-                  {!result.isVideo && hasVideoModel && (
+                  {!result.isVideo && resultAnimation.ok && (
                     <button className="btn btn-ghost btn-sm" onClick={animateResult}><Icon name="spark" size={15} style={{ color: 'var(--lime-deep)' }} /> צור אנימציה</button>
                   )}
                   <button className="btn btn-ghost btn-sm" onClick={run}><Icon name="refresh" size={15} /> צור שוב</button>
