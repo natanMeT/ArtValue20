@@ -12,9 +12,9 @@
 | מנהל ארכיטקטורה ומסמך | ChatGPT |
 | סוכן יישום | Claude / Fable לפי משימה מאושרת |
 | Repository | natanMeT/ArtValue20 |
-| עוגן קוד ההשקה הפעיל (S0D) — מקור הפרודקשן | 22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4 (repository main HEAD נפתר חי בכל preflight; עשוי לכלול commits מאוחרים של תיעוד בלבד) |
-| גרסה | 5.3 — עודכן בתאריך 24.07.2026 |
-| סטטוס נוכחי | Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED. S0D — Business Context נסגר LIVE בפרודקשן **ללא כל שינוי ב־Gateway/Edge**. ai-gateway v34 ACTIVE עם verify_jwt=true; router, contracts ו־payloads ללא שינוי. ה־Business Context של החשבון מורכב ומוזרק על ידי ה־frontend לפני קריאת ה־Gateway. הסלייס הבא ממתין להחלטת Nathan. |
+| עוגן קוד ההשקה הפעיל (S0E) — מקור הפרודקשן | 272fc148984b68c26aa46d24e1cdefc2878cddb9 (repository main HEAD נפתר חי בכל preflight; עשוי לכלול commits מאוחרים של תיעוד בלבד) |
+| גרסה | 5.4 — עודכן בתאריך 26.07.2026 |
+| סטטוס נוכחי | Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED. S0E — Guided Business Onboarding נסגר LIVE בפרודקשן **ללא כל שינוי ב־Gateway/Edge** (כמו S0D לפניו). ai-gateway v34 ACTIVE עם verify_jwt=true; router, contracts ו־payloads ללא שינוי. ה־Business Context של החשבון מורכב ומוזרק על ידי ה־frontend לפני קריאת ה־Gateway. הסלייס הבא ממתין להחלטת Nathan. |
 
 | C1 + C2 | CLOSED / LIVE GREEN — מאומת בפרודקשן |
 | --- | --- |
@@ -56,6 +56,9 @@
 | --- | --- |
 
 | S0D | CLOSED / LIVE VERIFIED — PR #101; main 22ee2f3; **ZERO Gateway/Edge change**; ai-gateway v34/JWT-on unchanged; account Business Context injected by the frontend before the existing Gateway call. |
+| --- | --- |
+
+| S0E | CLOSED / LIVE VERIFIED — PR #103 + corrective PR #104; active release source 272fc14; **ZERO Gateway/Edge change**; ai-gateway v34/JWT-on unchanged; the onboarding first-value CTA only prefills the existing frontend Jake composer — no Gateway call, no auto-send, no action execution, no contract change. |
 | --- | --- |
 
 | כלל זהב | סטטוס משתנה רק לפי ראיות: diff, tests, merge, deploy ו־live smoke. |
@@ -459,10 +462,10 @@ Fallback ייכנס רק אחרי שני adapters עובדים. הוא דורש 
 
 # 10. Current Control Panel
 
-| תאריך בקרה | 24.07.2026 |
+| תאריך בקרה | 26.07.2026 |
 | --- | --- |
 
-| Milestone פעיל | אין Milestone Gateway פעיל. S0D — Business Context נסגר LIVE **ללא שינוי Gateway**; בחירת הסלייס הבא ממתינה להחלטת Nathan. |
+| Milestone פעיל | אין Milestone Gateway פעיל. S0E — Guided Business Onboarding נסגר LIVE **ללא שינוי Gateway**; בחירת הסלייס הבא ממתינה להחלטת Nathan. |
 | --- | --- |
 
 | שער נוכחי | ai-gateway v34 ACTIVE עם verify_jwt=true. Jake, Outreach, Diagnose ו־ImageStudio LIVE — VERIFIED ומוקפאים. אין שינוי נוסף ללא ראיה והיקף מאושר. |
@@ -470,22 +473,23 @@ Fallback ייכנס רק אחרי שני adapters עובדים. הוא דורש 
 
 | שדה | מצב נוכחי |
 | --- | --- |
-| עוגן קוד ההשקה הפעיל (S0D) — מקור הפרודקשן | 22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4 (repository main HEAD נפתר חי בכל preflight) |
-| Production frontend | Cloudflare Pages production — deploy 69f8a175-08b2-4c65-aac5-c8e4b61d7962; source 22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4; https://artvalue-product.pages.dev; HTTPS 200; bundle index-DnfLj9lz.js. |
-| Pull Request | #101 — MERGED; S0D Business Context. Head-gated to 7750bd3f; merge-commit 22ee2f3 (parents 3ee62aee S0C + 7750bd3f). |
-| Current blocker | None for S0D. Business Context durability is closed. Onboarding remains a product blocker outside the Gateway. |
-| Security state | ai-gateway v34 ACTIVE; verify_jwt=true. Strict contracts, content-free usage logging and Gateway-only provider access retained. **S0D changed nothing in the Edge/Gateway.** |
-| Public UI finding | Durable per-account Business Context and optional brand palette are live with RLS owner-isolation. Growth OS is contained (5 routes BetaUnavailable); Outreach remains LIVE. Projects/Inventory/Templates/Activity remain unavailable; Local engine URLs remain gated off in hosted production. |
-| Architecture decisions | The account Business Context is assembled and injected by the frontend chat/draft seam before the existing Gateway call. No new actionType, contract, payload, routing, validation, usage, or profile change; no Edge deploy. |
-| Do not do yet | Do not reopen LIVE — VERIFIED lanes or change router/contracts/payloads/profiles without new evidence and an approved bounded scope. Account-aware Growth & Creative Context is a future, separately approved product slice; it does not schedule Gateway contract work. |
+| עוגן קוד ההשקה הפעיל (S0E) — מקור הפרודקשן | 272fc148984b68c26aa46d24e1cdefc2878cddb9 (repository main HEAD נפתר חי בכל preflight) |
+| Production frontend | Cloudflare Pages production — deploy 4b86993d-5b4f-4587-87ea-17d68a10adef; source 272fc148984b68c26aa46d24e1cdefc2878cddb9; https://artvalue-product.pages.dev; HTTPS 200; bundle index-DRaTE7f5.js. |
+| Pull Request | #103 — MERGED; S0E guided onboarding (merge c10ac55). #104 — MERGED; dual-tour cloud containment, head-gated to d371630; merge-commit 272fc14 (parents c10ac55 + d371630). |
+| Current blocker | None for S0E. Onboarding is closed and LIVE VERIFIED, and it was never a Gateway blocker. Remaining product blockers (module durability, packaging/support) are outside the Gateway. |
+| Security state | ai-gateway v34 ACTIVE; verify_jwt=true. Strict contracts, content-free usage logging and Gateway-only provider access retained. **S0E changed nothing in the Edge/Gateway.** |
+| Public UI finding | Guided business onboarding is live over the durable per-account Business Context (RLS owner-isolation) and the legacy demo tour is manual-only in authenticated cloud mode. Growth OS is contained (5 routes BetaUnavailable); Outreach remains LIVE. Projects/Inventory/Templates/Activity remain unavailable; Local engine URLs remain gated off in hosted production. |
+| Architecture decisions | The account Business Context is assembled and injected by the frontend chat/draft seam before the existing Gateway call. The onboarding first-value CTA only prefills the existing frontend Jake composer. No new actionType, contract, payload, routing, validation, usage, or profile change; no Edge deploy. |
+| Do not do yet | Do not reopen LIVE — VERIFIED lanes or change router/contracts/payloads/profiles without new evidence and an approved bounded scope. Account-aware Growth & Creative Context is a future, separately approved product slice; it does not schedule Gateway contract work. **No future Gateway work may be inferred or scheduled from S0E.** |
 | Next evidence expected | Product next slice remains PENDING NATHAN DECISION; no Gateway implementation is authorized. |
-| Next owner action | Use Business OS Roadmap v0.7 for product priority and this v5.3 roadmap for AI infrastructure. Require separate approvals for every future merge and deploy. |
-| Closure target | ACHIEVED — S0D frontend deployed and verified with zero Gateway/Edge change; ai-gateway v34 unchanged; all previously released AI lanes remain LIVE — VERIFIED. |
+| Next owner action | Use Business OS Roadmap v0.8 for product priority and this v5.4 roadmap for AI infrastructure. Require separate approvals for every future merge and deploy. |
+| Closure target | ACHIEVED — S0E frontend deployed and verified with zero Gateway/Edge change; ai-gateway v34 unchanged; all previously released AI lanes remain LIVE — VERIFIED. |
 
 ## Change Log
 
 | גרסה | תאריך | שינוי | עורך |
 | --- | --- | --- | --- |
+| 5.4 | 26.07.2026 | **S0E — Guided Business Onboarding CLOSED / LIVE VERIFIED with ZERO Gateway/Edge change.** PR #103 merged at main c10ac55; corrective PR #104 merged; active application release source 272fc14; corrected Preview ea0dcc02 accepted on an unconfigured account; Production frontend 4b86993d serves index-DRaTE7f5.js. **ai-gateway remains v34 with JWT verification ON — not redeployed.** Router, action types, contracts, request/response payloads, provider routing, input validation, usage/budget controls, confirmation behavior and all Gateway profiles are UNCHANGED. The onboarding first-value CTA only prefills the existing frontend Jake composer — it does not call the Gateway, does not auto-send, does not execute an action and does not alter the Gateway contract. Business Context continues to reach Jake through the existing approved frontend context-injection seam (D-033). **No migration; no schema change. No future Gateway work should be inferred or scheduled from S0E.** Tests 111 files / 2885 passed / 1 pre-existing skip. | ChatGPT |
 | 5.3 | 24.07.2026 | S0D — Business Context CLOSED / LIVE VERIFIED **with ZERO Gateway/Edge change.** PR #101 merged at main 22ee2f3; migration 20260724120000_s0d_business_profile.sql APPLIED; Preview f4da6153 two-account acceptance PASS; Production frontend 69f8a175 serves index-DnfLj9lz.js. ai-gateway remains v34 with JWT verification ON. Router, action types, contracts, request/response payloads, provider routing, input validation, usage/budget controls, confirmation behavior and all Gateway profiles are UNCHANGED. The approved account Business Context (business_profile, RLS owner-isolation) is assembled and injected by the frontend before the existing Gateway call. Decisions D-033 (S0D no-Edge-change / frontend injection) and D-034 (Account-aware Growth & Creative Context is a future separately-approved product slice that does not schedule Gateway work) recorded; risks R17/R18 added. Tests 107 files / 2759 passed / 1 pre-existing skip. | ChatGPT |
 | 5.2 | 24.07.2026 | S0C CLOSED / LIVE VERIFIED. PR #100 merged at main 3ee62aee; ai-gateway v34 deployed with JWT verification retained. Jake persona is now the generic ArtValue business assistant and draft_message no longer forces a personal signature. Router, contracts, payloads, routing, validation, budget controls, confirmation flow and all non-Jake profiles remained unchanged. Frontend Production cec116b9 serves index-CE6IJ-rJ.js. | ChatGPT |
 | 5.1 | 22.07.2026 | S0A CLOSED / LIVE VERIFIED. PR #98 merged at main 7066520 and Cloudflare production deploy 4cb17aee verified. S0A was frontend-only False-Success Containment: Tasks read-only, memory-only modules unavailable, Jake fail-closed including mark_paid and mixed batches, and completed_paid no longer creates phantom income in cloud. Gateway/Edge/SQL/contracts were untouched; Jake, Outreach, Diagnose and ImageStudio remain LIVE — VERIFIED. Release & Hosting Runbook decision recorded. | ChatGPT |
@@ -579,6 +583,19 @@ Main מאומת: 22ee2f3bacfc86f026d2ea3a21243a1a4badc6d4; PR #101 מוזג. Pro
 מיגרציה 20260724120000_s0d_business_profile.sql הוחלה ואומתה מול ה־remote (weciwurjfwmqihcyexzj). ראיית איכות: 107 קובצי בדיקה, 2759 עברו, 1 skip קיים מראש. Rollback: frontend deployment cec116b9 נשמר (HTTP 200); pre-s0d-business-context @ 3ee62aee.
 
 מעקב עתידי: ״Account-aware Growth & Creative Context״ הוא סלייס מוצר עתידי מאושר בנפרד (D-034) — הוא אינו מחייב ואינו מתזמן עבודת חוזה Gateway.
+
+## עדכון נקודת מעבר v5.4 — S0E GUIDED ONBOARDING CLOSED / LIVE VERIFIED (הערת אי־שינוי)
+
+מקור השחרור הפעיל: 272fc148984b68c26aa46d24e1cdefc2878cddb9 (PR #103 → main c10ac55, ואחריו PR #104 המתקן). Production frontend deploy 4b86993d מגיש index-DRaTE7f5.js ב־https://artvalue-product.pages.dev; Preview מתוקן ea0dcc02 עבר בדיקת קבלה על חשבון לא מוגדר.
+
+**S0E נשלח עם אפס שינוי Gateway/Edge.** ai-gateway נשאר **v34 ACTIVE עם verify_jwt=true** ולא בוצע לו deploy. ללא שינוי: router, actionTypes, חוזים, request/response payloads, provider routing, input validation, usage/budget controls, confirmation flow וכל הפרופילים.
+
+- ה־CTA של הערך הראשון בסיום ה־Onboarding **רק ממלא מראש את תיבת הכתיבה הקיימת של Jake ב־frontend**.
+- הוא **אינו קורא ל־Gateway**, אינו שולח אוטומטית, אינו מבצע פעולה ואינו משנה את חוזה ה־Gateway או את היסטוריית השיחה.
+- ה־Business Context ממשיך להגיע ל־Jake דרך **seam הזרקת ההקשר הקיים והמאושר ב־frontend** (D-033) — ללא מסלול חדש.
+- **אין להסיק או לתזמן עבודת Gateway עתידית כלשהי מ־S0E.**
+
+ללא migration וללא שינוי schema. ראיית איכות: 111 קובצי בדיקה, 2885 עברו, 1 skip קיים מראש. Rollback: frontend deployment 69f8a175 נשמר (HTTP 200); pre-s0e-demo-tour-containment @ c10ac55; pre-s0e-guided-onboarding @ becd070.
 
 ### השלב הבא
 
