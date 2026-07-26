@@ -17,6 +17,7 @@ import {
 } from '../lib/geminiImage.js';
 import { watchJob, cancelJob } from '../lib/comfyProgress.js';
 import { createGalleryStore, srcToBlob, GALLERY_MAX, filterGalleryItems } from '../lib/galleryStore.js';
+import { activeBrandPalette, withBrandPalette } from '../lib/brandPalette.js';
 import { CREATIVE_PRESETS, isTextImagePreset } from '../data/creativePresets.js';
 import PosterEditor from '../components/studio/PosterEditor.jsx';
 import MockupStudio from '../components/studio/MockupStudio.jsx';
@@ -272,6 +273,10 @@ export default function ImageStudio() {
   // S0F.1 (D6) — per-account gallery: rebuilt when the account changes, so a
   // switch reloads the correct namespace and never the previous account's.
   const galleryStore = useMemo(() => createGalleryStore(session), [session]);
+  // S0F.1 (D5) — the account's approved brand palette (S0D). null when the
+  // account configured none, or when the stored value is malformed.
+  const palette = useMemo(() => activeBrandPalette(data?.businessProfile), [data?.businessProfile]);
+  const [paletteOn, setPaletteOn] = useState(true); // ON by default; per-generation only, never persisted
 
   const handoffKeyRef = useRef(null);              // one-shot guard per location entry
   const [handoffNotice, setHandoffNotice] = useState(''); // small "prompt came from Jake" hint
@@ -509,20 +514,26 @@ export default function ImageStudio() {
     setLoading(true); setError(''); setResult(null); setImgReady(false); setImgAttempt(0);
     try {
       markNextComfyJob('studio-run'); // claim the next engine submission for the job card
+      // S0F.1 (D5) — brand-palette guidance. The account's EXACT stored HEX values
+      // are appended as a delimited block; with the toggle OFF, no configured
+      // palette, or a malformed one, `p` is byte-identical to the user's prompt.
+      // The Gateway payload shape and action type are unchanged — this is prompt
+      // text only. `prompt` itself stays untouched (UI + gallery metadata).
+      const p = withBrandPalette(prompt, data?.businessProfile, paletteOn);
       let r;
       if (mode === 'text') {
         const asp = ASPECTS.find((a) => a.id === aspect) || ASPECTS[0];
         const arch = isFluxModel ? 'flux' : 'sdxl';
         // `aspect` (the preset id) is the ONLY field the hosted Gateway path reads —
         // it maps to an exact ratio server-side; local engines keep using width/height.
-        r = await generateImage(prompt, { model: selModel?.file, arch, width: asp.w, height: asp.h, hd: !isFluxModel && hd, aspect });
+        r = await generateImage(p, { model: selModel?.file, arch, width: asp.w, height: asp.h, hd: !isFluxModel && hd, aspect });
         r = { ...r, quality: isFluxModel ? 'max' : 'fast', modelLabel: selModel?.label };
       }
-      else if (mode === 'img2img') { r = hasKontextModel ? await editImage(file, prompt) : await generateImg2Img(file, prompt, { strength }); }
-      else if (mode === 'presenter') { r = await qwenCompose(file, endFile, prompt, presenterQuality === 'quality' ? { lightning: false } : {}); r = { ...r, presenterQuality }; }
-      else if (mode === 'inpaint') { const mask = await maskRef.current.exportMask(); r = await inpaintImage(file, mask, prompt); }
-      else if (mode === 'flf') { const len = (VID_LENGTHS.find((v) => v.sec === vidSec) || VID_LENGTHS[0]).frames; r = await flfVideo(file, endFile, prompt, { length: len, ...ltxRes() }); }
-      else { const len = (VID_LENGTHS.find((v) => v.sec === vidSec) || VID_LENGTHS[0]).frames; r = hasLtxVideo ? await ltxVideo(file, prompt, { length: len, ...ltxRes() }) : await animateImage(file, {}); }
+      else if (mode === 'img2img') { r = hasKontextModel ? await editImage(file, p) : await generateImg2Img(file, p, { strength }); }
+      else if (mode === 'presenter') { r = await qwenCompose(file, endFile, p, presenterQuality === 'quality' ? { lightning: false } : {}); r = { ...r, presenterQuality }; }
+      else if (mode === 'inpaint') { const mask = await maskRef.current.exportMask(); r = await inpaintImage(file, mask, p); }
+      else if (mode === 'flf') { const len = (VID_LENGTHS.find((v) => v.sec === vidSec) || VID_LENGTHS[0]).frames; r = await flfVideo(file, endFile, p, { length: len, ...ltxRes() }); }
+      else { const len = (VID_LENGTHS.find((v) => v.sec === vidSec) || VID_LENGTHS[0]).frames; r = hasLtxVideo ? await ltxVideo(file, p, { length: len, ...ltxRes() }) : await animateImage(file, {}); }
       if (token !== runTokenRef.current) return; // cancelled (pending-delete) — ignore the orphan
       setResult(r);
       if (r.demo) toast('נוצר דרך המחולל החינמי');
@@ -950,6 +961,39 @@ export default function ImageStudio() {
               <button type="button" className="btn btn-ghost btn-sm enhance-btn" onClick={enhance} disabled={enhancing} style={{ marginTop: 8 }}>
                 {enhancing ? <><span className="loader-ring" style={{ width: 14, height: 14, borderWidth: 2 }} /> משדרג…</> : <><Icon name="spark" size={14} style={{ color: 'var(--lime-deep)' }} /> שדרג לפרומפט מקצועי (עברית → AI)</>}
               </button>
+            </div>
+          )}
+
+          {/* S0F.1 (D5) — brand palette. Shown ONLY when the signed-in account has a
+              validated palette in its Business Context; nothing is displayed and
+              nothing is injected otherwise (no invented colors). The toggle is
+              per-generation UI state only — it never writes to business_profile,
+              and it never changes the application theme. */}
+          {palette && (
+            <div className="field" style={{ marginTop: 12 }} data-testid="brand-palette-row">
+              <label><Icon name="target" size={13} /> פלטת המותג שלך</label>
+              <div className="row gap-2" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                {palette.map((c) => (
+                  <span key={c.role} className="row gap-2" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title={c.role}>
+                    <span aria-hidden="true" style={{ width: 16, height: 16, borderRadius: 4, background: c.value, border: '1px solid rgba(255,255,255,0.25)', display: 'inline-block' }} />
+                    <bdi className="dim" style={{ fontSize: '0.76rem' }}>{c.value}</bdi>
+                  </span>
+                ))}
+                <div className="grow" />
+                <button
+                  type="button"
+                  className={`btn btn-sm ${paletteOn ? 'btn-toggle-on' : 'btn-outline'}`}
+                  onClick={() => setPaletteOn((v) => !v)}
+                  aria-pressed={paletteOn}
+                >
+                  <Icon name={paletteOn ? 'check' : 'x'} size={14} /> {paletteOn ? 'הפלטה פעילה ביצירה' : 'הפלטה כבויה ליצירה'}
+                </button>
+              </div>
+              <p className="muted" style={{ fontSize: '0.76rem', marginTop: 6 }}>
+                {paletteOn
+                  ? 'הצבעים המדויקים שאישרת יישלחו כהנחיה ליצירה. אפשר לכבות ליצירה הנוכחית — ההגדרות לא משתנות.'
+                  : 'הפלטה לא תישלח ביצירה הנוכחית. ההגדרות שלך לא השתנו.'}
+              </p>
             </div>
           )}
 
