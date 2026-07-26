@@ -257,7 +257,9 @@ export default function Outreach() {
                 </Link>
               </div>
               <StaggerGroup style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
-                {inCat.map((lead) => (
+                {inCat.map((lead) => {
+                  const msg = messageFor(lead.category, lead.name, needFor(lead));
+                  return (
                   <Reveal key={lead.id}>
                     <div className={`card lead-card lead-${lead.status}`}>
                       <div className="row gap-2" style={{ marginBottom: 11 }}>
@@ -281,13 +283,13 @@ export default function Outreach() {
                         <span><b>צורך מרכזי:</b> {needFor(lead)}</span>
                       </div>
 
-                      {messageFor(lead.category, lead.name, needFor(lead))
-                        ? <div className="lead-msg">{messageFor(lead.category, lead.name, needFor(lead))}</div>
+                      {msg
+                        ? <div className="lead-msg">{msg}</div>
                         : <div className="lead-msg lead-msg-setup">נוסח הפנייה יופיע אחרי השלמת ההקשר העסקי — לא נציג נוסח של עסק אחר.</div>}
 
                       <div className="row gap-2 wrap">
-                        {messageFor(lead.category, lead.name, needFor(lead)) ? (
-                          <button className={`btn btn-sm ${copiedId === lead.id ? 'btn-primary' : 'btn-primary'}`} onClick={() => copy(messageFor(lead.category, lead.name, needFor(lead)), lead.id)}>
+                        {msg ? (
+                          <button className={`btn btn-sm ${copiedId === lead.id ? 'btn-primary' : 'btn-primary'}`} onClick={() => copy(msg, lead.id)}>
                             <Icon name={copiedId === lead.id ? 'check' : 'copy'} size={15} />
                             {copiedId === lead.id ? 'הועתק' : 'העתק הודעה'}
                           </button>
@@ -303,7 +305,8 @@ export default function Outreach() {
                       </div>
                     </div>
                   </Reveal>
-                ))}
+                  );
+                })}
               </StaggerGroup>
             </div>
           );
