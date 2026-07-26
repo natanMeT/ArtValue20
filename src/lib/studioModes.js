@@ -83,3 +83,39 @@ export function resolveStudioMode(requested, caps, fallback = STUDIO_FALLBACK_MO
   const safe = isStudioModeAvailable(fallback, caps) ? fallback : STUDIO_FALLBACK_MODE;
   return { mode: safe, contained: true };
 }
+
+// Business-facing label per mode, used when a capability description has to
+// ENUMERATE what this configuration can actually do (Jake's prompt). Kept here,
+// next to the requirements, so an added mode cannot be described without one.
+export const STUDIO_MODE_LABELS = Object.freeze({
+  text: 'יצירת תמונה מתיאור',
+  lock: 'מוצר מדויק (שימור פרטי המוצר)',
+  img2img: 'עריכת תמונה קיימת',
+  inpaint: 'עריכת אזור מסומן',
+  video: 'הנפשת תמונה לסרטון',
+  flf: 'סרטון מעבר לפני/אחרי',
+  presenter: 'ויזואל מוצר עם פרזנטור',
+  character: 'ערכת דמות עקבית',
+  album: 'אלבום דוגמנית',
+});
+
+// Labels of exactly the modes this configuration can open, in requirement order.
+export function availableStudioModeLabels(caps) {
+  return availableStudioModeIds(caps).map((id) => STUDIO_MODE_LABELS[id]).filter(Boolean);
+}
+
+// The full availability snapshot consumers inject into the pure data layer.
+export function studioAvailability(caps) {
+  return {
+    modes: availableStudioModeIds(caps),
+    modeLabels: availableStudioModeLabels(caps),
+    capabilities: {
+      comfy: Boolean(caps && caps.comfy),
+      video: Boolean(caps && caps.video),
+      ltx: Boolean(caps && caps.ltx),
+      kontext: Boolean(caps && caps.kontext),
+      pulid: Boolean(caps && caps.pulid),
+      qwen: Boolean(caps && caps.qwen),
+    },
+  };
+}

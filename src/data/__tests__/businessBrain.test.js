@@ -101,7 +101,13 @@ describe('systemCapabilities · derived registry', () => {
   });
 
   it('adds the static system surfaces without clobbering studio entries', () => {
-    const caps = systemCapabilities();
+    // Studio-related static surfaces now carry an explicit availability
+    // requirement, so the full availability snapshot is supplied here.
+    const caps = systemCapabilities({
+      modes: ALL_LIVE_MODES,
+      modeLabels: [],
+      capabilities: { comfy: true, video: true, ltx: true, kontext: true, pulid: true, qwen: true },
+    });
     for (const id of ['image-studio', 'growth-os', 'gallery', 'creative-modes', 'product-lock-blend']) {
       const cap = caps.find((c) => c.id === id);
       expect(cap, id).toBeTruthy();

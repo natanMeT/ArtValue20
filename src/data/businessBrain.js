@@ -157,8 +157,25 @@ const STATIC_CAPABILITIES = deepFreeze([
   // workflow-map surface that the Studio no longer renders. Jake must not offer
   // a screen the user cannot open, so the capability is described as what
   // actually exists: the creative modes inside the Image Studio.
-  { id: 'creative-modes', kind: 'system', title: 'מצבי יצירה בסטודיו', description: 'מגוון מצבי יצירה ועריכה בתוך סטודיו התמונות — יצירה מתיאור, עריכה, ויזואל מוצר וסרטון.' },
-  { id: 'product-lock-blend', kind: 'system', title: 'שיפור חיבור וצללים (Product Lock B2)', description: 'בתוך "מוצר מדויק": AI מוסיף צל מגע וחיבור טבעי סביב הקצוות בלבד — פיקסלי המוצר נשמרים 1:1.' },
+  // `requires` makes the availability relationship EXPLICIT. Nothing here is
+  // filtered by array position, wording or ordering.
+  //   requires: { anyStudioMode: true }  -> needs at least one openable mode
+  //   requires: { capability: 'comfy' }  -> needs that engine capability
+  // `describe(availability)` lets an entry state only what is actually open,
+  // instead of hard-coding a list that may include hidden workflows.
+  {
+    id: 'creative-modes', kind: 'system', title: 'מצבי יצירה בסטודיו',
+    description: 'מצבי היצירה הזמינים בסטודיו התמונות.',
+    requires: { anyStudioMode: true },
+    describe: (a) => (a.modeLabels && a.modeLabels.length
+      ? `מצבי היצירה הזמינים בחשבון זה בסטודיו התמונות: ${a.modeLabels.join(', ')}.`
+      : 'מצבי היצירה הזמינים בסטודיו התמונות.'),
+  },
+  {
+    id: 'product-lock-blend', kind: 'system', title: 'שיפור חיבור וצללים (Product Lock B2)',
+    description: 'בתוך "מוצר מדויק": AI מוסיף צל מגע וחיבור טבעי סביב הקצוות בלבד — פיקסלי המוצר נשמרים 1:1.',
+    requires: { capability: 'comfy' },
+  },
 ]);
 
 // Jake may only advertise creative workflows the ACTIVE configuration can
@@ -173,10 +190,25 @@ const STATIC_CAPABILITIES = deepFreeze([
 // Default = empty => FAIL CLOSED: a caller that forgets under-advertises rather
 // than promising a mode the Studio would refuse to open. Workflows with no
 // `mode` are non-Studio capabilities and are always listed.
-export function systemCapabilities(availableModes = []) {
-  const allowed = availableModes instanceof Set
-    ? availableModes
-    : new Set(Array.isArray(availableModes) ? availableModes : []);
+export function systemCapabilities(availability = {}) {
+  // Accepts the full snapshot { modes, modeLabels, capabilities } or a bare
+  // array/Set of mode ids (capabilities then default to false = fail closed).
+  const a = Array.isArray(availability) || availability instanceof Set
+    ? { modes: availability, modeLabels: [], capabilities: {} }
+    : (availability || {});
+  const allowed = a.modes instanceof Set ? a.modes : new Set(Array.isArray(a.modes) ? a.modes : []);
+  const caps = a.capabilities || {};
+  const snapshot = { modes: [...allowed], modeLabels: Array.isArray(a.modeLabels) ? a.modeLabels : [], capabilities: caps };
+
+  // A static capability is advertised only when its EXPLICIT requirement holds.
+  const staticAvailable = (c) => {
+    const r = c.requires;
+    if (!r) return true;                                   // non-Studio business capability
+    if (r.anyStudioMode && allowed.size === 0) return false;
+    if (r.capability && !caps[r.capability]) return false;
+    return true;
+  };
+
   const studio = liveWorkflows().filter((w) => !w.mode || allowed.has(w.mode)).map((w) => ({
     id: w.id,
     kind: 'studio',
@@ -186,7 +218,13 @@ export function systemCapabilities(availableModes = []) {
     engine: w.engine,
     tags: [...w.tags],
   }));
-  return [...studio, ...STATIC_CAPABILITIES.map((c) => ({ ...c }))];
+  // Unavailable entries are removed BEFORE any maxCapabilities slicing, so
+  // truncation can never promote a hidden capability into Jake's prompt.
+  const statics = STATIC_CAPABILITIES.filter(staticAvailable).map((c) => {
+    const { requires, describe, ...safe } = c;
+    return { ...safe, description: typeof describe === 'function' ? describe(snapshot) : safe.description };
+  });
+  return [...studio, ...statics];
 }
 
 // ---- small deterministic helpers ----

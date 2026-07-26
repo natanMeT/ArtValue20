@@ -15,7 +15,7 @@
 // ===================================================================
 
 import { buildAccountBusinessContext, hasDurableProfile } from '../data/businessBrain.js';
-import { availableStudioModeIds } from './studioModes.js';
+import { studioAvailability } from './studioModes.js';
 import { liveStudioCapabilities } from './geminiImage.js';
 
 // Dedupe sentinel: the first Business Brain safety rule, present in EVERY
@@ -94,7 +94,7 @@ export function withBusinessBrain(contextText, userText, businessProfile = null)
   // and injected into the pure data layer.
   const brain = buildAccountBusinessContext(businessProfile, {
     maxCapabilities: 8,
-    availableModes: availableStudioModeIds(liveStudioCapabilities()),
+    availableModes: studioAvailability(liveStudioCapabilities()),
   });
   return `${base}\n\n${brain}\n\n${ANTI_CLAIM}`;
 }

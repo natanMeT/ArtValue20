@@ -21,11 +21,12 @@ import { dirname, resolve } from 'node:path';
 import {
   STUDIO_MODE_REQUIREMENTS, STUDIO_FALLBACK_MODE,
   isStudioModeAvailable, availableStudioModeIds, resolveStudioMode,
+  studioAvailability,
 } from '../../lib/studioModes.js';
 import { readStudioHandoff, workflowIdToMode } from '../../lib/studioHandoff.js';
 import { userFacingError, userError, engineError } from '../../lib/userFacingError.js';
-import { qwenCompose } from '../../lib/geminiImage.js';
-import { systemCapabilities } from '../../data/businessBrain.js';
+import { qwenCompose, gatewayImageErrorToThrow } from '../../lib/geminiImage.js';
+import { systemCapabilities, buildAccountBusinessContext } from '../../data/businessBrain.js';
 import { CREATIVE_WORKFLOWS } from '../../data/creativeWorkflows.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -229,5 +230,120 @@ describe('Jake advertises only what this configuration can open', () => {
     for (const c of systemCapabilities(availableStudioModeIds(HOSTED))) {
       if (c.mode) expect(isStudioModeAvailable(c.mode, HOSTED)).toBe(true);
     }
+  });
+});
+
+// ===================================================================
+// Round 2 — the two P2 findings Codex raised on the first PR #118 head.
+// Both were real; the first implementation was incomplete.
+// ===================================================================
+describe('P2-a · controlled Gateway errors survive the render boundary', () => {
+  const thrown = (code) => gatewayImageErrorToThrow(code === undefined ? null : { ok: false, error: { code } });
+
+  it('KNOWN mapped reasons keep their existing actionable guidance', () => {
+    expect(userFacingError(thrown('unauthenticated'), 'גנרי')).toBe('צריך להתחבר כדי ליצור תמונה');
+    expect(userFacingError(thrown('unauthorized'), 'גנרי')).toBe('צריך להתחבר כדי ליצור תמונה');
+    for (const busy of ['rate_limited', 'budget_exceeded', 'budget_guard_unavailable']) {
+      expect(userFacingError(thrown(busy), 'גנרי')).toBe('שירות התמונות עמוס כרגע — נסה שוב עוד רגע');
+    }
+  });
+
+  it('UNKNOWN / technical Gateway failures render only the safe generic', () => {
+    for (const code of ['weird_new_code', 'internal_error', '', null, undefined]) {
+      expect(userFacingError(thrown(code), 'גנרי')).toBe('יצירת התמונה נכשלה — נסה שוב מאוחר יותר');
+    }
+  });
+
+  it('a provider-supplied message can NEVER self-declare as renderable', () => {
+    // hostile/arbitrary provider payload: message text, and even a forged flag
+    const hostile = { ok: false, error: { code: 'unknown_provider_code', message: 'ComfyUI node UnetLoaderGGUF failed at 127.0.0.1:8188', userSafe: true } };
+    const e = gatewayImageErrorToThrow(hostile);
+    const rendered = userFacingError(e, 'גנרי');
+    expect(rendered).toBe('יצירת התמונה נכשלה — נסה שוב מאוחר יותר');
+    for (const term of ['ComfyUI', 'UnetLoader', '127.0.0.1', 'node']) expect(rendered).not.toMatch(new RegExp(term, 'i'));
+  });
+
+  it('the rendered text always comes from OUR table, never from provider text', () => {
+    const e = gatewayImageErrorToThrow({ ok: false, error: { code: 'rate_limited', message: 'quota exceeded on provider-x' } });
+    expect(userFacingError(e, 'גנרי')).toBe('שירות התמונות עמוס כרגע — נסה שוב עוד רגע');
+    expect(userFacingError(e, 'גנרי')).not.toMatch(/provider-x/i);
+  });
+
+  it('NEGATIVE CONTROL: without the controlled mapping these would flatten to the fallback', () => {
+    const bare = new Error('צריך להתחבר כדי ליצור תמונה'); // the pre-fix shape
+    expect(userFacingError(bare, 'שגיאה ביצירת התוכן')).toBe('שגיאה ביצירת התוכן'); // guidance lost
+    expect(userFacingError(thrown('unauthenticated'), 'שגיאה ביצירת התוכן')).toBe('צריך להתחבר כדי ליצור תמונה'); // preserved
+  });
+});
+
+describe('P2-b · static Studio capabilities respect the same authority', () => {
+  const caps = (c) => systemCapabilities(studioAvailability(c));
+  const ids = (c) => caps(c).map((x) => x.id);
+
+  it('hosted: the local-only enhancement is NOT advertised', () => {
+    expect(ids(HOSTED)).not.toContain('product-lock-blend');
+  });
+
+  it('declared local rig: it comes back', () => {
+    expect(ids(DECLARED)).toContain('product-lock-blend');
+  });
+
+  it('hosted: creative-modes claims no hidden workflow', () => {
+    const cm = caps(HOSTED).find((c) => c.id === 'creative-modes');
+    expect(cm).toBeTruthy();
+    for (const hidden of ['עריכ', 'סרטון', 'פרזנטור', 'וידאו', 'דמות', 'אלבום']) {
+      expect(cm.description).not.toContain(hidden);
+    }
+  });
+
+  it('declared rig: creative-modes accurately names what IS open', () => {
+    const cm = caps(DECLARED).find((c) => c.id === 'creative-modes');
+    expect(cm.description).toContain('ויזואל מוצר עם פרזנטור');
+  });
+
+  it('genuinely available hosted capabilities and non-Studio business surfaces remain', () => {
+    const h = ids(HOSTED);
+    for (const keep of ['image-studio', 'growth-os', 'gallery', 'creative-modes']) expect(h).toContain(keep);
+  });
+
+  it('internal fields never leak into the capability objects', () => {
+    for (const c of caps(HOSTED)) {
+      expect(c.requires).toBeUndefined();
+      expect(c.describe).toBeUndefined();
+    }
+  });
+
+  it('maxCapabilities truncation cannot promote an unavailable static entry', () => {
+    // filtering happens BEFORE any slicing, at every truncation width
+    for (const n of [1, 2, 3, 5, 8, 12, 24]) {
+      const sliced = caps(HOSTED).slice(0, n);
+      expect(sliced.map((c) => c.id)).not.toContain('product-lock-blend');
+      for (const c of sliced) if (c.mode) expect(isStudioModeAvailable(c.mode, HOSTED)).toBe(true);
+    }
+  });
+
+  it('THE REAL CONSUMER: the Jake prompt text contains no hidden creative capability', () => {
+    const prompt = buildAccountBusinessContext(null, {
+      maxCapabilities: 24,
+      availableModes: studioAvailability(HOSTED),
+    });
+    for (const hidden of ['פרזנטור', 'אלבום דוגמנית', 'ערכת דמות', 'Product Lock B2']) {
+      expect(prompt).not.toContain(hidden);
+    }
+    expect(prompt.length).toBeGreaterThan(0);
+  });
+
+  it('THE REAL CONSUMER: a declared rig does describe its extra capabilities', () => {
+    const prompt = buildAccountBusinessContext(null, {
+      maxCapabilities: 24,
+      availableModes: studioAvailability(DECLARED),
+    });
+    expect(prompt).toContain('Product Lock B2');
+  });
+
+  it('NEGATIVE CONTROL: unfiltered statics would advertise the local-only enhancement hosted', () => {
+    const unfiltered = systemCapabilities({ modes: ['text', 'lock'], capabilities: { comfy: true } });
+    expect(unfiltered.map((c) => c.id)).toContain('product-lock-blend'); // comfy declared -> shown
+    expect(ids(HOSTED)).not.toContain('product-lock-blend');             // hosted -> hidden
   });
 });

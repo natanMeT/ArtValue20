@@ -1004,13 +1004,44 @@ function gatewayImageToResult(res) {
 
 // Content-free Hebrew message per Gateway failure — never exposes server/provider
 // text, HTTP status, model name, key, base64, or any diagnostic.
+// CONTROLLED reason -> business message table. The rendered text is chosen by
+// US from a known Gateway reason CODE; provider-supplied `error.message` text is
+// never rendered and can never self-declare as user-safe. Unknown codes fall to
+// the safe generic below.
+const GATEWAY_IMAGE_MESSAGES = Object.freeze({
+  unauthenticated: 'צריך להתחבר כדי ליצור תמונה',
+  unauthorized: 'צריך להתחבר כדי ליצור תמונה',
+  rate_limited: 'שירות התמונות עמוס כרגע — נסה שוב עוד רגע',
+  budget_exceeded: 'שירות התמונות עמוס כרגע — נסה שוב עוד רגע',
+  budget_guard_unavailable: 'שירות התמונות עמוס כרגע — נסה שוב עוד רגע',
+});
+const GATEWAY_IMAGE_FALLBACK = 'יצירת התמונה נכשלה — נסה שוב מאוחר יותר';
+
+// Kept for callers/tests that want the plain string form.
 function gatewayImageError(res) {
   const code = res && res.error && res.error.code;
-  if (code === 'unauthenticated' || code === 'unauthorized') return 'צריך להתחבר כדי ליצור תמונה';
-  if (code === 'rate_limited' || code === 'budget_exceeded' || code === 'budget_guard_unavailable') {
-    return 'שירות התמונות עמוס כרגע — נסה שוב עוד רגע';
-  }
-  return 'יצירת התמונה נכשלה — נסה שוב מאוחר יותר';
+  return (typeof code === 'string' && Object.prototype.hasOwnProperty.call(GATEWAY_IMAGE_MESSAGES, code))
+    ? GATEWAY_IMAGE_MESSAGES[code]
+    : GATEWAY_IMAGE_FALLBACK;
+}
+
+// Build the Error to THROW for a Gateway image failure, carrying structured
+// provenance so the render boundary keeps actionable guidance without ever
+// trusting provider text:
+//   known mapped reason -> userError(our message)  => renders verbatim
+//   unknown / technical -> engineError(detail, safe generic) => renders generic
+export function gatewayImageErrorToThrow(res) {
+  const code = res && res.error && res.error.code;
+  const known = typeof code === 'string' && Object.prototype.hasOwnProperty.call(GATEWAY_IMAGE_MESSAGES, code);
+  // `.message` stays the business-facing text for EVERY case. That preserves a
+  // pre-existing, deliberately stronger invariant pinned by the Gateway suite:
+  // a Gateway image Error never carries the raw reason code or server detail in
+  // its message, so it cannot leak through any surface that logs or renders
+  // `.message`. Diagnostics live in a STRUCTURED field instead.
+  const e = userError(known ? GATEWAY_IMAGE_MESSAGES[code] : GATEWAY_IMAGE_FALLBACK);
+  e.gatewayReason = typeof code === 'string' && code ? code : null;
+  e.gatewayMapped = known;
+  return e;
 }
 
 // Exactly ONE Gateway attempt. On a valid JPEG → the UI shape. On ok:true but a
@@ -1027,14 +1058,14 @@ async function generateImageViaGateway(text, opts) {
     if (converted) return converted;
     // ok:true but the image is missing / malformed / not JPEG / empty → fail
     // visibly. Never retry, never reach for another provider.
-    throw new Error(gatewayImageError(null));
+    throw gatewayImageErrorToThrow(null);
   }
   const code = res && res.error && res.error.code;
   if (code === 'supabase_not_configured') {
     if (POLLI_TOKEN) return pollinations(text);
-    throw new Error('יצירת התמונה אינה זמינה כרגע.');
+    throw userError('יצירת התמונה אינה זמינה כרגע.');
   }
-  throw new Error(gatewayImageError(res));
+  throw gatewayImageErrorToThrow(res);
 }
 
 export async function generateImage(prompt, opts = {}) {
