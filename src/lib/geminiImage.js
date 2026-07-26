@@ -54,8 +54,27 @@ export const hasKontextModel = Boolean(COMFY_URL && COMFY_KONTEXT_MODEL && COMFY
 // now derived from configuration exactly like every flag above, so opening the
 // Studio performs ZERO local-engine requests. With the localEngines gate closed
 // (every hosted build) COMFY_URL is '' and both are false, unchanged.
-export const hasPulidModel = Boolean(COMFY_URL && COMFY_PULID_MODEL && COMFY_FLUX_MODEL); // identity-locked series
-export const hasQwenEdit = Boolean(COMFY_URL && QWEN_UNET && QWEN_CLIP && QWEN_VAE);       // multi-image compose
+// PuLID and Qwen-Edit are OPTIONAL custom-node stacks — a ComfyUI install can
+// be perfectly healthy without them. Their model constants above all carry a
+// non-empty `||` default, so they cannot themselves signal "installed"; an
+// engine URL alone would light up the album/presenter modes on a rig that has
+// neither, and would always route character packs through PuLID instead of
+// falling back to Kontext. So the two stacks are explicitly opt-OUT-able:
+// set VITE_COMFYUI_PULID / VITE_COMFYUI_QWEN_EDIT to 0 (or false) on a rig
+// without them. Configuration-derived, so opening the Studio still probes
+// nothing; coarser than the removed runtime node checks, and deliberately so.
+function optionalStackEnabled(raw) {
+  const v = String(raw ?? '').trim().toLowerCase();
+  return v !== '0' && v !== 'false' && v !== 'off' && v !== 'no';
+}
+export const hasPulidModel = Boolean(                                       // identity-locked series
+  COMFY_URL && COMFY_PULID_MODEL && COMFY_FLUX_MODEL
+  && optionalStackEnabled(import.meta.env.VITE_COMFYUI_PULID),
+);
+export const hasQwenEdit = Boolean(                                         // multi-image compose
+  COMFY_URL && QWEN_UNET && QWEN_CLIP && QWEN_VAE
+  && optionalStackEnabled(import.meta.env.VITE_COMFYUI_QWEN_EDIT),
+);
 export const localEngineUrl = COMFY_URL;
 
 // Ping the local engine. Returns true if ComfyUI is up and reachable.

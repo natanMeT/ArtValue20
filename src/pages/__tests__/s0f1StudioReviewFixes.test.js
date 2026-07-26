@@ -248,7 +248,7 @@ describe('P2 · palette-aware Gateway prompt limit', () => {
   });
 
   it('the studio.generate_image payload shape is unchanged', () => {
-    expect(imageStudio).toContain('r = await generateImage(p, { width: asp.w, height: asp.h, hd, aspect });');
+    expect(imageStudio).toContain('r = await generateImage(p, { arch: presetArch, width: asp.w, height: asp.h, hd, aspect });');
     const r = validateAiGatewayInput('studio.generate_image', { prompt: 'ok', aspectRatio: '1:1' });
     expect(r.ok).toBe(true);
     expect(Object.keys(r.payload).sort()).toEqual(['aspectRatio', 'prompt']);

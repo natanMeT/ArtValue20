@@ -140,15 +140,73 @@ describe('Studio containment · no local-engine request on mount', () => {
   });
 
   it('the new flags are derived from configuration only (no network in their definition)', () => {
-    for (const decl of [
-      'export const hasPulidModel = Boolean(COMFY_URL',
-      'export const hasQwenEdit = Boolean(COMFY_URL',
-    ]) {
+    for (const decl of ['export const hasPulidModel = Boolean(', 'export const hasQwenEdit = Boolean(']) {
       expect(geminiImage).toContain(decl);
+    }
+    // Their definitions must not contain a request of any kind.
+    for (const name of ['hasPulidModel', 'hasQwenEdit']) {
+      const start = geminiImage.indexOf(`export const ${name} = Boolean(`);
+      const body = geminiImage.slice(start, geminiImage.indexOf(');', start));
+      for (const banned of ['fetch', 'await', 'then(']) {
+        expect(body.includes(banned), `${banned} in ${name}`).toBe(false);
+      }
     }
     // With the localEngines gate closed (every hosted build) COMFY_URL is ''
     // and therefore every capability flag is false.
     expect(geminiImage).toContain("import { resolveLocalEngineUrl } from './localEngines.js'");
+  });
+
+  it('RUNTIME: the optional PuLID / Qwen stacks can be turned OFF without a probe', async () => {
+    // Codex review (PR #114): every model constant carries a non-empty `||`
+    // default, so an engine URL alone would light up the album/presenter modes
+    // — and always route character packs through PuLID — on a rig that has
+    // neither stack installed. An explicit opt-out restores an accurate signal
+    // while still issuing no request when the Studio opens.
+    const { vi } = await import('vitest');
+    const load = async (env) => {
+      for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+      vi.resetModules();
+      const m = await import('../../lib/geminiImage.js');
+      const out = { pulid: m.hasPulidModel, qwen: m.hasQwenEdit };
+      vi.unstubAllEnvs();
+      return out;
+    };
+    // engine configured, stacks not opted out → both available (today's rig)
+    expect(await load({ VITE_COMFYUI_URL: 'http://127.0.0.1:8188' })).toEqual({ pulid: true, qwen: true });
+    // engine configured, stacks explicitly absent → both unavailable
+    expect(await load({
+      VITE_COMFYUI_URL: 'http://127.0.0.1:8188', VITE_COMFYUI_PULID: '0', VITE_COMFYUI_QWEN_EDIT: 'false',
+    })).toEqual({ pulid: false, qwen: false });
+    // no engine at all (every hosted build) → both unavailable regardless
+    expect(await load({ VITE_COMFYUI_URL: '' })).toEqual({ pulid: false, qwen: false });
+  });
+});
+
+describe('Studio containment · preset routing survives the hidden picker', () => {
+  it('an applied FLUX preset still selects the flux family — without naming a checkpoint', () => {
+    // Codex review (PR #114): dropping `arch` with the picker made every local
+    // render fall back to the SDXL graph, so the FLUX-authored recipes no
+    // longer ran on the engine they were written for. The family now comes
+    // from the PRESET's own metadata, never from a user-facing control.
+    expect(studioCode).toContain("activePreset.modelFamily === 'flux'");
+    expect(studioCode).toContain('arch: presetArch');
+    const start = studioCode.indexOf('const presetArch =');
+    expect(start).toBeGreaterThan(-1);
+    const decl = studioCode.slice(start, studioCode.indexOf(';', start));
+    expect(decl).toContain('isTextImagePreset(activePreset)');
+    // …and no checkpoint filename is reintroduced anywhere.
+    expect(studioCode.includes('recommendedModel')).toBe(false);
+    expect(studioCode.includes('model:')).toBe(false);
+  });
+
+  it('presetArch is declared before the run() call that sends it', () => {
+    expect(studioCode.indexOf('const presetArch =')).toBeLessThan(studioCode.indexOf('arch: presetArch'));
+  });
+
+  it('the FLUX-authored presets still carry the metadata this depends on', async () => {
+    const { CREATIVE_PRESETS, isTextImagePreset } = await import('../../data/creativePresets.js');
+    const flux = CREATIVE_PRESETS.filter((p) => isTextImagePreset(p) && p.modelFamily === 'flux');
+    expect(flux.length).toBeGreaterThan(0);
   });
 });
 
@@ -179,10 +237,15 @@ describe('Studio containment · no technical provider/model/tool selection', () 
     expect(stripComments(imageStudio).includes('PRESET_PROVIDER_LABEL')).toBe(false);
   });
 
-  it('the generation call sends no model or architecture from the UI', () => {
-    expect(studioCode).toContain('r = await generateImage(p, { width: asp.w, height: asp.h, hd, aspect });');
-    expect(studioCode.includes('arch:')).toBe(false);
+  it('the generation call sends no checkpoint, and no USER-chosen architecture', () => {
+    expect(studioCode).toContain('r = await generateImage(p, { arch: presetArch, width: asp.w, height: asp.h, hd, aspect });');
+    // No checkpoint filename, and nothing sourced from a removed picker.
     expect(studioCode.includes('model: selModel')).toBe(false);
+    expect(studioCode.includes('modelFile')).toBe(false);
+    // The only `arch` the UI can send is the applied preset's own family —
+    // never a value the user picked from a technical control.
+    const archUses = studioCode.match(/arch:\s*[A-Za-z0-9_?.]+/g) || [];
+    expect(archUses).toEqual(['arch: presetArch']);
   });
 
   it('the engine-implementation toggle for character consistency is gone', () => {

@@ -464,6 +464,16 @@ export default function ImageStudio() {
 
   const activePreset = CREATIVE_PRESETS.find((p) => p.id === activePresetId) || null;
 
+  // The model FAMILY an applied text-image preset was authored for. This is the
+  // preset's own business metadata, not a technical control the user operates —
+  // it keeps the FLUX-authored recipes rendering on the FLUX graph now that the
+  // checkpoint picker is gone. `undefined` (no preset, or a non-text preset) lets
+  // the engine choose its default, and the hosted Gateway ignores it entirely
+  // (its payload is prompt + aspectRatio only).
+  const presetArch = activePreset && isTextImagePreset(activePreset) && activePreset.modelFamily === 'flux'
+    ? 'flux'
+    : undefined;
+
   // Apply a business preset into the existing Text-to-Image controls. Explicit
   // user click only — NEVER generates. Always fills the prompt scaffold; for
   // text-image presets it also selects a compatible aspect. (Containment: the
@@ -568,9 +578,12 @@ export default function ImageStudio() {
         const asp = ASPECTS.find((a) => a.id === aspect) || ASPECTS[0];
         // `aspect` (the preset id) is the ONLY field the hosted Gateway path reads —
         // it maps to an exact ratio server-side; local engines keep using width/height.
-        // Containment: no `model` / `arch` is sent from the UI any more (the local
-        // checkpoint picker is gone), so the engine applies its own default.
-        r = await generateImage(p, { width: asp.w, height: asp.h, hd, aspect });
+        // Containment: no checkpoint FILENAME is ever sent from the UI (that picker
+        // is gone). But an applied business preset still carries the model family it
+        // was authored for, so that routing is preserved — the user expresses a
+        // business goal ("ויזואל עסקי פרימיום") and the family follows from the
+        // preset, not from a technical control. No preset → engine default.
+        r = await generateImage(p, { arch: presetArch, width: asp.w, height: asp.h, hd, aspect });
       }
       else if (mode === 'img2img') { r = hasKontextModel ? await editImage(file, p) : await generateImg2Img(file, p, { strength }); }
       else if (mode === 'presenter') { r = await qwenCompose(file, endFile, p, presenterQuality === 'quality' ? { lightning: false } : {}); r = { ...r, presenterQuality }; }
