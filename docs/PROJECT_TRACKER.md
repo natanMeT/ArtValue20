@@ -269,7 +269,7 @@ character packs through PuLID instead of the Kontext fallback.
 - **First attempt (`b807fa1`) was INSUFFICIENT and is superseded.** It added an opt-*out*
   (`VITE_COMFYUI_PULID=0`), which still treated **missing/undefined configuration as available** — i.e. fail **open**.
   Nathan's review caught that it did not satisfy the capability invariant.
-- **Corrected (`d3f8ef1`): optional capabilities now FAIL CLOSED.** A capability is unavailable unless **positively
+- **Corrected (`ff5a42e`): optional capabilities now FAIL CLOSED.** A capability is unavailable unless **positively
   declared** (`1`/`true`/`on`/`yes`); missing, undefined, empty, unknown or malformed configuration => **unavailable**.
   The Kontext fallback is preserved rather than routed into, and the Studio still performs no discovery request on open
   or while idle. **Stated limitation:** this is a positive *declaration*, not runtime discovery — it cannot detect a stack
