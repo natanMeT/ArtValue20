@@ -53,7 +53,12 @@
 --
 -- FAIL-LOUD PREFLIGHT (read-only, before creating anything):
 --   * EVERY column the function reads or writes on quotes (11) and
---     quote_items (8) must exist with the accepted type AND nullability;
+--     quote_items (8) must exist. 17 of them are pinned to an exact type
+--     AND nullability; quotes.date and quotes.created_at are pinned to an
+--     exact TYPE with nullability accepted either way — two documented,
+--     deliberate compatibility variants between the LIVE table and
+--     canonical schema.sql (see the ACCEPTED COMPATIBLE VARIANTS block).
+--     No table is ever altered to force the live schema to match;
 --   * the defaults the function relies on because it omits those values
 --     must exist (quote_items.id gen_random_uuid(); created_at/updated_at
 --     now()); additionally, NO NOT-NULL column outside the function's
@@ -95,9 +100,11 @@ begin
     raise exception 'save_quote_atomic PREFLIGHT FAILED: public.quotes and/or public.quote_items do not exist. Nothing was changed.';
   end if;
 
-  -- ---- FULL column contract: every column the function reads/writes must
-  -- exist with the accepted type AND nullability. Harmless additional
-  -- legacy columns are NOT rejected (see the write-set guard below).
+  -- ---- STRICT column contract (17 columns): each must exist with the
+  -- accepted type AND nullability. The two legitimate live/canonical
+  -- variants (quotes.date, quotes.created_at) are handled separately
+  -- below — they are NOT listed here. Harmless additional legacy columns
+  -- are NOT rejected (see the write-set guard further down).
   select string_agg(exp.tbl || '.' || exp.col || ' expected ' || exp.typ || ' nullable=' || exp.nul, ', ')
     into v_bad
     from (values
@@ -106,12 +113,10 @@ begin
       ('quotes',      'user_id',     'uuid',                     'NO'),
       ('quotes',      'number',      'text',                     'YES'),
       ('quotes',      'client_id',   'uuid',                     'YES'),
-      ('quotes',      'date',        'date',                     'YES'),
       ('quotes',      'valid_days',  'integer',                  'YES'),
       ('quotes',      'vat_rate',    'numeric',                  'YES'),
       ('quotes',      'status',      'text',                     'NO'),
       ('quotes',      'notes',       'text',                     'YES'),
-      ('quotes',      'created_at',  'timestamp with time zone', 'NO'),
       ('quotes',      'updated_at',  'timestamp with time zone', 'NO'),
       -- quote_items (accepted contract: 20260716120000)
       ('quote_items', 'id',          'uuid',                     'NO'),
@@ -133,6 +138,45 @@ begin
     );
   if v_bad is not null then
     raise exception 'save_quote_atomic PREFLIGHT FAILED: live schema differs from the accepted contract (%). Nothing was changed — do NOT auto-repair; review the live schema first.', v_bad;
+  end if;
+
+  -- ---- ACCEPTED COMPATIBLE VARIANTS (deliberate, not a weakening) ----
+  -- Two quotes columns legitimately differ between the LIVE table (which
+  -- predates canonical schema.sql — 20260717090000 only ADDED columns and
+  -- never altered these two) and schema.sql. Both shapes are safe for this
+  -- RPC, so the TYPE is still pinned exactly while the NULLABILITY is
+  -- accepted either way. No table is altered to force a match.
+  --
+  --   quotes.date       LIVE: date NOT NULL default CURRENT_DATE
+  --                     CANONICAL: date NULL
+  --     → the RPC inserts coalesce((p_quote->>'date')::date, current_date),
+  --       so an omitted/JSON-null date is safe under NOT NULL, and a
+  --       nullable column still receives a sensible date. An invalid
+  --       non-date string still raises on the cast and rolls everything
+  --       back (never silently replaced).
+  --
+  --   quotes.created_at LIVE: timestamptz NULL default now()
+  --                     CANONICAL: timestamptz NOT NULL default now()
+  --     → the RPC never writes created_at, so nullability is irrelevant;
+  --       what matters is the now() default, which is REQUIRED by the
+  --       defaults block below (a nullable created_at WITHOUT a now()
+  --       default would leave rows with a NULL creation stamp and is
+  --       therefore still rejected).
+  if not exists (
+    select 1 from information_schema.columns c
+     where c.table_schema = 'public' and c.table_name = 'quotes'
+       and c.column_name = 'date' and c.data_type = 'date'
+       and c.is_nullable in ('YES', 'NO')          -- both variants accepted
+  ) then
+    raise exception 'save_quote_atomic PREFLIGHT FAILED: quotes.date must exist with type date (nullable YES or NO are both accepted variants). Nothing was changed.';
+  end if;
+  if not exists (
+    select 1 from information_schema.columns c
+     where c.table_schema = 'public' and c.table_name = 'quotes'
+       and c.column_name = 'created_at' and c.data_type = 'timestamp with time zone'
+       and c.is_nullable in ('YES', 'NO')          -- both variants accepted
+  ) then
+    raise exception 'save_quote_atomic PREFLIGHT FAILED: quotes.created_at must exist with type timestamptz (nullable YES or NO are both accepted variants; a compatible now() default is required separately). Nothing was changed.';
   end if;
 
   -- ---- required defaults: the function OMITS these values, so the
@@ -361,7 +405,13 @@ begin
       v_uid,
       p_quote->>'number',
       (p_quote->>'client_id')::uuid,
-      (p_quote->>'date')::date,
+      -- LIVE quotes.date is NOT NULL default CURRENT_DATE while canonical
+      -- schema.sql has it nullable. Listing the column explicitly means an
+      -- omitted/JSON-null date would insert an explicit NULL and violate
+      -- the live NOT NULL (the column default never applies to an explicit
+      -- NULL) — so fall back to current_date here. An invalid non-date
+      -- string still raises on the cast and rolls the whole call back.
+      coalesce((p_quote->>'date')::date, current_date),
       coalesce((p_quote->>'valid_days')::integer, 30),
       coalesce((p_quote->>'vat_rate')::numeric, 18),
       coalesce(p_quote->>'status', 'draft'),

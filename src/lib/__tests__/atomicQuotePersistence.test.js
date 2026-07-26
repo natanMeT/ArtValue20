@@ -229,15 +229,15 @@ describe('migration · additive, idempotent, non-destructive', () => {
 const preflight = lower.split('$preflight$')[1] || '';
 
 describe('migration · preflight covers EVERY RPC-referenced column (type + nullability)', () => {
-  const CONTRACT = [
-    // [table, column, information_schema type, nullability] — the accepted
-    // schema from 20260716120000/20260717090000 + canonical schema.sql.
+  // 17 columns pinned to an EXACT type + nullability. quotes.date and
+  // quotes.created_at are deliberately NOT here — they are the two accepted
+  // live/canonical compatibility variants asserted in their own block below.
+  const STRICT = [
     ['quotes', 'id', 'text', 'no'], ['quotes', 'user_id', 'uuid', 'no'],
     ['quotes', 'number', 'text', 'yes'], ['quotes', 'client_id', 'uuid', 'yes'],
-    ['quotes', 'date', 'date', 'yes'], ['quotes', 'valid_days', 'integer', 'yes'],
+    ['quotes', 'valid_days', 'integer', 'yes'],
     ['quotes', 'vat_rate', 'numeric', 'yes'], ['quotes', 'status', 'text', 'no'],
     ['quotes', 'notes', 'text', 'yes'],
-    ['quotes', 'created_at', 'timestamp with time zone', 'no'],
     ['quotes', 'updated_at', 'timestamp with time zone', 'no'],
     ['quote_items', 'id', 'uuid', 'no'], ['quote_items', 'user_id', 'uuid', 'no'],
     ['quote_items', 'quote_id', 'text', 'no'], ['quote_items', 'description', 'text', 'yes'],
@@ -246,15 +246,91 @@ describe('migration · preflight covers EVERY RPC-referenced column (type + null
     ['quote_items', 'created_at', 'timestamp with time zone', 'no'],
   ];
 
-  it.each(CONTRACT)('%s.%s is pinned as %s / nullable=%s', (tbl, col, typ, nul) => {
+  it.each(STRICT)('%s.%s is pinned as %s / nullable=%s', (tbl, col, typ, nul) => {
     const row = new RegExp(`\\('${tbl}',\\s*'${col}',\\s*'${typ.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}',\\s*'${nul}'\\)`);
     expect(preflight).toMatch(row);
   });
 
-  it('the column check matches type AND nullability against information_schema (fail-loud on either)', () => {
+  it('all 19 RPC-referenced columns are covered: 17 strict + the 2 accepted variants', () => {
+    expect(STRICT).toHaveLength(17);
+    // the two variants are checked by their own dedicated guards, not the strict table
+    expect(preflight).not.toMatch(/\('quotes',\s*'date',\s*'date',\s*'(yes|no)'\)/);
+    expect(preflight).not.toMatch(/\('quotes',\s*'created_at',\s*'timestamp with time zone',\s*'(yes|no)'\)/);
+    expect(preflight).toMatch(/c\.column_name = 'date' and c\.data_type = 'date'/);
+    expect(preflight).toMatch(/c\.column_name = 'created_at' and c\.data_type = 'timestamp with time zone'/);
+  });
+
+  it('the strict check matches type AND nullability against information_schema (fail-loud on either)', () => {
     expect(preflight).toMatch(/c\.data_type\s+=\s+exp\.typ/);
     expect(preflight).toMatch(/c\.is_nullable\s+=\s+exp\.nul/);
     expect(preflight).toMatch(/live schema differs from the accepted contract/);
+  });
+});
+
+// ===================================================================
+// Live/canonical compatibility (correction after the read-only live
+// preflight audit): the LIVE quotes table predates canonical schema.sql
+// (20260717090000 only ADDED columns) and legitimately differs on two
+// columns. Both shapes are accepted by TYPE-exact / nullability-either
+// checks — deliberately documented, and NO table is altered.
+// ===================================================================
+describe('migration · accepted live↔canonical compatibility variants', () => {
+  // JS mirror of the two SQL guards, so both shapes are proven to pass and
+  // genuine incompatibilities are proven to still fail.
+  const dateOk = (c) => c.name === 'date' && c.type === 'date' && ['YES', 'NO'].includes(c.nullable);
+  const createdOk = (c) => c.name === 'created_at' && c.type === 'timestamp with time zone'
+    && ['YES', 'NO'].includes(c.nullable) && /now\(\)/.test(c.default || '');
+
+  it('LIVE shape passes: quotes.date NOT NULL + quotes.created_at nullable', () => {
+    expect(dateOk({ name: 'date', type: 'date', nullable: 'NO', default: 'CURRENT_DATE' })).toBe(true);
+    expect(createdOk({ name: 'created_at', type: 'timestamp with time zone', nullable: 'YES', default: 'now()' })).toBe(true);
+  });
+
+  it('CANONICAL shape passes: quotes.date nullable + quotes.created_at NOT NULL', () => {
+    expect(dateOk({ name: 'date', type: 'date', nullable: 'YES', default: null })).toBe(true);
+    expect(createdOk({ name: 'created_at', type: 'timestamp with time zone', nullable: 'NO', default: 'now()' })).toBe(true);
+  });
+
+  it('a WRONG column type still fails (type stays pinned exactly)', () => {
+    expect(dateOk({ name: 'date', type: 'text', nullable: 'NO', default: null })).toBe(false);
+    expect(dateOk({ name: 'date', type: 'timestamp with time zone', nullable: 'YES', default: null })).toBe(false);
+    expect(createdOk({ name: 'created_at', type: 'date', nullable: 'YES', default: 'now()' })).toBe(false);
+  });
+
+  it('created_at WITHOUT a now() default still fails (the RPC omits the column)', () => {
+    expect(createdOk({ name: 'created_at', type: 'timestamp with time zone', nullable: 'YES', default: null })).toBe(false);
+    expect(createdOk({ name: 'created_at', type: 'timestamp with time zone', nullable: 'YES', default: "'epoch'::timestamptz" })).toBe(false);
+    // and the SQL keeps requiring it in the defaults block
+    expect(preflight).toMatch(/\('quotes',\s*'created_at',\s*'now\(\)'\)/);
+  });
+
+  it('the variants are documented as deliberate, with type-exact / nullability-either wording', () => {
+    expect(lower).toContain('accepted compatible variants');
+    expect(preflight).toMatch(/c\.is_nullable in \('yes', 'no'\)\s*--\s*both variants accepted/);
+    expect(preflight).toMatch(/quotes\.date must exist with type date \(nullable yes or no are both accepted variants\)/);
+    expect(preflight).toMatch(/quotes\.created_at must exist with type timestamptz \(nullable yes or no are both accepted variants/);
+    // no live-schema repair anywhere
+    expect(lower).not.toMatch(/alter\s+table/);
+  });
+});
+
+describe('migration · robust create-date behavior under BOTH shapes', () => {
+  it('the create INSERT falls back to current_date for an omitted / JSON-null date', () => {
+    expect(fnBody).toMatch(/coalesce\(\(p_quote->>'date'\)::date,\s*current_date\)/);
+  });
+
+  it('a supplied date is preserved (coalesce only fills a NULL) and an invalid date still raises', () => {
+    // ->> yields SQL NULL for both an absent key and a JSON null, so coalesce
+    // supplies current_date; a non-date string raises on ::date BEFORE
+    // coalesce can see it — never silently replaced.
+    const expr = (fnBody.match(/coalesce\(\(p_quote->>'date'\)::date,\s*current_date\)/) || [''])[0];
+    expect(expr).toContain("(p_quote->>'date')::date");   // cast happens first
+    expect(expr).toContain('current_date');
+    expect(fnBody).not.toMatch(/exception\s+when\s+invalid_datetime_format/); // no swallowing
+  });
+
+  it('UPDATE semantics are unchanged (no coalesce grafted onto the partial-update path)', () => {
+    expect(fnBody).toMatch(/date\s+=\s+case when p_quote \? 'date'\s+then \(p_quote->>'date'\)::date\s+else q\.date\s+end/);
   });
 });
 
