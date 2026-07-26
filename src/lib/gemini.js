@@ -62,13 +62,13 @@ async function localChat(messages, opts = {}) {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
     if (!res.ok) {
-      const err = new Error(res.status === 404 ? 'השירות אינו זמין כרגע' : `שגיאת מודל מקומי (${res.status})`);
+      const err = new Error(res.status === 404 ? 'השירות אינו זמין כרגע' : `שגיאת שירות (${res.status})`);
       err.status = res.status;
       throw err;
     }
     const j = await res.json();
     const text = j?.choices?.[0]?.message?.content?.trim();
-    if (!text) throw new Error('לא התקבלה תשובה מהמודל המקומי');
+    if (!text) throw new Error('לא התקבלה תשובה מהשירות');
     return text;
   };
   try {
