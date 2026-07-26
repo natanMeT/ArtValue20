@@ -361,6 +361,34 @@ describe('migration · preflight verifies relational integrity from the catalogs
     expect(preflight).toMatch(/= array\['id'\]/);
   });
 
+  // REGRESSION — the first apply attempt aborted with
+  //   ERROR: 42883: operator does not exist: name[] = text[]
+  // because pg_attribute.attname is `name`, so array_agg(a.attname) yields
+  // name[] while array['id'] is text[]. Both sides must be explicitly text[].
+  // These assertions pin the TYPE-COMPATIBILITY SYNTAX, not the message text.
+  it('both PK blocks aggregate a.attname::text (never the bare name[] form)', () => {
+    const cast = preflight.match(/array_agg\(a\.attname::text order by k\.ord\)/g) || [];
+    expect(cast).toHaveLength(2);
+    // the incompatible bare aggregate must not survive anywhere
+    expect(preflight).not.toMatch(/array_agg\(a\.attname\s+order by/);
+    expect(preflight).not.toMatch(/array_agg\(a\.attname\)/);
+  });
+
+  it('both PK comparisons cast the literal to array[...]::text[]', () => {
+    const rhs = preflight.match(/= array\['id'\]::text\[\]/g) || [];
+    expect(rhs).toHaveLength(2);
+    // no untyped right-hand side remains (bare `= array['id']` not followed by ::text[])
+    expect(preflight).not.toMatch(/= array\['id'\](?!::text\[\])/);
+  });
+
+  it('exactly two explicitly compatible PK comparisons exist, and the failing form is gone', () => {
+    const whole = preflight.match(/array_agg\(a\.attname::text order by k\.ord\)[\s\S]{0,220}?= array\['id'\]::text\[\]/g) || [];
+    expect(whole).toHaveLength(2);
+    // the exact expression that produced 42883 must not appear in the file at all
+    expect(lower).not.toContain("array_agg(a.attname order by k.ord) = array['id']");
+    expect(lower).not.toMatch(/array_agg\(a\.attname order by k\.ord\)[\s\S]{0,220}?= array\['id'\](?!::)/);
+  });
+
   it('quote_items.quote_id must reference public.quotes(id) ON DELETE CASCADE', () => {
     expect(preflight).toMatch(/quote_items\.quote_id must reference public\.quotes\(id\) on delete cascade/);
     expect(preflight).toMatch(/con\.confdeltype = 'c'/);
