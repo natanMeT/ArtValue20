@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { userFacingError } from '../../lib/userFacingError.js';
 import { motion } from 'framer-motion';
 import Icon from '../ui/Icon.jsx';
 import { composeMockup, RATIOS, GRADIENTS } from '../../lib/mockup.js';
@@ -47,7 +48,7 @@ export default function MockupStudio({ onClose }) {
       document.body.appendChild(a); a.click(); a.remove();
     } catch (e) {
       // eslint-disable-next-line no-alert
-      alert('יצוא נכשל: ' + (e?.message || e));
+      alert(userFacingError(e, 'יצוא נכשל. נסה/י שוב.'));
     } finally { setExporting(false); }
   };
 

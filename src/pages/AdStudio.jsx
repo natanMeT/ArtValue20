@@ -114,7 +114,7 @@ export default function AdStudio() {
       const b = await analyzeBusiness(text, url);
       setBrand(b); setPhase('analyzed'); setProgress('');
       toast('מוח העסק מוכן ✓');
-    } catch (e) { setError(e.message || 'שגיאה בסריקת העסק'); setPhase('idle'); setProgress(''); }
+    } catch (e) { setError(userFacingError(e, 'שגיאה בסריקת העסק')); setPhase('idle'); setProgress(''); }
   };
 
   const runDirector = async () => {
@@ -132,7 +132,7 @@ export default function AdStudio() {
           if (ev.stage === 'strategy:done' && ev.strategy) setStrategy(ev.strategy);
         },
       });
-    } catch (e) { setError(e.message || 'שגיאה ביצירת הקמפיין'); setPhase('analyzed'); setProgress(''); return; }
+    } catch (e) { setError(userFacingError(e, 'שגיאה ביצירת הקמפיין')); setPhase('analyzed'); setProgress(''); return; }
 
     const top = result.concepts.map((c) => ({ ...c, src: null, imgBusy: false, imgError: '', expand: false }));
     setAds(top);
@@ -146,7 +146,7 @@ export default function AdStudio() {
         const src = await render(top[i]); // eslint-disable-line no-await-in-loop
         setAds((p) => p.map((a, idx) => (idx === i ? { ...a, src, imgBusy: false } : a)));
       } catch (e) {
-        setAds((p) => p.map((a, idx) => (idx === i ? { ...a, imgBusy: false, imgError: e.message || 'נכשל' } : a)));
+        setAds((p) => p.map((a, idx) => (idx === i ? { ...a, imgBusy: false, imgError: userFacingError(e, 'היצירה נכשלה כרגע') } : a)));
       }
     }
     setProgress(''); setPhase('done'); toast('הקמפיין מוכן ✓ — נשמר לגלריה');

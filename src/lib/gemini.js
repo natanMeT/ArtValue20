@@ -12,6 +12,7 @@
 // the ONLY gateway-routed operations in this file. Everything else stays
 // on its legacy path.
 import { callAiGateway } from './aiGatewayClient.js';
+import { userError, engineError } from './userFacingError.js';
 import { resolveLocalEngineUrl } from './localEngines.js';
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
@@ -68,7 +69,7 @@ async function localChat(messages, opts = {}) {
     }
     const j = await res.json();
     const text = j?.choices?.[0]?.message?.content?.trim();
-    if (!text) throw new Error('לא התקבלה תשובה מהשירות');
+    if (!text) throw userError('לא התקבלה תשובה מהשירות');
     return text;
   };
   try {
@@ -78,7 +79,7 @@ async function localChat(messages, opts = {}) {
     if (e.status === 500) { await freeImageVram(); return await call(); }
     // No HTTP status = network error → Ollama isn't reachable (often right after a reboot).
     if (!e.status) {
-      throw new Error('השירות עדיין מתאתחל או אינו זמין כרגע. נסה/י שוב בעוד כ-30 שניות.');
+      throw userError('השירות עדיין מתאתחל או אינו זמין כרגע. נסה/י שוב בעוד כ-30 שניות.');
     }
     throw e;
   }
@@ -112,13 +113,19 @@ async function chatJson(sys, user, opts = {}) {
   };
   const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-goog-api-key': API_KEY }, body: JSON.stringify(body) });
   if (!res.ok) {
-    let msg = `שגיאת Gemini (${res.status})`;
-    try { const e = await res.json(); msg = e?.error?.message || msg; } catch { /* ignore */ }
-    throw new Error(msg);
+    // The provider's raw text is captured for diagnostics ONLY — it never
+    // becomes the thrown message, so it cannot reach any surface that renders
+    // or logs `.message`. Same invariant as the AI Gateway image lane.
+    let providerDetail = '';
+    try { const e = await res.json(); providerDetail = String(e?.error?.message || ''); } catch { /* ignore */ }
+    const err = userError('השירות אינו זמין כרגע. נסה/י שוב בעוד רגע.');
+    err.httpStatus = res.status;
+    err.providerDetail = providerDetail;
+    throw err;
   }
   const json = await res.json();
   const text = (json?.candidates?.[0]?.content?.parts || []).map((p) => p.text).filter(Boolean).join('').trim();
-  if (!text) throw new Error('לא התקבלה תשובה מ-Gemini');
+  if (!text) throw userError('לא התקבלה תשובה מהשירות');
   return JSON.parse(text);
 }
 
@@ -136,17 +143,17 @@ const READER_PROXY = (import.meta.env.VITE_READER_PROXY || 'https://r.jina.ai/')
 
 export async function fetchSiteText(rawUrl) {
   const clean = (rawUrl || '').trim();
-  if (!clean) throw new Error('הזן כתובת אתר');
+  if (!clean) throw userError('הזן כתובת אתר');
   const full = /^https?:\/\//i.test(clean) ? clean : `https://${clean}`;
   let res;
   try {
     res = await fetch(READER_PROXY + full, { headers: { Accept: 'text/plain' } });
   } catch {
-    throw new Error('לא ניתן לקרוא את האתר (בעיית רשת). בדוק את הכתובת ונסה שוב.');
+    throw userError('לא ניתן לקרוא את האתר (בעיית רשת). בדוק את הכתובת ונסה שוב.');
   }
-  if (!res.ok) throw new Error(`קריאת האתר נכשלה (${res.status}). ודא שהכתובת תקינה וציבורית.`);
+  if (!res.ok) { const e = userError('קריאת האתר נכשלה. ודא/י שהכתובת תקינה וציבורית.'); e.httpStatus = res.status; throw e; }
   const text = (await res.text()).trim();
-  if (!text || text.length < 40) throw new Error('האתר ריק או חוסם קריאה אוטומטית.');
+  if (!text || text.length < 40) throw userError('האתר ריק או חוסם קריאה אוטומטית.');
   return cleanReaderText(text).slice(0, 6000); // strip nav/url noise + cap — keeps the analyzer on-task (KI-1)
 }
 
@@ -234,7 +241,7 @@ export async function analyzeBusiness(siteText, url = '') {
 {"business":"שם/סוג העסק","positioning":"מיצוב במשפט","audience":"קהל יעד","industry":"תעשייה","differentiators":["מה מייחד"],"emotional_triggers":["טריגרים רגשיים"],"tone":["מילות טון"],"trust_signals":["אותות אמון"],"luxury_level":"low|mid|premium|luxury","weaknesses":["חולשה שאפשר להפוך להזדמנות פרסומית"],"do_not":["מה לא לעשות/להגיד"],"palette":["#hex"]}
 היה חד, ספציפי ואמיתי לעסק הזה. עברית בלבד.`;
   const p = await chatJson(sys, `כתובת האתר: ${url}\n\nתוכן האתר:\n${siteText}`, { temperature: 0.5, maxTokens: 1600, model: CREATIVE_LLM_MODEL });
-  if (!p || !p.business) throw new Error('הניתוח נכשל — נסה אתר אחר.');
+  if (!p || !p.business) throw userError('הניתוח נכשל — נסה אתר אחר.');
   const arr = (v) => (Array.isArray(v) ? v.filter(Boolean) : []);
   const brand = {
     business: p.business, positioning: p.positioning || '', audience: p.audience || '', industry: p.industry || '',
@@ -263,7 +270,7 @@ export async function buildStrategy(brand) {
 עברית בלבד, חד ומדויק.`;
   const ctx = `פרופיל המותג:\n${JSON.stringify(brand, null, 1)}`;
   const s = await chatJson(sys, ctx, { temperature: 0.7, maxTokens: 1200, model: CREATIVE_LLM_MODEL });
-  if (!s || !s.core_message) throw new Error('בניית האסטרטגיה נכשלה — נסה שוב.');
+  if (!s || !s.core_message) throw userError('בניית האסטרטגיה נכשלה — נסה שוב.');
   s.triggers = s.triggers || {};
   return s;
 }
@@ -617,7 +624,7 @@ export async function runCreativeDirector(brand, opts = {}) {
     memory = campaignMemory, withCritique = false, onStage = () => {},
   } = opts;
   const emit = (stage, payload = {}) => { logStage(stage, payload); try { onStage({ stage, ...payload }); } catch { /* noop */ } };
-  if (!brand) throw new Error('חסר פרופיל עסק');
+  if (!brand) throw userError('חסר פרופיל עסק');
 
   // Stage — campaign strategy
   emit('strategy', { phase: 'strategy', message: 'בונה אסטרטגיית קמפיין…' });
@@ -641,7 +648,7 @@ export async function runCreativeDirector(brand, opts = {}) {
     const scored = await scoreBrainstorm(ideas, brand); // eslint-disable-line no-await-in-loop
     scored.filter((c) => !c.safe).forEach((c) => { if (!poolMechs.has(c.mechanism)) { poolMechs.add(c.mechanism); pool.push(c); } else pool.push(c); });
   }
-  if (!pool.length) throw new Error('כל הרעיונות נפסלו כבטוחים — נסה שוב או נסח אחרת.');
+  if (!pool.length) throw userError('כל הרעיונות נפסלו כבטוחים — נסה שוב או נסח אחרת.');
 
   // Stage — dedupe (memory + diversity) → unique-mechanism winners
   emit('select', { message: 'סינון גיוון · זיכרון קמפיינים…' });
@@ -649,7 +656,7 @@ export async function runCreativeDirector(brand, opts = {}) {
   const seen = new Set();
   const diverse = ranked.filter((c) => (seen.has(c.mechanism) ? false : seen.add(c.mechanism)));
   const winners = (diverse.length >= target ? diverse : ranked).slice(0, target);
-  if (!winners.length) throw new Error('לא נותרו קונספטים ייחודיים מספיק — נסה שוב.');
+  if (!winners.length) throw userError('לא נותרו קונספטים ייחודיים מספיק — נסה שוב.');
 
   // Stage — expand each winner (DictaLM concept + aya copy)
   const concepts = [];
@@ -658,7 +665,7 @@ export async function runCreativeDirector(brand, opts = {}) {
     const full = await expandConcept(brand, strategy, winners[i], note); // eslint-disable-line no-await-in-loop
     if (full) concepts.push({ ...full, idea: winners[i].idea, total: winners[i].total });
   }
-  if (!concepts.length) throw new Error('הרחבת הקונספטים נכשלה — נסה שוב.');
+  if (!concepts.length) throw userError('הרחבת הקונספטים נכשלה — נסה שוב.');
   memory.remember(concepts);
 
   // Stage — optional Creative Critic (OFF by default to match frozen v1 behavior)
@@ -824,14 +831,14 @@ export async function diagnoseQuote(input) {
     const json = (res.result && res.result.json && typeof res.result.json === 'object' && !Array.isArray(res.result.json))
       ? res.result.json
       : null;
-    if (!json) throw new Error('שגיאה בהפקת האבחון (empty_response)');
+    if (!json) throw engineError('diagnose: empty_response', 'שגיאה בהפקת האבחון — נסה/י שוב בעוד רגע.');
     return json;
   }
   if (res && res.error && res.error.code === 'supabase_not_configured') {
     return demoResult(input);
   }
   const code = (res && res.error && res.error.code) || 'no_brain';
-  throw new Error(`שגיאה בהפקת האבחון (${code})`);
+  throw engineError(`diagnose: ${code}`, 'שגיאה בהפקת האבחון — נסה/י שוב בעוד רגע.');
 }
 
 // M2 J3C S2: the legacy pre-gateway Jake lanes (chatWithLocalModel, forceActions)
@@ -918,13 +925,13 @@ export async function chatJake(history, contextText) {
   const res = await callAiGateway('jake.chat', buildJakeChatGatewayPayload(history, contextText));
   if (res && res.ok) {
     const text = (res.result && typeof res.result.text === 'string') ? res.result.text.trim() : '';
-    if (!text) throw new Error('EMPTY_RESPONSE');
+    if (!text) throw engineError('EMPTY_RESPONSE', 'לא הצלחתי לעבד את זה כרגע. נסה/י שוב בעוד רגע.');
     return { text, brain: 'gateway' };
   }
   if (res && res.error && res.error.code === 'supabase_not_configured') {
     return { text: await demoChat(history), brain: 'demo' };
   }
-  throw new Error((res && res.error && res.error.code) || 'NO_BRAIN');
+  throw engineError((res && res.error && res.error.code) || 'NO_BRAIN', 'לא הצלחתי לעבד את זה כרגע. נסה/י שוב בעוד רגע.');
 }
 
 // Map the force-actions interface to the Gateway's strict single-turn payload:
@@ -951,11 +958,11 @@ export async function forceActionsJake(userText, contextText) {
   const res = await callAiGateway('jake.force_actions', buildJakeForceActionsPayload(userText, contextText));
   if (res && res.ok) {
     const text = (res.result && typeof res.result.text === 'string') ? res.result.text.trim() : '';
-    if (!text) throw new Error('EMPTY_RESPONSE');
+    if (!text) throw engineError('EMPTY_RESPONSE', 'לא הצלחתי לעבד את זה כרגע. נסה/י שוב בעוד רגע.');
     return text;
   }
   if (res && res.error && res.error.code === 'supabase_not_configured') return '';
-  throw new Error((res && res.error && res.error.code) || 'NO_BRAIN');
+  throw engineError((res && res.error && res.error.code) || 'NO_BRAIN', 'לא הצלחתי לעבד את זה כרגע. נסה/י שוב בעוד רגע.');
 }
 
 // Map the legacy (history, contextText) drafting interface to the Gateway's
@@ -992,13 +999,13 @@ export async function draftWithJake(history, contextText) {
   const res = await callAiGateway('jake.draft_message', buildJakeDraftGatewayPayload(history, contextText));
   if (res && res.ok) {
     const text = (res.result && typeof res.result.text === 'string') ? res.result.text.trim() : '';
-    if (!text) throw new Error('EMPTY_RESPONSE');
+    if (!text) throw engineError('EMPTY_RESPONSE', 'לא הצלחתי לעבד את זה כרגע. נסה/י שוב בעוד רגע.');
     return { text, brain: 'gateway' };
   }
   if (res && res.error && res.error.code === 'supabase_not_configured') {
     return { text: await demoChat(history), brain: 'demo' };
   }
-  throw new Error((res && res.error && res.error.code) || 'NO_BRAIN');
+  throw engineError((res && res.error && res.error.code) || 'NO_BRAIN', 'לא הצלחתי לעבד את זה כרגע. נסה/י שוב בעוד רגע.');
 }
 
 // ===================================================================
@@ -1035,14 +1042,14 @@ export async function generateLeadIdeas(niche, count = 6) {
     const leads = (res.result && res.result.json && Array.isArray(res.result.json.leads))
       ? res.result.json.leads
       : null;
-    if (!leads) throw new Error('שגיאה ביצירת רעיונות (empty_response)');
+    if (!leads) throw engineError('lead_ideas: empty_response', 'שגיאה ביצירת רעיונות — נסה/י שוב בעוד רגע.');
     return leads;
   }
   if (res && res.error && res.error.code === 'supabase_not_configured') {
     return demoLeadIdeas(niche, count);
   }
   const code = (res && res.error && res.error.code) || 'no_brain';
-  throw new Error(`שגיאה ביצירת רעיונות (${code})`);
+  throw engineError(`lead_ideas: ${code}`, 'שגיאה ביצירת רעיונות — נסה/י שוב בעוד רגע.');
 }
 
 // M2 J3C S2: the legacy browser-side prompt enhancer (enhanceImagePrompt /

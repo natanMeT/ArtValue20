@@ -28,6 +28,7 @@ import { userFacingError, userError, engineError } from '../../lib/userFacingErr
 import { qwenCompose, gatewayImageErrorToThrow } from '../../lib/geminiImage.js';
 import { systemCapabilities, buildAccountBusinessContext } from '../../data/businessBrain.js';
 import { CREATIVE_WORKFLOWS } from '../../data/creativeWorkflows.js';
+import { CREATIVE_PRESETS } from '../../data/creativePresets.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (rel) => readFileSync(resolve(here, rel), 'utf8');
@@ -345,5 +346,105 @@ describe('P2-b · static Studio capabilities respect the same authority', () => 
     const unfiltered = systemCapabilities({ modes: ['text', 'lock'], capabilities: { comfy: true } });
     expect(unfiltered.map((c) => c.id)).toContain('product-lock-blend'); // comfy declared -> shown
     expect(ids(HOSTED)).not.toContain('product-lock-blend');             // hosted -> hidden
+  });
+});
+
+// ===================================================================
+// Round 3 — authorised DEFECT-CLASS SWEEP. Rounds 1 and 2 fixed instances;
+// this round covers the classes themselves, so a sibling path cannot survive.
+// ===================================================================
+describe('CLASS A · no uncontrolled or technical error value can render', () => {
+  const SURFACES = [
+    ['ImageStudio', '../ImageStudio.jsx'],
+    ['AdStudio', '../AdStudio.jsx'],
+    ['Diagnose', '../Diagnose.jsx'],
+    ['Outreach', '../Outreach.jsx'],
+    ['MockupStudio', '../../components/studio/MockupStudio.jsx'],
+  ];
+
+  it('NO creative surface assigns a caught error message straight into a rendered value', () => {
+    for (const [name, rel] of SURFACES) {
+      const src = read(rel);
+      const raw = src.match(/(?:setError|setGenError|toast|alert|imgError:)\s*\(?[^;\n]*\b(?:e|err|error)\.message/g) || [];
+      expect(raw, `${name} renders a raw error message`).toEqual([]);
+    }
+  });
+
+  it('every creative surface routes its rendered errors through the boundary', () => {
+    for (const [name, rel] of SURFACES) {
+      expect(read(rel), name).toMatch(/userFacingError\(/);
+    }
+  });
+
+  it('the shared creative helper never throws provider text as its message', () => {
+    const gemini = read('../../lib/gemini.js');
+    // the provider payload is captured for diagnostics only
+    expect(gemini).toMatch(/providerDetail = String\(e\?\.error\?\.message/);
+    expect(gemini).not.toMatch(/msg = e\?\.error\?\.message/);
+    // and no bare technical throw survives in the helper
+    expect(gemini).not.toMatch(/throw new Error\(/);
+  });
+
+  it('NEGATIVE CONTROL: a raw-render pattern is what this class test detects', () => {
+    const sample = "setError(e.message || 'x');";
+    expect(sample.match(/setError\s*\(?[^;\n]*\be\.message/g)).not.toEqual([]);
+  });
+});
+
+describe('CLASS B · nothing promises or routes to an unavailable capability', () => {
+  const caps = (c) => systemCapabilities(studioAvailability(c));
+
+  it('a GATED SUBFEATURE is not advertised just because its parent mode is available', () => {
+    // `lock` is available hosted, but its AI seam/shadow enhancement needs comfy
+    const hostedLock = caps(HOSTED).find((c) => c.id === 'product-lock');
+    expect(hostedLock, 'product-lock should still be offered hosted').toBeTruthy();
+    expect(hostedLock.description).not.toContain('AI');
+    expect(hostedLock.description).not.toContain('צללים');
+
+    const localLock = caps(DECLARED).find((c) => c.id === 'product-lock');
+    expect(localLock.description).toContain('צללים'); // returns when genuinely supported
+  });
+
+  it('THE REAL CONSUMER: the hosted Jake prompt promises no gated subfeature', () => {
+    const prompt = buildAccountBusinessContext(null, { maxCapabilities: 24, availableModes: studioAvailability(HOSTED) });
+    for (const gated of ['צללים', 'Product Lock B2', 'פרזנטור', 'אלבום דוגמנית']) {
+      expect(prompt, gated).not.toContain(gated);
+    }
+  });
+
+  it('presets are filtered by their TARGET MODE, not merely listed', () => {
+    const studio = read('../ImageStudio.jsx');
+    expect(studio).toMatch(/CREATIVE_PRESETS\.filter\(\(p\) => isStudioModeAvailable\(p\.targetTab, studioCaps\)\)/);
+    expect(studio).not.toMatch(/\{CREATIVE_PRESETS\.map\(/);      // no unfiltered render
+    expect(studio).toMatch(/const activePreset = presets\.find/); // selection cannot outlive availability
+  });
+
+  it('every preset target mode is a known mode (so filtering can never silently pass)', () => {
+    for (const p of CREATIVE_PRESETS) {
+      expect(Object.keys(STUDIO_MODE_REQUIREMENTS), p.id).toContain(p.targetTab);
+    }
+  });
+
+  it('hosted: only text-target presets survive; declared: all of them do', () => {
+    const hosted = CREATIVE_PRESETS.filter((p) => isStudioModeAvailable(p.targetTab, HOSTED));
+    expect(hosted.length).toBeGreaterThan(0);
+    for (const p of hosted) expect(p.targetTab).toBe('text');
+    expect(hosted.map((p) => p.id)).not.toContain('photo_restoration');    // img2img
+    expect(hosted.map((p) => p.id)).not.toContain('product_motion_video'); // video
+    expect(CREATIVE_PRESETS.filter((p) => isStudioModeAvailable(p.targetTab, DECLARED)).length).toBe(CREATIVE_PRESETS.length);
+  });
+
+  it('NEGATIVE CONTROL: unfiltered presets would advertise hidden tabs hosted', () => {
+    const unfiltered = CREATIVE_PRESETS.map((p) => p.targetTab);
+    expect(unfiltered).toContain('img2img');
+    expect(unfiltered).toContain('video');
+    expect(isStudioModeAvailable('img2img', HOSTED)).toBe(false);
+    expect(isStudioModeAvailable('video', HOSTED)).toBe(false);
+  });
+
+  it('NEGATIVE CONTROL: an ungated subfeature would leak into the hosted description', () => {
+    const withCaps = systemCapabilities({ modes: ['lock'], modeLabels: [], capabilities: { comfy: true } });
+    expect(withCaps.find((c) => c.id === 'product-lock').description).toContain('צללים'); // comfy on -> shown
+    expect(caps(HOSTED).find((c) => c.id === 'product-lock').description).not.toContain('צללים');
   });
 });

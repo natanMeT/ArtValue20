@@ -142,7 +142,13 @@ export const CREATIVE_WORKFLOWS = [
     id: 'product-lock',
     title: 'מוצר מדויק',
     subtitle: 'Product Lock · קומפוזיט',
-    description: 'קומפוזיט מדויק עם אפשרות לשיפור חיבור וצללים ב־AI — רק סביב הקצוות, המוצר עצמו נשמר מוגן. מתאים ללוגו, טקסט, שעון, אריזה וסימני מותג שצריכים להישאר נאמנים למקור.',
+    description: 'הרכבת תמונת מוצר על רקע או סצנה חדשה, כשפיקסלי המוצר נשמרים 1:1 — לוגו, טקסט ופרטי מוצר אינם נוצרים מחדש.',
+    // The AI seam/shadow enhancement (Product Lock B2) needs the local engine.
+    // It is a GATED SUBFEATURE of an otherwise-available mode, so it is declared
+    // here instead of being asserted inside the always-visible description.
+    subfeatures: [
+      { id: 'lock-blend', requires: 'comfy', text: 'ניתן גם לשפר את החיבור והצללים סביב קצוות המוצר באמצעות AI, בלי לגעת במוצר עצמו.' },
+    ],
     engine: 'browser',
     status: 'live',
     category: 'commerce',

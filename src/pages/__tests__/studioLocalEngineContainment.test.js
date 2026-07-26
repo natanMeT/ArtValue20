@@ -356,7 +356,7 @@ describe('Studio containment · retained business-facing surfaces are untouched'
   it('the business creative capabilities still render', () => {
     for (const kept of [
       'מתכוני עסק',            // business preset recipes
-      'CREATIVE_PRESETS.map',
+      'presets.map',
       'brand-palette-row',      // S0F.1 brand palette
       'PosterEditor',           // poster text editor
       'MockupStudio',           // mockup studio

@@ -438,6 +438,10 @@ export default function ImageStudio() {
   // just for the tiles we draw. `studioModes.js` owns the requirements.
   const studioCaps = liveStudioCapabilities();
   const modes = MODES.filter((m) => isStudioModeAvailable(m.id, studioCaps));
+  // A preset ROUTES to a mode (`targetTab`) and its card prints "run it in
+  // tab X". When that tab is unavailable the preset would advertise and
+  // direct the user to a hidden capability, so it is not offered at all.
+  const presets = CREATIVE_PRESETS.filter((p) => isStudioModeAvailable(p.targetTab, studioCaps));
 
   // S0F.1 (P1) - every async gallery read passes through the commit gate, so a
   // read started for the previous account can never land in the new account's
@@ -502,7 +506,7 @@ export default function ImageStudio() {
     }
   }, [mode]);
 
-  const activePreset = CREATIVE_PRESETS.find((p) => p.id === activePresetId) || null;
+  const activePreset = presets.find((p) => p.id === activePresetId) || null;
 
   // Family of the applied preset (pure decision, exported + execution-tested).
   // The hosted Gateway ignores it entirely — its payload is prompt + aspectRatio.
@@ -1004,7 +1008,7 @@ export default function ImageStudio() {
             <div className="field" style={{ marginBottom: 4 }}>
               <label>מתכוני עסק · פריסטים</label>
               <div className="row gap-2 wrap" style={{ display: 'flex' }}>
-                {CREATIVE_PRESETS.map((p) => (
+                {presets.map((p) => (
                   <button
                     key={p.id}
                     type="button"

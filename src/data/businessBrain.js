@@ -209,11 +209,21 @@ export function systemCapabilities(availability = {}) {
     return true;
   };
 
+  // A workflow's own description must not assert a GATED SUBFEATURE. An
+  // available parent mode does not make every subfeature available, so each
+  // subfeature declares its own capability and is appended only when satisfied.
+  const describeWorkflow = (w) => {
+    const extras = (Array.isArray(w.subfeatures) ? w.subfeatures : [])
+      .filter((f) => f && f.requires && caps[f.requires] && typeof f.text === 'string')
+      .map((f) => f.text);
+    return extras.length ? [w.description, ...extras].join(' ') : w.description;
+  };
+
   const studio = liveWorkflows().filter((w) => !w.mode || allowed.has(w.mode)).map((w) => ({
     id: w.id,
     kind: 'studio',
     title: w.title,
-    description: w.description,
+    description: describeWorkflow(w),
     ...(w.mode ? { mode: w.mode } : {}),
     engine: w.engine,
     tags: [...w.tags],
