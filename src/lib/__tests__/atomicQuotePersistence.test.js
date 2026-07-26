@@ -212,12 +212,130 @@ describe('migration · additive, idempotent, non-destructive', () => {
     expect(lower).toContain('create or replace function public.save_quote_atomic');
   });
 
-  it('fail-loud preflight: tables, column types, RLS, policies and same-name conflicts checked BEFORE creating', () => {
+  it('fail-loud preflight: tables, columns, RLS and same-name conflicts checked BEFORE creating', () => {
     expect(lower).toMatch(/preflight failed: public\.quotes and\/or public\.quote_items do not exist/);
     expect(lower).toMatch(/preflight failed: live schema differs/);
     expect(lower).toMatch(/preflight failed: rls is not enabled/);
-    expect(lower).toMatch(/preflight failed: ownership policies quotes_own\/quote_items_own are missing/);
     expect(lower).toMatch(/different argument list/);
     expect(lower).toContain('pg_get_function_identity_arguments');
+  });
+});
+
+// ===================================================================
+// Hardened preflight (PR #109 correction) — catalog-backed guarantees.
+// The preflight body itself must be read-only; the outside-fn DML scan
+// above already proves it performs no data mutation.
+// ===================================================================
+const preflight = lower.split('$preflight$')[1] || '';
+
+describe('migration · preflight covers EVERY RPC-referenced column (type + nullability)', () => {
+  const CONTRACT = [
+    // [table, column, information_schema type, nullability] — the accepted
+    // schema from 20260716120000/20260717090000 + canonical schema.sql.
+    ['quotes', 'id', 'text', 'no'], ['quotes', 'user_id', 'uuid', 'no'],
+    ['quotes', 'number', 'text', 'yes'], ['quotes', 'client_id', 'uuid', 'yes'],
+    ['quotes', 'date', 'date', 'yes'], ['quotes', 'valid_days', 'integer', 'yes'],
+    ['quotes', 'vat_rate', 'numeric', 'yes'], ['quotes', 'status', 'text', 'no'],
+    ['quotes', 'notes', 'text', 'yes'],
+    ['quotes', 'created_at', 'timestamp with time zone', 'no'],
+    ['quotes', 'updated_at', 'timestamp with time zone', 'no'],
+    ['quote_items', 'id', 'uuid', 'no'], ['quote_items', 'user_id', 'uuid', 'no'],
+    ['quote_items', 'quote_id', 'text', 'no'], ['quote_items', 'description', 'text', 'yes'],
+    ['quote_items', 'qty', 'numeric', 'no'], ['quote_items', 'price', 'numeric', 'no'],
+    ['quote_items', 'position', 'integer', 'yes'],
+    ['quote_items', 'created_at', 'timestamp with time zone', 'no'],
+  ];
+
+  it.each(CONTRACT)('%s.%s is pinned as %s / nullable=%s', (tbl, col, typ, nul) => {
+    const row = new RegExp(`\\('${tbl}',\\s*'${col}',\\s*'${typ.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}',\\s*'${nul}'\\)`);
+    expect(preflight).toMatch(row);
+  });
+
+  it('the column check matches type AND nullability against information_schema (fail-loud on either)', () => {
+    expect(preflight).toMatch(/c\.data_type\s+=\s+exp\.typ/);
+    expect(preflight).toMatch(/c\.is_nullable\s+=\s+exp\.nul/);
+    expect(preflight).toMatch(/live schema differs from the accepted contract/);
+  });
+});
+
+describe('migration · preflight verifies omitted-value defaults + write-set safety', () => {
+  it('requires the defaults the function relies on (generated id + timestamps)', () => {
+    expect(preflight).toMatch(/\('quote_items',\s*'id',\s*'gen_random_uuid'\)/);
+    expect(preflight).toMatch(/\('quote_items',\s*'created_at',\s*'now\(\)'\)/);
+    expect(preflight).toMatch(/\('quotes',\s*'created_at',\s*'now\(\)'\)/);
+    expect(preflight).toMatch(/\('quotes',\s*'updated_at',\s*'now\(\)'\)/);
+    expect(preflight).toMatch(/required column defaults are missing/);
+  });
+
+  it('rejects a NOT NULL / no-default column outside the write-set; harmless legacy columns pass', () => {
+    expect(preflight).toMatch(/is_nullable = 'no'/);
+    expect(preflight).toMatch(/column_default is null/);
+    expect(preflight).toMatch(/without default outside the function''s write-set/);
+    // the write-sets enumerate exactly what the function inserts
+    expect(preflight).toContain("'id', 'user_id', 'number', 'client_id', 'date', 'valid_days', 'vat_rate', 'status', 'notes'");
+    expect(preflight).toContain("'user_id', 'quote_id', 'description', 'qty', 'price', 'position'");
+  });
+});
+
+describe('migration · preflight verifies relational integrity from the catalogs', () => {
+  it('quotes and quote_items must each have PRIMARY KEY (id)', () => {
+    expect(preflight).toMatch(/quotes must have primary key \(id\)/);
+    expect(preflight).toMatch(/quote_items must have primary key \(id\)/);
+    expect(preflight).toMatch(/con\.contype = 'p'/);
+    expect(preflight).toMatch(/= array\['id'\]/);
+  });
+
+  it('quote_items.quote_id must reference public.quotes(id) ON DELETE CASCADE', () => {
+    expect(preflight).toMatch(/quote_items\.quote_id must reference public\.quotes\(id\) on delete cascade/);
+    expect(preflight).toMatch(/con\.confdeltype = 'c'/);
+    expect(preflight).toMatch(/ca\.attname = 'quote_id'/);
+    expect(preflight).toMatch(/pa\.attname = 'id'/);
+  });
+});
+
+describe('migration · preflight verifies the RLS policy DEFINITIONS (not names alone)', () => {
+  it('exactly ONE policy per table — an unexpected extra policy fails loudly', () => {
+    expect(preflight).toMatch(/select count\(\*\) into v_n from pg_policies/);
+    expect(preflight).toMatch(/if v_n <> 1 then/);
+    expect(preflight).toMatch(/expected exactly one policy on public\.%/);
+    expect(preflight).toMatch(/could broaden access/);
+  });
+
+  it('the single policy must be PERMISSIVE / ALL / public with USING + WITH CHECK = auth.uid() = user_id', () => {
+    expect(preflight).toMatch(/p\.permissive = 'permissive'/);
+    expect(preflight).toMatch(/p\.cmd = 'all'/);
+    expect(preflight).toMatch(/p\.roles = array\['public'\]::name\[\]/);
+    // BOTH expressions checked, each normalized to the same canonical form
+    const qualChecks = preflight.match(/regexp_replace\(lower\(coalesce\(p\.(qual|with_check)/g) || [];
+    expect(qualChecks).toEqual(expect.arrayContaining([
+      'regexp_replace(lower(coalesce(p.qual', 'regexp_replace(lower(coalesce(p.with_check',
+    ]));
+    expect(preflight).toMatch(/= 'auth\.uid=user_id'[\s\S]*= 'auth\.uid=user_id'/);
+  });
+
+  it('a same-named but permissive/malformed policy fails: the accepted catalog form passes the normalizer, USING true would not', () => {
+    // JS mirror of the SQL normalizer: strip whitespace + parens, lowercase.
+    const norm = (s) => s.toLowerCase().replace(/[\s()]+/g, '');
+    expect(norm('(auth.uid() = user_id)')).toBe('auth.uid=user_id');   // canonical catalog text → PASS
+    expect(norm('( auth.uid()=user_id )')).toBe('auth.uid=user_id');   // cosmetic formatting → PASS
+    expect(norm('true')).not.toBe('auth.uid=user_id');                 // permissive USING true → FAIL
+    expect(norm('(auth.uid() = user_id) OR true')).not.toBe('auth.uid=user_id'); // broadened → FAIL
+  });
+});
+
+describe('migration · preflight verifies the quotes updated_at trigger', () => {
+  it('requires an ENABLED, non-internal BEFORE UPDATE FOR EACH ROW trigger running public.set_updated_at()', () => {
+    expect(preflight).toMatch(/not tg\.tgisinternal/);
+    expect(preflight).toMatch(/tg\.tgenabled <> 'd'/);
+    expect(preflight).toMatch(/pr\.proname = 'set_updated_at'/);
+    expect(preflight).toMatch(/\(tg\.tgtype &\s+1\) = 1/);   // FOR EACH ROW
+    expect(preflight).toMatch(/\(tg\.tgtype &\s+2\) = 2/);   // BEFORE
+    expect(preflight).toMatch(/\(tg\.tgtype & 16\) = 16/);   // UPDATE
+    expect(preflight).toMatch(/\(tg\.tgtype & 64\) = 0/);    // not INSTEAD OF
+    expect(preflight).toMatch(/relies on it for updated_at/);
+  });
+
+  it('the RPC update path itself never writes updated_at (trigger-owned)', () => {
+    expect(fnBody).not.toMatch(/updated_at\s*=/);
   });
 });

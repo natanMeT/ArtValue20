@@ -51,13 +51,25 @@
 --   * existing rows need NO rewrite: this migration performs zero data
 --     operations (no INSERT/UPDATE/DELETE anywhere at migration time).
 --
--- FAIL-LOUD PREFLIGHT (before creating anything):
---   * both tables + the exact key columns/types the function relies on
---     must exist (quotes.id text, quotes.user_id uuid, quote_items.quote_id
---     text, quote_items.user_id uuid);
---   * RLS must be ENABLED on both tables and the ownership policies
---     ("quotes_own", "quote_items_own") must exist — the security model of
---     this function assumes them;
+-- FAIL-LOUD PREFLIGHT (read-only, before creating anything):
+--   * EVERY column the function reads or writes on quotes (11) and
+--     quote_items (8) must exist with the accepted type AND nullability;
+--   * the defaults the function relies on because it omits those values
+--     must exist (quote_items.id gen_random_uuid(); created_at/updated_at
+--     now()); additionally, NO NOT-NULL column outside the function's
+--     write-set may lack a default (a hostile legacy column would break
+--     every insert) — harmless nullable/defaulted legacy columns pass;
+--   * relational integrity: quotes PK = (id), quote_items PK = (id),
+--     quote_items.quote_id → public.quotes(id) ON DELETE CASCADE;
+--   * RLS posture verified by DEFINITION, not by name: RLS enabled on
+--     both tables; EXACTLY ONE policy per table (no unexpected policy
+--     that could broaden access) — the canonical own-row policy
+--     (quotes_own / quote_items_own), PERMISSIVE, cmd ALL, roles
+--     {public}, with USING and WITH CHECK both normalizing to
+--     auth.uid() = user_id (whitespace/parenthesis-insensitive);
+--   * quotes has an ENABLED BEFORE UPDATE … FOR EACH ROW trigger running
+--     public.set_updated_at() — the RPC update path relies on it for
+--     updated_at (it never writes updated_at itself);
 --   * a pre-existing public.save_quote_atomic with a DIFFERENT argument
 --     list aborts the migration (never silently replaced / never an
 --     ambiguous PostgREST overload). The SAME signature is allowed —
@@ -75,40 +87,145 @@
 do $preflight$
 declare
   v_bad text;
+  pol   record;
+  v_n   integer;
 begin
-  -- tables exist
+  -- ---- tables exist ----
   if to_regclass('public.quotes') is null or to_regclass('public.quote_items') is null then
     raise exception 'save_quote_atomic PREFLIGHT FAILED: public.quotes and/or public.quote_items do not exist. Nothing was changed.';
   end if;
 
-  -- key column types the function's casts + ownership pinning rely on
-  select string_agg(exp.tbl || '.' || exp.col || ' expected ' || exp.typ, ', ')
+  -- ---- FULL column contract: every column the function reads/writes must
+  -- exist with the accepted type AND nullability. Harmless additional
+  -- legacy columns are NOT rejected (see the write-set guard below).
+  select string_agg(exp.tbl || '.' || exp.col || ' expected ' || exp.typ || ' nullable=' || exp.nul, ', ')
     into v_bad
     from (values
-      ('quotes',      'id',      'text'),
-      ('quotes',      'user_id', 'uuid'),
-      ('quotes',      'client_id', 'uuid'),
-      ('quotes',      'valid_days', 'integer'),
-      ('quotes',      'vat_rate', 'numeric'),
-      ('quotes',      'date',    'date'),
-      ('quote_items', 'quote_id', 'text'),
-      ('quote_items', 'user_id', 'uuid'),
-      ('quote_items', 'qty',     'numeric'),
-      ('quote_items', 'price',   'numeric'),
-      ('quote_items', 'position', 'integer')
-    ) as exp(tbl, col, typ)
+      -- quotes (accepted contract: 20260717090000 + canonical schema.sql)
+      ('quotes',      'id',          'text',                     'NO'),
+      ('quotes',      'user_id',     'uuid',                     'NO'),
+      ('quotes',      'number',      'text',                     'YES'),
+      ('quotes',      'client_id',   'uuid',                     'YES'),
+      ('quotes',      'date',        'date',                     'YES'),
+      ('quotes',      'valid_days',  'integer',                  'YES'),
+      ('quotes',      'vat_rate',    'numeric',                  'YES'),
+      ('quotes',      'status',      'text',                     'NO'),
+      ('quotes',      'notes',       'text',                     'YES'),
+      ('quotes',      'created_at',  'timestamp with time zone', 'NO'),
+      ('quotes',      'updated_at',  'timestamp with time zone', 'NO'),
+      -- quote_items (accepted contract: 20260716120000)
+      ('quote_items', 'id',          'uuid',                     'NO'),
+      ('quote_items', 'user_id',     'uuid',                     'NO'),
+      ('quote_items', 'quote_id',    'text',                     'NO'),
+      ('quote_items', 'description', 'text',                     'YES'),
+      ('quote_items', 'qty',         'numeric',                  'NO'),
+      ('quote_items', 'price',       'numeric',                  'NO'),
+      ('quote_items', 'position',    'integer',                  'YES'),
+      ('quote_items', 'created_at',  'timestamp with time zone', 'NO')
+    ) as exp(tbl, col, typ, nul)
     where not exists (
       select 1 from information_schema.columns c
        where c.table_schema = 'public'
-         and c.table_name  = exp.tbl
-         and c.column_name = exp.col
-         and c.data_type   = exp.typ
+         and c.table_name   = exp.tbl
+         and c.column_name  = exp.col
+         and c.data_type    = exp.typ
+         and c.is_nullable  = exp.nul
     );
   if v_bad is not null then
     raise exception 'save_quote_atomic PREFLIGHT FAILED: live schema differs from the accepted contract (%). Nothing was changed — do NOT auto-repair; review the live schema first.', v_bad;
   end if;
 
-  -- RLS enabled + ownership policies present (the security model assumes them)
+  -- ---- required defaults: the function OMITS these values, so the
+  -- generated id + timestamps must come from column defaults.
+  select string_agg(exp.tbl || '.' || exp.col || ' needs default ~ ' || exp.frag, ', ')
+    into v_bad
+    from (values
+      ('quote_items', 'id',         'gen_random_uuid'),
+      ('quote_items', 'created_at', 'now()'),
+      ('quotes',      'created_at', 'now()'),
+      ('quotes',      'updated_at', 'now()')
+    ) as exp(tbl, col, frag)
+    where not exists (
+      select 1 from information_schema.columns c
+       where c.table_schema = 'public'
+         and c.table_name   = exp.tbl
+         and c.column_name  = exp.col
+         and c.column_default is not null
+         and position(exp.frag in c.column_default) > 0
+    );
+  if v_bad is not null then
+    raise exception 'save_quote_atomic PREFLIGHT FAILED: required column defaults are missing (%). Nothing was changed.', v_bad;
+  end if;
+
+  -- ---- write-set guard: a NOT NULL column WITHOUT a default that the
+  -- function does not write would break every insert. Legacy columns that
+  -- are nullable or defaulted pass untouched.
+  select string_agg(c.table_name || '.' || c.column_name, ', ')
+    into v_bad
+    from information_schema.columns c
+   where c.table_schema = 'public'
+     and c.is_nullable = 'NO'
+     and c.column_default is null
+     and c.is_identity = 'NO'
+     and c.is_generated = 'NEVER'
+     and (
+       (c.table_name = 'quotes'      and c.column_name not in ('id', 'user_id', 'number', 'client_id', 'date', 'valid_days', 'vat_rate', 'status', 'notes'))
+       or
+       (c.table_name = 'quote_items' and c.column_name not in ('user_id', 'quote_id', 'description', 'qty', 'price', 'position'))
+     );
+  if v_bad is not null then
+    raise exception 'save_quote_atomic PREFLIGHT FAILED: NOT NULL column(s) without default outside the function''s write-set (%). Nothing was changed.', v_bad;
+  end if;
+
+  -- ---- relational integrity: primary keys ----
+  if not exists (
+    select 1 from pg_constraint con
+    join pg_class t on t.oid = con.conrelid
+    join pg_namespace n on n.oid = t.relnamespace
+    where n.nspname = 'public' and t.relname = 'quotes' and con.contype = 'p'
+      and (select array_agg(a.attname order by k.ord)
+             from unnest(con.conkey) with ordinality as k(attnum, ord)
+             join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k.attnum
+          ) = array['id']
+  ) then
+    raise exception 'save_quote_atomic PREFLIGHT FAILED: quotes must have PRIMARY KEY (id). Nothing was changed.';
+  end if;
+  if not exists (
+    select 1 from pg_constraint con
+    join pg_class t on t.oid = con.conrelid
+    join pg_namespace n on n.oid = t.relnamespace
+    where n.nspname = 'public' and t.relname = 'quote_items' and con.contype = 'p'
+      and (select array_agg(a.attname order by k.ord)
+             from unnest(con.conkey) with ordinality as k(attnum, ord)
+             join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k.attnum
+          ) = array['id']
+  ) then
+    raise exception 'save_quote_atomic PREFLIGHT FAILED: quote_items must have PRIMARY KEY (id). Nothing was changed.';
+  end if;
+
+  -- ---- relational integrity: quote_items.quote_id → quotes(id) CASCADE
+  -- (the accepted delete behavior — items die with their quote) ----
+  if not exists (
+    select 1
+      from pg_constraint con
+      join pg_class child   on child.oid   = con.conrelid
+      join pg_namespace cns on cns.oid     = child.relnamespace
+      join pg_class parent  on parent.oid  = con.confrelid
+      join pg_namespace pns on pns.oid     = parent.relnamespace
+      join pg_attribute ca  on ca.attrelid = con.conrelid  and ca.attnum = con.conkey[1]
+      join pg_attribute pa  on pa.attrelid = con.confrelid and pa.attnum = con.confkey[1]
+     where con.contype = 'f'
+       and cns.nspname = 'public' and child.relname = 'quote_items'
+       and array_length(con.conkey, 1) = 1
+       and ca.attname = 'quote_id'
+       and pns.nspname = 'public' and parent.relname = 'quotes'
+       and pa.attname = 'id'
+       and con.confdeltype = 'c'
+  ) then
+    raise exception 'save_quote_atomic PREFLIGHT FAILED: quote_items.quote_id must reference public.quotes(id) ON DELETE CASCADE. Nothing was changed.';
+  end if;
+
+  -- ---- RLS posture: verified by DEFINITION, not by name alone ----
   if exists (
     select 1 from pg_class c
     join pg_namespace n on n.oid = c.relnamespace
@@ -117,12 +234,61 @@ begin
   ) then
     raise exception 'save_quote_atomic PREFLIGHT FAILED: RLS is not enabled on quotes/quote_items. Nothing was changed.';
   end if;
-  if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'quotes'      and policyname = 'quotes_own')
-  or not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'quote_items' and policyname = 'quote_items_own') then
-    raise exception 'save_quote_atomic PREFLIGHT FAILED: ownership policies quotes_own/quote_items_own are missing. Nothing was changed.';
+
+  for pol in
+    select * from (values
+      ('quotes',      'quotes_own'),
+      ('quote_items', 'quote_items_own')
+    ) as exp(tbl, polname)
+  loop
+    -- exactly ONE policy on the table — an extra policy is additive under
+    -- PERMISSIVE semantics and could broaden access.
+    select count(*) into v_n from pg_policies
+     where schemaname = 'public' and tablename = pol.tbl;
+    if v_n <> 1 then
+      raise exception 'save_quote_atomic PREFLIGHT FAILED: expected EXACTLY ONE policy on public.% (found %) — an unexpected policy could broaden access. Nothing was changed.', pol.tbl, v_n;
+    end if;
+    -- and that one policy must BE the canonical own-row policy: PERMISSIVE,
+    -- ALL commands, role public, USING + WITH CHECK = (auth.uid() = user_id).
+    -- Expressions are normalized (whitespace/parentheses stripped) so
+    -- cosmetic catalog formatting cannot cause a false failure.
+    if not exists (
+      select 1 from pg_policies p
+       where p.schemaname = 'public' and p.tablename = pol.tbl
+         and p.policyname = pol.polname
+         and p.permissive = 'PERMISSIVE'
+         and p.cmd = 'ALL'
+         and p.roles = array['public']::name[]
+         and regexp_replace(lower(coalesce(p.qual,       '')), '[\s()]+', '', 'g') = 'auth.uid=user_id'
+         and regexp_replace(lower(coalesce(p.with_check, '')), '[\s()]+', '', 'g') = 'auth.uid=user_id'
+    ) then
+      raise exception 'save_quote_atomic PREFLIGHT FAILED: the policy on public.% is not the canonical own-row policy % (PERMISSIVE, ALL, public, USING/WITH CHECK auth.uid() = user_id). Nothing was changed.', pol.tbl, pol.polname;
+    end if;
+  end loop;
+
+  -- ---- updated_at trigger on quotes: the RPC update path never writes
+  -- updated_at itself — it relies on the canonical BEFORE UPDATE trigger.
+  if not exists (
+    select 1 from pg_trigger tg
+    join pg_class t on t.oid = tg.tgrelid
+    join pg_namespace n on n.oid = t.relnamespace
+    join pg_proc pr on pr.oid = tg.tgfoid
+    join pg_namespace prn on prn.oid = pr.pronamespace
+    where n.nspname = 'public' and t.relname = 'quotes'
+      and not tg.tgisinternal
+      and tg.tgenabled <> 'D'                          -- enabled
+      and prn.nspname = 'public'
+      and pr.proname = 'set_updated_at'                -- canonical function
+      and (tg.tgtype &  1) = 1                         -- FOR EACH ROW
+      and (tg.tgtype &  2) = 2                         -- BEFORE
+      and (tg.tgtype & 16) = 16                        -- ... UPDATE
+      and (tg.tgtype & 64) = 0                         -- not INSTEAD OF
+  ) then
+    raise exception 'save_quote_atomic PREFLIGHT FAILED: quotes needs an ENABLED BEFORE UPDATE FOR EACH ROW trigger running public.set_updated_at() (the RPC relies on it for updated_at). Nothing was changed.';
   end if;
 
-  -- same-named function with a DIFFERENT signature → abort (never silently replace)
+  -- ---- same-named function with a DIFFERENT signature → abort (never
+  -- silently replace / never an ambiguous PostgREST overload) ----
   if exists (
     select 1 from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
