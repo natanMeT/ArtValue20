@@ -15,8 +15,14 @@ import { execFileSync } from 'node:child_process';
 const sqlPath = new URL('../../../supabase/migrations/20260727120000_asset_library_slice1.sql', import.meta.url);
 const raw = readFileSync(sqlPath, 'utf8');
 const sql = raw.toLowerCase();
-// statements only — comment lines carry prose that would fake matches
-const code = sql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+// Statements only. BOTH comment forms must go: prose in a comment fakes a
+// match, and — measured, not assumed — a `--`-only strip let a predicate that
+// had been commented OUT with /* */ still satisfy its own test. A checker that
+// cannot tell live SQL from commented SQL is not a checker.
+const code = sql
+  .replace(/\/\*[\s\S]*?\*\//g, '\n')                      // block comments
+  .split('\n').filter((l) => !l.trim().startsWith('--'))   // line comments
+  .join('\n');
 
 describe('migration · table + structural isolation', () => {
   it('creates public.assets with id as the PK and user_id → auth.users ON DELETE CASCADE', () => {
@@ -44,9 +50,19 @@ describe('migration · table + structural isolation', () => {
 });
 
 describe('migration · RLS is owner-only on both surfaces', () => {
-  it('enables RLS on public.assets with a single own-row policy', () => {
+  it('enables RLS on public.assets with one own-row policy PER COMMAND', () => {
     expect(code).toContain('alter table public.assets enable row level security');
-    expect(code).toMatch(/create policy "assets_own" on public\.assets\s+for all using \(auth\.uid\(\) = user_id\) with check \(auth\.uid\(\) = user_id\)/);
+    for (const p of ['assets_select_own', 'assets_insert_own', 'assets_delete_own']) {
+      expect(code).toContain(`create policy "${p}" on public.assets`);
+    }
+    // the pre-correction FOR ALL policy carried no quota — it must be dropped,
+    // never recreated, or an account could insert rows past the cap.
+    expect(code).toContain('drop policy if exists "assets_own" on public.assets');
+    expect(code).not.toMatch(/create policy "assets_own"/);
+  });
+
+  it('declares NO update policy on public.assets either — rows are immutable once written', () => {
+    expect(code).not.toMatch(/create policy[^;]*on public\.assets\s+for update/);
   });
 
   it('scopes every storage.objects policy to this bucket AND the caller\'s own prefix', () => {
@@ -84,9 +100,41 @@ describe('migration · the bucket is private with server-side limits', () => {
 });
 
 describe('migration · the quota lives in the INSERT policy, not in a trigger', () => {
-  it('puts the 40-asset predicate in the storage.objects INSERT WITH CHECK', () => {
+  it('puts the 40-object predicate in the storage.objects INSERT WITH CHECK', () => {
     const insertPolicy = code.split('create policy "assets_objects_insert_own"')[1] || '';
     expect(insertPolicy).toContain('public.asset_object_count() < 40');
+  });
+
+  // THE CORRECTION. Because a create writes the ROW FIRST and only then the
+  // bytes, a quota on storage.objects alone leaves public.assets uncapped: an
+  // account at 40 inserts the row (allowed), the upload is refused, the row
+  // stays — and repeating that grows rows without bound. The row side must
+  // carry its own server-side cap.
+  it('puts a SYMMETRIC 40-row predicate in the public.assets INSERT WITH CHECK', () => {
+    const insertPolicy = (code.split('create policy "assets_insert_own"')[1] || '').split('create policy')[0];
+    expect(insertPolicy).toContain('public.asset_row_count() < 40');
+    expect(insertPolicy).toContain('auth.uid() = user_id');
+  });
+
+  it('counts ROWS with a SEPARATE definer function — objects and rows are distinct populations', () => {
+    expect(code).toMatch(/create or replace function public\.asset_row_count\(\)/);
+    // a dangling row counts against the row cap but not the object cap, which
+    // is exactly the case this correction closes — so one shared counter would
+    // be wrong, not merely redundant.
+    expect(code).toMatch(/from public\.assets\s+where user_id = \(select auth\.uid\(\)\)/);
+    expect(code).not.toMatch(/asset_row_count\(\)[\s\S]{0,400}from storage\.objects/);
+  });
+
+  it('breaks the SAME recursion trap on the row counter: definer + empty search_path', () => {
+    const fn = (code.split('create or replace function public.asset_row_count()')[1] || '').split('$$;')[0];
+    expect(fn).toContain('security definer');
+    expect(fn).toContain("set search_path = ''");
+  });
+
+  it('the row counter takes NO owner argument and is authenticated-only', () => {
+    expect(code).not.toMatch(/asset_row_count\(\s*p_\w+/);
+    expect(code).toContain('revoke all on function public.asset_row_count() from public');
+    expect(code).toContain('grant execute on function public.asset_row_count() to authenticated');
   });
 
   it('creates NO trigger on storage.objects (the documented extension surface is the policy)', () => {

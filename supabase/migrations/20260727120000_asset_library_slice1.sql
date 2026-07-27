@@ -13,7 +13,12 @@
 -- SERVER-SIDE ENFORCEMENT (the client is never the authority):
 --   * MIME allowlist  — bucket `allowed_mime_types` + a CHECK on the row.
 --   * Per-file size    — bucket `file_size_limit` + a CHECK on the row.
---   * 40-asset quota   — the WITH CHECK of the storage.objects INSERT policy.
+--   * 40-asset quota   — SYMMETRIC, enforced in the WITH CHECK of BOTH INSERT
+--     policies: storage.objects (objects) and public.assets (rows). One side
+--     alone is not enough: because a create writes the ROW FIRST and only then
+--     the bytes, a quota that lived only on storage.objects would let an
+--     account at 40 insert unlimited rows whose upload is then refused. Rows
+--     and objects are therefore each capped at 40, by their own counter.
 --
 -- SCOPE: additive + idempotent ONLY. No DROP TABLE, no DELETE, no UPDATE of
 -- data, no user-specific INSERT. There is NO data migration: the pre-existing
@@ -26,9 +31,10 @@
 --   PR body, not in this file -- this file is DDL only.
 --
 -- DECLARED LIMITATIONS (known, accepted, NOT fixed here):
---   L1 Concurrency. The quota predicate counts inside the statement snapshot,
---      so two simultaneous uploads at 39 can both pass and reach 41. Declared,
---      not solved. It bounds storage growth; it is not a security boundary.
+--   L1 Concurrency. Both quota predicates count inside the statement snapshot,
+--      so two simultaneous creates at 39 can both pass and reach 41 rows and/or
+--      41 objects. Declared, not solved. It bounds growth; it is not a security
+--      boundary.
 --   L2 Account deletion. `on delete cascade` removes public.assets ROWS when
 --      auth.users is deleted. It does NOT delete Storage objects -- deleting an
 --      account leaves its objects in the bucket. Purging them is an operational
@@ -145,12 +151,16 @@ begin
     raise exception 'Asset Library preflight SAFE STOP: public.assets has a NOT NULL column without a default that the app insert does not populate.';
   end if;
 
-  -- No UNEXPECTED / conflicting RLS policy -- only assets_own is expected. A
-  -- broader permissive policy would widen access beyond own-row.
+  -- No UNEXPECTED / conflicting RLS policy -- exactly the three created below
+  -- are expected. A broader permissive policy would widen access beyond
+  -- own-row, and an extra INSERT policy would BYPASS THE ROW QUOTA: policies
+  -- for the same command are OR-ed, so a second permissive INSERT policy is a
+  -- hole, not an addition. `assets_own` is the pre-correction name and is
+  -- deliberately NOT accepted here -- it is a FOR ALL policy with no quota.
   if exists (
     select 1 from pg_policies
     where schemaname = 'public' and tablename = 'assets'
-      and policyname <> 'assets_own'
+      and policyname not in ('assets_select_own', 'assets_insert_own', 'assets_delete_own')
   ) then
     raise exception 'Asset Library preflight SAFE STOP: public.assets has an unexpected/conflicting RLS policy.';
   end if;
@@ -231,9 +241,60 @@ create index if not exists assets_user_created_idx
 -- ===================================================================
 alter table public.assets enable row level security;
 
-drop policy if exists "assets_own" on public.assets;
-create policy "assets_own" on public.assets
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+-- ---------------- row-quota authority (counterpart of asset_object_count) ----
+-- SAME RECURSION TRAP, SAME ANSWER: this counter is read by a policy ON
+-- public.assets and must COUNT public.assets. An inline subquery would re-enter
+-- that policy -> infinite recursion. SECURITY DEFINER runs as the table owner,
+-- which is exempt from RLS, so the cycle is broken.
+--
+-- It is a SEPARATE function from asset_object_count() on purpose: rows and
+-- objects are distinct populations. A dangling row (its upload failed) counts
+-- here but not there, which is exactly the case this correction closes.
+--
+-- No owner argument -- it reads auth.uid() itself, so no caller can count
+-- another account's rows.
+create or replace function public.asset_row_count()
+returns integer
+language sql
+security definer
+stable
+set search_path = ''
+as $$
+  select count(*)::int
+  from public.assets
+  where user_id = (select auth.uid());
+$$;
+
+revoke all on function public.asset_row_count() from public;
+grant execute on function public.asset_row_count() to authenticated;
+
+-- ---------------- policies (one per command; NO update policy) ----------------
+-- Split by command rather than a single FOR ALL, because the quota belongs to
+-- INSERT alone: a FOR ALL policy's WITH CHECK would also gate UPDATE, and
+-- reading/deleting must never be blocked by being at the quota -- deleting is
+-- precisely how a full account recovers.
+drop policy if exists "assets_own" on public.assets;  -- pre-correction FOR ALL policy (no quota)
+drop policy if exists "assets_select_own" on public.assets;
+drop policy if exists "assets_insert_own" on public.assets;
+drop policy if exists "assets_delete_own" on public.assets;
+
+create policy "assets_select_own" on public.assets
+  for select to authenticated
+  using (auth.uid() = user_id);
+
+create policy "assets_insert_own" on public.assets
+  for insert to authenticated
+  with check (
+    auth.uid() = user_id
+    -- SERVER-SIDE ROW QUOTA. Symmetric with the storage.objects INSERT policy.
+    -- Without this, an account at 40 could insert unlimited rows: the create
+    -- path writes the ROW FIRST, so only the later upload was being refused.
+    and public.asset_row_count() < 40
+  );
+
+create policy "assets_delete_own" on public.assets
+  for delete to authenticated
+  using (auth.uid() = user_id);
 
 grant select, insert, delete on public.assets to authenticated;
 

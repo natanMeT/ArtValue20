@@ -139,12 +139,28 @@ describe('createAsset — server rules are mirrored BEFORE anything is written',
     expect(h.calls).toHaveLength(0);
   });
 
-  it('NC-2 · quota exploitation — the 41st write is refused before any IO', async () => {
+  it('NC-2a · quota exploitation, CLIENT side — the 41st is refused before any IO', async () => {
     await expect(api.createAsset(UID, blob(), {}, ASSET_QUOTA)).rejects.toMatchObject({ userSafe: true });
     expect(h.calls).toHaveLength(0);
     // and the boundary is not off by one: the 40th still writes
     await api.createAsset(UID, blob(), {}, ASSET_QUOTA - 1);
     expect(ops()).toEqual(['row.insert', 'object.upload']);
+  });
+
+  // NC-2b · quota exploitation, SERVER side. The client's count is advisory and
+  // can be stale, wrong, or supplied by a caller that simply lies — so the
+  // interesting case is the one where the client believes there is room. Here
+  // the pre-check PASSES (count 0) and the DATABASE refuses the row: that is
+  // the `public.asset_row_count() < 40` predicate in the INSERT policy, which
+  // did not exist before this correction. The row must not be created and no
+  // bytes may be uploaded.
+  it('NC-2b · a DB-refused row stops the create even when the client thinks there is room', async () => {
+    h.insertError = Object.assign(new Error('new row violates row-level security policy for table "assets"'), {
+      code: '42501',
+    });
+    await expect(api.createAsset(UID, blob(), {}, 0)).rejects.toBeTruthy();
+    expect(ops()).toEqual(['row.insert']);
+    expect(ops()).not.toContain('object.upload'); // no orphan object can follow a refused row
   });
 
   it('refuses when the account id is missing — never writes to an unscoped path', async () => {
