@@ -103,6 +103,16 @@ export function parserOptionsFor(filename = '') {
  * spaces (newlines preserved) so offsets, line numbers and every other byte —
  * strings, templates, JSX text, regex literals — survive exactly.
  *
+ * INDEXING (Codex P1 on `d84cfdc`): Babel's `start`/`end` are **UTF-16 code
+ * unit** offsets. The previous implementation blanked through `[...s]`, which
+ * iterates **code points**, so every astral character (an emoji, a rare CJK
+ * glyph) before a comment shifted the blanked window one place right — with
+ * enough of them the window slid off the comment and erased executable text
+ * after it, including part of a later forbidden URL. That is precisely the
+ * silent miss this scanner exists to prevent. Everything below therefore stays
+ * in UTF-16 space: `String.prototype.slice` uses the same indexing Babel
+ * reports, so the two representations cannot drift.
+ *
  * @param {string} src
  * @param {string} [filename] drives plugin selection and error messages
  * @returns {string}
@@ -119,19 +129,27 @@ export function executableSource(src, filename = '') {
     throw new UnparseableSourceError(filename, e);
   }
 
-  const comments = ast.comments || [];
-  if (comments.length === 0) return s;
+  const ranges = (ast.comments || [])
+    .map((c) => [
+      typeof c.start === 'number' ? c.start : (c.range && c.range[0]),
+      typeof c.end === 'number' ? c.end : (c.range && c.range[1]),
+    ])
+    .filter(([a, b]) => typeof a === 'number' && typeof b === 'number' && b > a)
+    .sort((x, y) => x[0] - y[0]);
 
-  const chars = [...s];
-  for (const c of comments) {
-    const start = typeof c.start === 'number' ? c.start : (c.range && c.range[0]);
-    const end = typeof c.end === 'number' ? c.end : (c.range && c.range[1]);
-    if (typeof start !== 'number' || typeof end !== 'number') continue;
-    for (let i = start; i < end && i < chars.length; i += 1) {
-      if (chars[i] !== '\n') chars[i] = ' ';
-    }
+  if (ranges.length === 0) return s;
+
+  // Rebuild by slicing between comment ranges — UTF-16 indexed, like Babel.
+  let out = '';
+  let cursor = 0;
+  for (const [start, end] of ranges) {
+    if (start < cursor) continue; // defensive: never re-blank an overlap
+    out += s.slice(cursor, start);
+    out += s.slice(start, end).replace(/[^\n]/g, ' ');
+    cursor = end;
   }
-  return chars.join('');
+  out += s.slice(cursor);
+  return out;
 }
 
 /** Read a file from disk and return its executable (comment-free) source. */
@@ -147,46 +165,142 @@ export const stripComments = executableSource;
 /** A workstation-engine product name appearing as executable code. */
 export const ENGINE_NAME_RE = /\b(comfy|comfyui|fooocus|ollama|automatic1111|a1111)\b/i;
 
-// ── address classes ────────────────────────────────────────────────
+// ── network destinations ───────────────────────────────────────────
 // The cloud-only invariant is about NETWORK DESTINATIONS the product must never
-// reach, which is wider than "localhost and four known ports": a workstation
-// engine is just as reachable at 192.168.x.x or 10.x.x.x on the studio LAN.
+// reach. Expressing that as a list of textual regex forms was the defect Codex
+// found on `d84cfdc`: `fe80::/10` spans `fe80`–`febf` but the pattern only
+// accepted the literal `fe80` prefix, and URL parsing normalizes `127.1`,
+// `2130706433` and `0x7f000001` all to `127.0.0.1`. With an unlisted port such
+// as `9000` nothing matched, so a loopback destination read as clean.
 //
-// Every class below is matched ONLY in a network context — behind a scheme,
-// behind a protocol-relative `//`, or followed by a port — so ordinary numeric
-// business data (a price, a version, an id, a quantity) is never mistaken for
-// an endpoint. `localhost` is the one bare-word exception; it is unambiguous.
-const OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
-const V4_LOOPBACK = `127(?:\\.${OCTET}){3}`;                                   // 127.0.0.0/8
-const V4_PRIVATE = `(?:10(?:\\.${OCTET}){3}`                                   // 10.0.0.0/8
-  + `|192\\.168(?:\\.${OCTET}){2}`                                             // 192.168.0.0/16
-  + `|172\\.(?:1[6-9]|2\\d|3[01])(?:\\.${OCTET}){2})`;                         // 172.16.0.0/12
-const V4_LINK_LOCAL = `169\\.254(?:\\.${OCTET}){2}`;                           // 169.254.0.0/16
-const V4_UNSPECIFIED = '0\\.0\\.0\\.0';
-const V4_HOST = `(?:${V4_LOOPBACK}|${V4_PRIVATE}|${V4_LINK_LOCAL}|${V4_UNSPECIFIED})`;
+// A regex cannot own this question, because the authority on "what host is this
+// really?" is the URL parser the runtime already ships. So we no longer describe
+// host syntax at all: we EXTRACT candidate destinations, hand each to the
+// platform's WHATWG `URL` normalizer — the same algorithm a browser applies —
+// and classify the NORMALIZED host numerically.
+//
+// The business-data boundary is preserved by the extraction step: a candidate
+// must look like an executable destination (a scheme, a protocol-relative `//`,
+// or an explicit `host:port`). Standalone IP-like text — a version string, an
+// SKU, a decimal pair — is never a candidate, so it is never normalized and
+// never flagged.
 
-// IPv6 loopback (::1), link-local (fe80::/10) and unique-local (fc00::/7).
-const V6_HOST = '(?:::1|fe80(?::[0-9a-f]{0,4}){1,7}|f[cd][0-9a-f]{2}(?::[0-9a-f]{0,4}){1,7})';
-const V6_BRACKETED = `\\[${V6_HOST}\\]`;
+// Base used only so a protocol-relative `//host/x` can be normalized at all.
+const RELATIVE_BASE = 'http://invalid.example';
 
-const SCHEME = '(?:https?|wss?|ftp)';
-const PORT = ':\\d{2,5}';
+// Characters that cannot appear inside a URL token in source.
+const STOP = "\\s'\"`)\\]}<>\\\\,;";
+// A bracketed IPv6 host must be consumed WHOLE: `]` is a stop character
+// everywhere else, so without this alternative `http://[fe80::1]:9000` was
+// truncated to `http://[fe80::1` and never reached the normalizer. The class
+// inside the brackets admits zone-identifier characters too (`%25eth0`).
+const V6_BRACKET = '\\[[0-9A-Za-z:.%]+\\]';
+const HOST_AND_REST = `(?:${V6_BRACKET})?[^${STOP}]*`;
+const SCHEMED = `\\b(?:https?|wss?|ftp):\\/\\/${HOST_AND_REST}`;
+const PROTOCOL_RELATIVE = `(?<![:\\w])\\/\\/${HOST_AND_REST}`;
+// `host:port` with no scheme — a bare destination. The host may be a dotted or
+// numeric IPv4 form, a bracketed IPv6, or a hostname.
+const HOST_PORT = `(?<![\\w.:/])(?:\\[[0-9A-Fa-f:.%]+\\]|[A-Za-z0-9][A-Za-z0-9.\\-_]*):\\d{1,5}\\b`;
 
-// Engine ports remain a signal on their own — they are specific enough that a
-// bare occurrence is worth failing on.
-const ENGINE_PORTS = ':(?:8188|8189|7860|11434)\\b';
+const URL_CANDIDATE_RE = new RegExp(`${SCHEMED}|${PROTOCOL_RELATIVE}|${HOST_PORT}`, 'gi');
 
-export const LOCAL_ADDRESS_RE = new RegExp([
-  `\\blocalhost\\b`,                              // bare hostname (unambiguous)
-  `(?:${SCHEME}:)?//${V4_HOST}\\b`,               // scheme:// or protocol-relative
-  `\\b${V4_HOST}${PORT}`,                         // host:port
-  `(?:${SCHEME}:)?//${V6_BRACKETED}`,             // bracketed IPv6 in a URL
-  `${V6_BRACKETED}${PORT}`,                       // [ipv6]:port
-  ENGINE_PORTS,                                   // a known engine port anywhere
-].join('|'), 'i');
+// Known workstation-engine ports stay a signal in their own right: they appear
+// in composed expressions (`base + ':8188/prompt'`) where no host is present to
+// normalize, and they are specific enough to be worth failing on alone.
+const ENGINE_PORT_RE = /:(?:8188|8189|7860|11434)\b/;
+
+const HAS_SCHEME_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
+
+/** Parse one candidate into a normalized hostname, or '' when it is not a URL. */
+function normalizedHost(candidate) {
+  // Exactly ONE parse shape per candidate. Prefixing an already-schemed
+  // candidate with `http://` would parse `http://http://[fe80::1%25eth0]…` as
+  // the host `http` — a truthy result that silently pre-empted the zone-id
+  // retry below and swallowed a link-local destination.
+  let attempt;
+  if (candidate.startsWith('//')) attempt = () => new URL(candidate, RELATIVE_BASE);
+  else if (HAS_SCHEME_RE.test(candidate)) attempt = () => new URL(candidate);
+  else attempt = () => new URL(`http://${candidate}`);
+
+  try {
+    const host = attempt().hostname;
+    if (host) return host.toLowerCase();
+  } catch { /* fall through to the zone-identifier retry */ }
+
+  // A zone identifier (`fe80::1%eth0`, `fe80::1%25eth0`) is not permitted inside
+  // a URL host, so the parse above throws. Strip the zone and classify the base
+  // address rather than losing the destination entirely.
+  const zoneless = candidate.replace(/%25[^\]\s/]+/gi, '').replace(/%[A-Za-z0-9]+(?=\])/g, '');
+  if (zoneless !== candidate) return normalizedHost(zoneless);
+  return '';
+}
+
+const V4_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+/** Expand a normalized IPv6 host (already canonical) to eight 16-bit groups. */
+function ipv6Groups(host) {
+  const inner = host.replace(/^\[|\]$/g, '');
+  if (!inner.includes(':')) return null;
+  const [head, tail = ''] = inner.split('::');
+  const toParts = (t) => (t ? t.split(':').filter((x) => x !== '') : []);
+  const a = toParts(head);
+  const b = toParts(tail);
+  if (a.some((p) => p.includes('.')) || b.some((p) => p.includes('.'))) return null;
+  const fill = inner.includes('::') ? Array(8 - a.length - b.length).fill('0') : [];
+  const all = [...a, ...fill, ...b];
+  if (all.length !== 8) return null;
+  const nums = all.map((p) => parseInt(p || '0', 16));
+  return nums.some((x) => Number.isNaN(x)) ? null : nums;
+}
+
+/**
+ * Is this NORMALIZED host a destination the cloud-only product must never reach?
+ * Classification is numeric, so it holds for every textual form the URL parser
+ * accepts — shorthand, decimal, hexadecimal, compressed IPv6 alike.
+ */
+export function isForbiddenHost(host) {
+  if (!host) return false;
+  const h = String(host).toLowerCase();
+  if (h === 'localhost' || h.endsWith('.localhost')) return true;
+
+  const v4 = V4_RE.exec(h);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (v4.slice(1).some((o) => Number(o) > 255)) return false;
+    if (a === 127) return true;                              // loopback 127.0.0.0/8
+    if (a === 10) return true;                               // RFC1918 10.0.0.0/8
+    if (a === 192 && b === 168) return true;                 // RFC1918 192.168.0.0/16
+    if (a === 172 && b >= 16 && b <= 31) return true;        // RFC1918 172.16.0.0/12
+    if (a === 169 && b === 254) return true;                 // link-local 169.254.0.0/16
+    if (h === '0.0.0.0') return true;                        // unspecified
+    return false;
+  }
+
+  const g = ipv6Groups(h);
+  if (g) {
+    if (g.every((x, i) => (i < 7 ? x === 0 : x === 1))) return true;  // ::1
+    if ((g[0] & 0xffc0) === 0xfe80) return true;                      // fe80::/10 (fe80–febf)
+    if ((g[0] & 0xfe00) === 0xfc00) return true;                      // fc00::/7  (fc00–fdff)
+    if (g.every((x) => x === 0)) return true;                         // ::
+  }
+  return false;
+}
+
+/**
+ * Does this executable source reference a forbidden network destination?
+ * Every candidate is normalized by the platform URL parser before classification.
+ */
+export function hasLocalAddress(code) {
+  const text = String(code == null ? '' : code);
+  if (ENGINE_PORT_RE.test(text)) return true;
+  if (/\blocalhost\b/i.test(text)) return true;
+  for (const m of text.matchAll(URL_CANDIDATE_RE)) {
+    if (isForbiddenHost(normalizedHost(m[0]))) return true;
+  }
+  return false;
+}
 
 export const namesEngine = (code) => ENGINE_NAME_RE.test(code);
-export const hasLocalAddress = (code) => LOCAL_ADDRESS_RE.test(code);
 
 /** Convenience for the scans: does this FILE contain a forbidden reference? */
 export function scanFile(file) {

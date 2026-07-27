@@ -36,7 +36,7 @@ import path from 'node:path';
 import {
   collectModules, isModuleFile, MODULE_EXTENSIONS,
   executableSource, executableSourceOf, parserOptionsFor, UnparseableSourceError,
-  namesEngine, hasLocalAddress,
+  namesEngine, hasLocalAddress, isForbiddenHost,
 } from './support/sourceScan.js';
 
 const SRC = 'src';
@@ -521,47 +521,168 @@ describe('negative control · every real syntax parses as itself, or fails LOUDL
   });
 });
 
-describe('negative control · private / workstation address classes', () => {
-  // The cloud-only invariant is about NETWORK DESTINATIONS the product must
-  // never reach. A workstation engine is just as reachable on the studio LAN at
-  // 192.168.x.x or 10.x.x.x as it is on 127.0.0.1, so the detector covers
-  // loopback, RFC1918, link-local and private/link-local IPv6.
+describe('negative control · UTF-16 parser-range fidelity (Codex P1)', () => {
+  // THE BYPASS: Babel reports `start`/`end` as UTF-16 code-unit offsets, but the
+  // blanking loop walked `[...s]`, which iterates CODE POINTS. Every astral
+  // character before a comment shifted the blanked window one place right; with
+  // enough of them the window slid past the comment and erased executable text
+  // after it — including part of a later forbidden URL. A silent miss.
+  const EMOJI = '🎨🚀🔥🌟💡🧠🛰️🪄';
+
+  it('an emoji before a comment cannot shift the blanked range or erase the URL after it', () => {
+    // Codex's exact shape: astral characters, then a comment, then a forbidden
+    // executable destination that MUST remain detectable.
+    const src = `const label = '${EMOJI}'; // legacy note about the old bridge\n`
+      + "fetch('http://127.0.0.1:8188/prompt');\n";
+    const code = executableSource(src, 'emoji.js');
+
+    expect(code).toContain("fetch('http://127.0.0.1:8188/prompt')");
+    expect(hasLocalAddress(code), 'the destination was erased by range drift').toBe(true);
+    expect(code).not.toContain('legacy note');
+  });
+
+  it('the drift scales with the number of astral characters and is still contained', () => {
+    for (const n of [1, 2, 5, 20, 80]) {
+      const src = `const l = '${'🎨'.repeat(n)}'; // note\n`
+        + "fetch('http://192.168.1.9:9000/x');\n";
+      const code = executableSource(src, 'emoji.js');
+      expect(hasLocalAddress(code), `${n} emoji`).toBe(true);
+      expect(code, `${n} emoji`).toContain('192.168.1.9:9000');
+    }
+  });
+
+  it('astral characters INSIDE the comment are blanked without touching the code after', () => {
+    const src = "/* 🎨🚀 http://127.0.0.1:8188 🔥 */ fetch('http://10.0.0.5:9000/x');\n";
+    const code = executableSource(src, 'emoji.js');
+    expect(code).toContain("fetch('http://10.0.0.5:9000/x')");
+    expect(code).not.toContain('127.0.0.1');
+  });
+
+  it('blanking preserves UTF-16 length and line structure even with astral text', () => {
+    const src = `const a = '${EMOJI}'; // c\nconst b = 2;\n`;
+    const code = executableSource(src, 'emoji.js');
+    expect(code).toHaveLength(src.length); // UTF-16 code units, like Babel
+    expect(code.split('\n')).toHaveLength(src.split('\n').length);
+    expect(code).toContain(EMOJI);
+    expect(code).toContain('const b = 2;');
+  });
+
+  it('the OLD code-point indexing demonstrably drifts (bypass reproduced)', () => {
+    // Reproduces the defect against the same input the control above proves
+    // fixed: code-point indexing blanks the wrong window once an emoji precedes
+    // the comment, so the emitted text no longer matches the fixed output.
+    const src = `const l = '${EMOJI}'; // note\nfetch('http://127.0.0.1:8188/prompt');\n`;
+    const naiveBlank = (s, ranges) => {
+      const chars = [...s]; // ← code points: the bug
+      for (const [a, b] of ranges) for (let i = a; i < b && i < chars.length; i += 1) {
+        if (chars[i] !== '\n') chars[i] = ' ';
+      }
+      return chars.join('');
+    };
+    const commentStart = src.indexOf('//');
+    const commentEnd = src.indexOf('\n', commentStart);
+    const drifted = naiveBlank(src, [[commentStart, commentEnd]]);
+    // the naive result differs from the correct one — that difference IS the drift
+    expect(drifted).not.toBe(executableSource(src, 'emoji.js'));
+    expect(drifted).toContain('note'); // it failed to blank the comment it aimed at
+  });
+});
+
+describe('negative control · browser-normalized network destinations (Codex P1)', () => {
+  // THE BYPASS: private-host detection was a list of textual regex forms.
+  // `fe80::/10` spans fe80–febf but only the literal `fe80` prefix matched, and
+  // URL parsing normalizes `127.1`, `2130706433` and `0x7f000001` all to
+  // 127.0.0.1. With an unlisted port such as 9000 nothing matched at all.
+  //
+  // Detection no longer describes host syntax: candidates go through the
+  // platform's WHATWG `URL` normalizer — the same algorithm a browser uses —
+  // and the NORMALIZED host is classified numerically.
   const FORBIDDEN = [
-    ["const u = 'http://127.0.0.1:8188/prompt';", 'IPv4 loopback'],
-    ["const u = 'http://127.5.6.7:9000/x';", 'IPv4 loopback across the whole /8'],
-    ["const u = 'http://10.0.0.5:7860/x';", 'RFC1918 10.0.0.0/8'],
-    ["const u = 'http://192.168.1.50:8188/x';", 'RFC1918 192.168.0.0/16'],
-    ["const u = 'http://172.16.3.4:8080/x';", 'RFC1918 172.16.0.0/12'],
-    ["const u = 'http://172.31.255.1:8080/x';", 'RFC1918 172.31 upper bound'],
-    ["const u = 'http://169.254.10.20/x';", 'IPv4 link-local'],
-    ["const u = 'http://0.0.0.0:8188/x';", 'the unspecified address'],
-    ["const u = 'ws://localhost:11434/socket';", 'localhost over ws'],
-    ["const u = 'http://[::1]:11434/api';", 'IPv6 loopback'],
-    ["const u = 'http://[fe80::1ff:fe23:4567]:8188/';", 'IPv6 link-local'],
-    ["const u = 'http://[fd00::1]:7860/';", 'IPv6 unique-local'],
+    // — Codex's exact reproductions, all on an unlisted port —
+    ["const u = 'http://127.1:9000/x';", 'IPv4 shorthand 127.1'],
+    ["const u = 'http://2130706433:9000/x';", 'decimal-encoded IPv4'],
+    ["const u = 'http://0x7f000001:9000/x';", 'hexadecimal-encoded IPv4'],
+    ["const u = 'http://[fe90::1]:9000/x';", 'fe90:: — inside fe80::/10, outside the old prefix'],
+    ["const u = 'http://[febf::1]:9000/x';", 'febf:: — the top of fe80::/10'],
+    // — full loopback range and other encodings —
+    ["const u = 'http://127.0.0.1:9000/x';", 'IPv4 loopback'],
+    ["const u = 'http://127.5.6.7:9000/x';", 'loopback across the whole /8'],
+    ["const u = 'http://0177.0.0.1/x';", 'octal-encoded IPv4'],
+    // — RFC1918, link-local, unspecified —
+    ["const u = 'http://10.0.0.5:9000/x';", 'RFC1918 10.0.0.0/8'],
+    ["const u = 'http://192.168.1.50:9000/x';", 'RFC1918 192.168.0.0/16'],
+    ["const u = 'http://172.16.3.4:9000/x';", 'RFC1918 172.16 lower bound'],
+    ["const u = 'http://172.31.255.1:9000/x';", 'RFC1918 172.31 upper bound'],
+    ["const u = 'http://169.254.10.20:9000/x';", 'IPv4 link-local'],
+    ["const u = 'http://0.0.0.0:9000/x';", 'the unspecified address'],
+    // — IPv6 ranges in full, not just one prefix —
+    ["const u = 'http://[::1]:9000/api';", 'IPv6 loopback'],
+    ["const u = 'http://[::]:9000/api';", 'IPv6 unspecified'],
+    ["const u = 'http://[fe80::1ff:fe23:4567]:9000/';", 'IPv6 link-local fe80'],
+    ["const u = 'http://[fc00::1]:9000/';", 'IPv6 unique-local fc00 (bottom of /7)'],
+    ["const u = 'http://[fdff::1]:9000/';", 'IPv6 unique-local fdff (top of /7)'],
+    // — zone identifiers —
+    ["const u = 'http://[fe80::1%25eth0]:9000/x';", 'IPv6 zone id, percent-encoded'],
+    ["const u = 'http://[fe80::1%eth0]:9000/x';", 'IPv6 zone id, raw'],
+    // — shapes other than scheme://host —
     ["const u = '//192.168.0.9/x';", 'protocol-relative private host'],
-    ["const u = base + ':8188/prompt';", 'a known engine port'],
+    ["const u = '127.0.0.1:9000';", 'bare host:port, no scheme'],
+    ["const u = '[fe80::1]:9000';", 'bare bracketed IPv6 host:port'],
+    ["const u = 'ws://localhost:9000/socket';", 'localhost over ws'],
+    ["const u = base + ':8188/prompt';", 'a known engine port in a composed expression'],
   ];
 
   it.each(FORBIDDEN)('flags %s', (source) => {
     expect(hasLocalAddress(executableSource(source, 'a.js')), source).toBe(true);
   });
 
-  // Numeric business data must never be mistaken for an endpoint. Each of these
-  // contains digits overlapping a private range but is not a destination.
+  // The business-data boundary. Extraction requires an executable DESTINATION
+  // shape (a scheme, a protocol-relative `//`, or an explicit host:port), so
+  // standalone IP-like text is never normalized and never flagged.
   const ALLOWED = [
     ['const price = 10.0; const qty = 192168;', 'prices and quantities'],
     ["const version = '10.0.0.1';", 'a version string with no scheme or port'],
     ["const ratio = '172.16';", 'a bare decimal pair'],
     ['const total = 127.0 + 0.1;', 'arithmetic on floats'],
-    ["const sku = '192.168.1.50-BLUE';", 'an SKU that embeds digits'],
-    ["const u = 'https://api.artvalue.example/v1/generate';", 'a real remote endpoint'],
-    ["const u = 'https://8.8.8.8:443/';", 'a PUBLIC IP endpoint'],
+    ["const sku = '192.168.1.50-BLUE';", 'an SKU embedding a private-looking quad'],
+    ['const n = 2130706433;', 'a bare integer that WOULD normalize to loopback as a host'],
     ["const at = '12:30';", 'a clock time'],
+    ["const u = 'https://api.artvalue.example/v1/generate';", 'a real remote endpoint'],
+    ["const u = 'https://8.8.8.8:443/';", 'a PUBLIC IPv4 endpoint'],
+    ["const u = 'http://[2606:4700::1]:443/';", 'a PUBLIC IPv6 endpoint'],
+    ["const u = 'http://172.32.0.1:9000/';", 'just above the RFC1918 172.16/12 block'],
+    ["const u = 'http://192.169.0.1:9000/';", 'just above 192.168/16'],
+    ["const u = 'http://[fe7f::1]:9000/';", 'just below fe80::/10'],
+    ["const u = 'http://[fec0::1]:9000/';", 'just above fe80::/10'],
   ];
 
   it.each(ALLOWED)('does NOT flag %s', (source) => {
     expect(hasLocalAddress(executableSource(source, 'a.js')), source).toBe(false);
+  });
+
+  it('classification is numeric, so it holds for every textual form of one host', () => {
+    // Each of these normalizes to 127.0.0.1 under the URL parser.
+    for (const form of ['127.0.0.1', '127.1', '2130706433', '0x7f000001', '0177.0.0.1']) {
+      expect(hasLocalAddress(executableSource(`const u = 'http://${form}:9000/';`, 'a.js')), form).toBe(true);
+    }
+  });
+
+  it('isForbiddenHost classifies NORMALIZED hosts, not raw text', () => {
+    for (const h of ['localhost', '127.0.0.1', '127.255.255.254', '10.1.2.3', '192.168.0.1',
+      '172.16.0.1', '172.31.0.1', '169.254.0.1', '0.0.0.0', '[::1]', '[fe80::1]', '[febf::1]',
+      '[fc00::1]', '[fdff::1]']) {
+      expect(isForbiddenHost(h), h).toBe(true);
+    }
+    for (const h of ['8.8.8.8', 'api.example.com', '172.32.0.1', '192.169.0.1', '11.0.0.1',
+      '[2606:4700::1]', '[fe7f::1]', '[fec0::1]', '']) {
+      expect(isForbiddenHost(h), h).toBe(false);
+    }
+  });
+
+  it('an arbitrary port is enough — detection does not depend on a known engine port', () => {
+    for (const port of ['80', '443', '3000', '9000', '65535']) {
+      expect(hasLocalAddress(executableSource(`const u = 'http://127.0.0.1:${port}/x';`, 'a.js')), port).toBe(true);
+    }
   });
 });
 

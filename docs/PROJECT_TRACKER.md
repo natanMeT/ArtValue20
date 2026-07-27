@@ -923,6 +923,44 @@ executables** (169 not 172 — the closure no longer counts the three non-module
 address classes exposed nothing that had been hiding. Stated rather than implied.
 
 Suite **110 files / 3,043 passed / 0 skipped / 0 failed** (+46 controls). No build and no runtime re-run: no executable
+production code changed. **Superseded by the round below: Codex then found a UTF-16 offset drift and an address-form gap in this same proof layer.**
+
+**Codex found 2 further P1s in the proof layer on `d84cfdc`. Both real; both fixed. No product code changed** —
+the verified artifact stays `index-C4frcMDi.js`.
+
+| # | Finding | Status |
+|---|---|---|
+| 1 (P1) | Babel reports `start`/`end` as **UTF-16 code-unit** offsets, but the blanking loop walked `[...s]`, which iterates **code points**. Every astral character (an emoji) before a comment shifted the blanked window one place right; with enough of them the window slid past the comment and **erased executable text after it**, including part of a later forbidden URL. | **Fixed** — blanking is now done with `String.prototype.slice` between sorted comment ranges, so the mutable representation and Babel's offsets share one indexing space. Length and line structure are preserved exactly. |
+| 2 (P1) | Private-host detection was a list of **textual regex forms**. `fe80::/10` spans `fe80`–`febf` but only the literal `fe80` prefix matched, and URL parsing normalizes `127.1`, `2130706433` and `0x7f000001` all to `127.0.0.1`. With an unlisted port such as `9000`, nothing matched — code could reach a loopback or link-local workstation while the scan reported clean. | **Fixed by removing the regex host vocabulary entirely.** Candidate destinations now go through the platform's **WHATWG `URL` normalizer** — the same algorithm a browser applies — and the NORMALIZED host is classified **numerically**. |
+
+**The normalization boundary.** `hasLocalAddress()` extracts candidates (a scheme, a protocol-relative `//`, or an
+explicit `host:port`), hands each to `new URL()`, and classifies `url.hostname` by range: loopback `127/8`, RFC1918
+`10/8` · `172.16/12` · `192.168/16`, link-local `169.254/16`, the unspecified address, `localhost`, and IPv6 `::1`,
+`::`, **the whole `fe80::/10` (fe80–febf)** and **the whole `fc00::/7` (fc00–fdff)**. Because classification is numeric,
+it holds for **every textual form the parser accepts** — shorthand, decimal, hexadecimal, octal, compressed IPv6 —
+and for **any port**, not only the four engine ports (those remain a separate signal for composed expressions such as
+`base + ':8188/prompt'`, where no host exists to normalize). Zone identifiers (`fe80::1%eth0`, `%25eth0`) are rejected
+by the URL spec, so they are stripped and the base address is classified rather than lost.
+
+**The business-data boundary is preserved by the EXTRACTION step, not by the classifier:** standalone IP-like text is
+never a candidate, so it is never normalized. Controls pin that in both directions, including `const n = 2130706433;`
+— a bare integer that *would* normalize to loopback if it were a host — plus a version string, an SKU, float
+arithmetic, a clock time, and public endpoints (`8.8.8.8:443`, `[2606:4700::1]:443`) and the exact off-by-one
+neighbours `172.32.0.1`, `192.169.0.1`, `[fe7f::1]`, `[fec0::1]`.
+
+**Codex's exact reproductions are controls:** emoji before a comment with a forbidden destination after it (asserted
+still detectable, at 1/2/5/20/80 emoji, with the old code-point indexing shown to drift); and `127.1`, `2130706433`,
+`0x7f000001`, `[fe90::1]`, `[febf::1]` — every one on the unlisted port `9000`. All controls import the **production
+primitive** the repository scan calls.
+
+**One further real defect surfaced while fixing these:** the `http://${candidate}` parse fallback was being applied to
+already-schemed candidates, so `http://http://[fe80::1%25eth0]…` parsed with the truthy host `http` and pre-empted the
+zone-id retry — swallowing a link-local destination. Exactly one parse shape per candidate now.
+
+**Result over the real repository:** 283 files scanned, **all parse**, **0 offenders** across 169 non-test executables.
+The stricter normalization exposed nothing that had been hiding.
+
+Suite **110 files / 3,069 passed / 0 skipped / 0 failed** (+26 controls). No build and no runtime re-run: no executable
 production code changed.
 
 **Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
