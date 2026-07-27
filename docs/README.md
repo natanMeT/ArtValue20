@@ -4,11 +4,12 @@ This directory is the shared source of truth for ArtValue product documentation,
 
 ## Authoritative Markdown files
 
-The following **three Markdown files are authoritative**. They are the live source of truth; edit these and review the diff.
+The following **four Markdown files are authoritative**. They are the live source of truth; edit these and review the diff.
 
 | File | Role | Current version |
 | --- | --- | --- |
 | [`PROJECT_TRACKER.md`](PROJECT_TRACKER.md) | Living cross-session handoff — **the single source of truth for live release state** (source, deployment, bundle, Edge version, rollback target), plus the status ledger and open decisions. | — (living) |
+| [`PRODUCT_VISION.md`](PRODUCT_VISION.md) | **One page, non-technical** — what ArtValue is, for whom, what it is *not*, and the non-negotiable principles. The document to hand to a person; carries no release identifiers. | — (living) |
 | [`roadmaps/BUSINESS_OS_MASTER_ROADMAP.md`](roadmaps/BUSINESS_OS_MASTER_ROADMAP.md) | Product **strategy** — vision, modules, customer journey, launch gates, risks. | **Business OS v0.10** |
 | [`roadmaps/AI_GATEWAY_MASTER_ROADMAP.md`](roadmaps/AI_GATEWAY_MASTER_ROADMAP.md) | AI infrastructure **strategy** — Gateway contracts, milestones, decision log. | **AI Gateway v5.6** |
 
