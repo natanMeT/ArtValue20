@@ -2,9 +2,10 @@ import { GROWTH_NAV } from '../../pages/growth/growthNav.js';
 
 // Sidebar IA — grouped navigation sections. Presentational regrouping only:
 // every route, label and icon is unchanged from the previous flat NAV list;
-// items are just ordered into scannable sections. (R4.1: the retired local-
-// engine studios /workflow + /fooocus were removed from the sections; their
-// legacy routes redirect to /studio in App.jsx.) Growth OS items stay
+// items are just ordered into scannable sections. (Local-engine retirement,
+// 2026-07-27: every workstation-engine studio — /workflow, /fooocus and
+// /adstudio — is gone from the product; their routes no longer exist and any
+// unknown path falls back to the dashboard in App.jsx.) Growth OS items stay
 // sourced from GROWTH_NAV (single source of truth) and are composed into
 // the צמיחה ולידים section together with the Outreach page, so the daily
 // lead funnel (מחקר → מיפוי → לוח → שיחות) reads in workflow order.
@@ -35,7 +36,6 @@ export const NAV_SECTIONS = [
     label: 'סטודיו וכלים',
     items: [
       { to: '/diagnose', label: 'אבחון AI', icon: 'spark' },
-      { to: '/adstudio', label: 'סטודיו פרסום', icon: 'spark', betaHidden: true },
       { to: '/studio', label: 'מחולל תמונות', icon: 'image' },
       { to: '/templates', label: 'תבניות', icon: 'copy', betaHidden: true },
       { to: '/assets', label: 'קבצים וקישורים', icon: 'link' },
@@ -50,8 +50,6 @@ export const SIDEBAR_ROUTE_ITEMS = NAV_SECTIONS.flatMap((s) => s.items);
 // Memory-Only modules (Projects, Inventory, Templates) that can't durably persist
 // in authenticated cloud mode. Hide them from the nav there so they aren't
 // presented as usable capabilities. In local/demo mode everything is shown.
-// S0F.1 (D4) extends the same flag to /adstudio — contained for truthfulness
-// (demo-stub creative output + ArtValue-seeded prompts), not for persistence.
 // The routes stay registered (App.jsx) and render a restrained unavailable state.
 export function visibleNavSections(isCloudBeta) {
   if (!isCloudBeta) return NAV_SECTIONS;

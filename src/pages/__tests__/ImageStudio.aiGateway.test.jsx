@@ -3,13 +3,13 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 // Slice: Studio Prompt Enhancement → Protected AI Gateway.
-// ImageStudio.jsx pulls in the store/router/canvas and the whole geminiImage
-// engine, so it is not cleanly renderable under Vitest. We instead (a) extract
+// ImageStudio.jsx pulls in the store/router/canvas, so it is not cleanly
+// renderable under Vitest. We instead (a) extract
 // and run the ACTUAL pure helpers from the shipped source, and (b) source-guard
 // the wiring — the same pattern used for the other Edge/page seams in this repo.
 
 const SRC = readFileSync(fileURLToPath(new URL('../ImageStudio.jsx', import.meta.url)), 'utf8');
-const IMG = readFileSync(fileURLToPath(new URL('../../lib/geminiImage.js', import.meta.url)), 'utf8');
+const IMG = readFileSync(fileURLToPath(new URL('../../lib/hostedImage.js', import.meta.url)), 'utf8');
 
 // Extract a single self-contained function from the source and make it callable.
 const extractFn = (name) => {
@@ -80,14 +80,17 @@ describe('studio prompt-enhance · wiring (source guards)', () => {
 });
 
 describe('studio prompt-enhance · image generation path is untouched', () => {
-  it('ImageStudio still drives the geminiImage engine for generation', () => {
-    expect(/from '\.\.\/lib\/geminiImage\.js'/.test(SRC)).toBe(true);
-    for (const fn of ['generateImage', 'editImage', 'inpaintImage', 'qwenCompose', 'productLockBlend']) {
-      expect(SRC.includes(fn), fn).toBe(true);
+  it('ImageStudio drives the hosted Gateway lane for generation', () => {
+    expect(/from '\.\.\/lib\/hostedImage\.js'/.test(SRC)).toBe(true);
+    expect(SRC.includes('generateImage')).toBe(true);
+    // PRODUCT BOUNDARY (2026-07-27): the local engine entry points are gone from
+    // the Studio, not merely unused by it.
+    for (const gone of ['editImage', 'inpaintImage', 'qwenCompose', 'productLockBlend', 'ltxVideo', 'flfVideo', 'animateImage', 'geminiImage']) {
+      expect(SRC.includes(gone), gone).toBe(false);
     }
   });
 
-  it('geminiImage.js hosted image path now routes through the protected AI Gateway (M2 J3C S4.2)', () => {
+  it('hostedImage.js routes the image path through the protected AI Gateway', () => {
     // S4.2 retired the direct browser-Gemini image call: the hosted lane is a
     // single callAiGateway('studio.generate_image', …) attempt, no Google transport.
     expect(IMG.includes("callAiGateway('studio.generate_image'")).toBe(true);
@@ -100,10 +103,11 @@ describe('studio prompt-enhance · image generation path is untouched', () => {
 });
 
 describe('studio prompt-enhance · prompt assembly preserves the enhancement instruction', () => {
-  it('keeps the three verbatim mode instructions (generate / edit / inpaint)', () => {
+  it('keeps the generate instruction verbatim (the edit/inpaint modes are retired)', () => {
     expect(SRC.includes('STAY 100% FAITHFUL')).toBe(true);
-    expect(SRC.includes('keep the person, colors and composition unchanged')).toBe(true);
-    expect(SRC.includes('marked a region of a photo to replace')).toBe(true);
+    for (const retired of ['keep the person, colors and composition unchanged', 'marked a region of a photo to replace']) {
+      expect(SRC.includes(retired), retired).toBe(false);
+    }
   });
 
   it('assembles instruction + user request into one plain-text prompt', () => {
@@ -113,10 +117,10 @@ describe('studio prompt-enhance · prompt assembly preserves the enhancement ins
     expect(p.includes('לוגו זהב על רקע לבן')).toBe(true);        // user idea included
   });
 
-  it('selects the edit / inpaint instruction by kind, generate by default', () => {
-    expect(buildStudioEnhancePrompt('x', 'edit').includes('editing instruction')).toBe(true);
-    expect(buildStudioEnhancePrompt('x', 'inpaint').includes('marked a region')).toBe(true);
-    expect(buildStudioEnhancePrompt('x', 'weird').includes('STAY 100% FAITHFUL')).toBe(true);
+  it('there is exactly ONE instruction now, whatever is passed', () => {
+    for (const arg of [undefined, 'edit', 'inpaint', 'weird']) {
+      expect(buildStudioEnhancePrompt('x', arg).includes('STAY 100% FAITHFUL')).toBe(true);
+    }
   });
 });
 

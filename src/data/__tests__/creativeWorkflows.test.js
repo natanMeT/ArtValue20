@@ -78,25 +78,16 @@ describe('creativeWorkflows · live vs soon targeting', () => {
 describe('creativeWorkflows · specific cards', () => {
   const byId = (id) => CREATIVE_WORKFLOWS.find((w) => w.id === id);
 
-  it('Product Presenter is LIVE with the presenter mode (no route)', () => {
-    const pp = byId('product-presenter');
-    expect(pp).toBeTruthy();
-    expect(pp.status).toBe('live');
-    expect(pp.mode).toBe('presenter');
-    expect(pp.route).toBeNull();
-    expect(pp.engine).toBe('comfyui');
-    // not accidentally still listed as coming soon
-    expect(soonWorkflows().some((w) => w.id === 'product-presenter')).toBe(false);
+  it('the retired local-engine cards are GONE from the catalog', () => {
+    const ids = CREATIVE_WORKFLOWS.map((w) => w.id);
+    for (const retired of ['product-presenter', 'smart-edit', 'area-edit', 'image-to-video', 'before-after', 'character-series', 'model-album', 'product-lock']) {
+      expect(ids, retired).not.toContain(retired);
+    }
   });
 
-  it('Product Lock is LIVE, browser-engine, with the lock mode (no route)', () => {
-    const pl = byId('product-lock');
-    expect(pl).toBeTruthy();
-    expect(pl.status).toBe('live');
-    expect(pl.mode).toBe('lock');
-    expect(pl.route).toBeNull();
-    expect(pl.engine).toBe('browser');
-    expect(pl.consent).toBe(true);
+  it('Product Lock was REMOVED from the catalog with the feature', () => {
+    expect(byId('product-lock')).toBeUndefined();
+    expect(CREATIVE_WORKFLOWS.filter((w) => w.status === 'live').map((w) => w.id)).toEqual(['fast-image']);
   });
 
   it('Jewelry / Outfit / Identity Pack remain soon', () => {
@@ -114,11 +105,9 @@ describe('creativeWorkflows · specific cards', () => {
     }
   });
 
-  it('exposes the consent note on presenter/reference workflows', () => {
+  it('exposes the consent note on reference-image workflows', () => {
     expect(CONSENT_NOTE).toContain('הרשאה');
-    for (const id of ['character-series', 'model-album', 'product-presenter', 'jewelry-composer']) {
-      expect(byId(id).consent, id).toBe(true);
-    }
+    expect(CREATIVE_WORKFLOWS.some((w) => w.consent === true)).toBe(true);
   });
 });
 

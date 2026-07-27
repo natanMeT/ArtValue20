@@ -163,7 +163,7 @@ export function createGalleryStore(session) {
   };
 }
 
-// Fetch any image src (ComfyUI /view url, data url, blob url) into a Blob.
+// Fetch any image src (data url, blob url, remote url) into a Blob.
 export async function srcToBlob(src) {
   const r = await fetch(src);
   return r.blob();

@@ -51,7 +51,7 @@ export const BUSINESS_BRAIN = deepFreeze({
     differentiators: [
       'מערכות נבנות מתוך ההקשר והתהליכים האמיתיים של העסק — לא תבנית גנרית',
       'עוזר AI (ג׳יק) מוטמע בתוך המערכת ועובד על נתוני העסק עצמו',
-      'סטודיו קריאייטיב פנימי — פוסטרים, ויזואלים למוצר ווידאו נוצרים בתוך המערכת',
+      'סטודיו תמונות פנימי — ויזואלים עסקיים נוצרים בתוך המערכת, בענן המאובטח של החשבון',
       'מסלול אחד מתכנון (Growth OS) ועד ביצוע (Studio) בלי לצאת מהמערכת',
     ],
     audiences: [
@@ -115,14 +115,14 @@ export const BUSINESS_BRAIN = deepFreeze({
     creativeStudio: {
       id: 'creative-studio',
       name: 'סטודיו קריאייטיב',
-      pitch: 'פוסטרים, ויזואלים וסרטונים לעסק — נוצרים בתוך המערכת, בשפה הוויזואלית שלכם.',
+      pitch: 'ויזואלים עסקיים — נוצרים בתוך המערכת מתיאור בעברית, בשפה הוויזואלית שלכם.',
       pains: ['תוכן שיווקי יקר ואיטי להפקה', 'חוסר עקביות ויזואלית', 'תלות במעצבים חיצוניים לכל פוסט'],
       cta: 'לצפייה בדוגמאות מהסטודיו',
     },
     productVisuals: {
       id: 'product-visuals',
       name: 'ויזואלים למוצר',
-      pitch: 'תמונות מוצר ופרזנטורים ברמת קמפיין — כולל שימור מוצר מדויק (לוגו וטקסט נשמרים 1:1).',
+      pitch: 'תמונות מוצר ברמת קמפיין — ויזואל שיווקי עקבי למוצר.',
       pains: ['צילומי מוצר יקרים', 'הלוגו והפרטים משתבשים בעריכות', 'אין ויזואל שיווקי עקבי למוצר'],
       cta: 'לשליחת תמונת מוצר אחת ולקבלת דוגמה',
     },
@@ -150,19 +150,65 @@ export const BUSINESS_BRAIN = deepFreeze({
 // fields only. Deterministic (same catalog → same list).
 // ===================================================================
 const STATIC_CAPABILITIES = deepFreeze([
-  { id: 'image-studio', kind: 'system', title: 'Image Studio', description: 'סטודיו התמונות המרכזי — כל מצבי היצירה והעריכה במקום אחד, כולל גלריה.' },
+  { id: 'image-studio', kind: 'system', title: 'Image Studio', description: 'סטודיו התמונות המרכזי — יצירת תמונות לעסק וגלריית תוצרים במקום אחד.' },
   { id: 'growth-os', kind: 'system', title: 'Growth OS', description: 'מרכז הצמיחה: מיפוי קטגוריות לידים, לוח פעולה חודשי, הכנת שיחות וספריית תוכן.' },
-  { id: 'gallery', kind: 'system', title: 'גלריה / היסטוריית רנדרים', description: 'כל התוצרים (תמונות ווידאו) נשמרים ומסומנים לפי מקור, לשימוש חוזר.' },
+  { id: 'gallery', kind: 'system', title: 'גלריה / היסטוריית תוצרים', description: 'כל התמונות שנוצרו נשמרות ומסומנות לפי מקור, לשימוש חוזר.' },
   // Containment: this used to advertise "מפת Workflows קריאייטיביים" — the
   // workflow-map surface that the Studio no longer renders. Jake must not offer
   // a screen the user cannot open, so the capability is described as what
   // actually exists: the creative modes inside the Image Studio.
-  { id: 'creative-modes', kind: 'system', title: 'מצבי יצירה בסטודיו', description: 'מגוון מצבי יצירה ועריכה בתוך סטודיו התמונות — יצירה מתיאור, עריכה, ויזואל מוצר וסרטון.' },
-  { id: 'product-lock-blend', kind: 'system', title: 'שיפור חיבור וצללים (Product Lock B2)', description: 'בתוך "מוצר מדויק": AI מוסיף צל מגע וחיבור טבעי סביב הקצוות בלבד — פיקסלי המוצר נשמרים 1:1.' },
+  // `requires` makes the availability relationship EXPLICIT. Nothing here is
+  // filtered by array position, wording or ordering.
+  //   requires: { anyStudioMode: true }  -> needs at least one openable mode
+  // `describe(availability)` lets an entry state only what is actually open,
+  // instead of hard-coding a list that may include hidden workflows.
+  {
+    id: 'creative-modes', kind: 'system', title: 'מצבי יצירה בסטודיו',
+    description: 'מצבי היצירה הזמינים בסטודיו התמונות.',
+    requires: { anyStudioMode: true },
+    describe: (a) => (a.modeLabels && a.modeLabels.length
+      ? `מצבי היצירה הזמינים בחשבון זה בסטודיו התמונות: ${a.modeLabels.join(', ')}.`
+      : 'מצבי היצירה הזמינים בסטודיו התמונות.'),
+  },
+  // PRODUCT DECISION (2026-07-27): the gated "Product Lock B2" enhancement went
+  // with the local engine, and Product Lock itself followed. There is no gated
+  // subfeature left to advertise and no subfeature plumbing here at all.
 ]);
 
-export function systemCapabilities() {
-  const studio = liveWorkflows().map((w) => ({
+// Jake may only advertise creative workflows the ACTIVE configuration can
+// actually open. `liveWorkflows()` is the catalog of what EXISTS; it is not a
+// statement of availability — in a hosted build the engine-backed workflows are
+// listed but hidden in the UI, so advertising them made Jake untruthful AND
+// handed the user a route into a mode the Studio cannot open.
+//
+// Availability is INJECTED, never imported: this module must stay free of
+// engine/assistant imports (pinned by its own boundary test). The caller
+// (lib/jakeBusinessContext.js) passes the authoritative set from studioModes.js.
+// Default = empty => FAIL CLOSED: a caller that forgets under-advertises rather
+// than promising a mode the Studio would refuse to open. Workflows with no
+// `mode` are non-Studio capabilities and are always listed.
+export function systemCapabilities(availability = {}) {
+  // Accepts the full snapshot { modes, modeLabels } or a bare array/Set of mode
+  // ids. There is no `capabilities` map any more: the local-engine capability
+  // vocabulary was removed with the engines it described.
+  const a = Array.isArray(availability) || availability instanceof Set
+    ? { modes: availability, modeLabels: [] }
+    : (availability || {});
+  const allowed = a.modes instanceof Set ? a.modes : new Set(Array.isArray(a.modes) ? a.modes : []);
+  const snapshot = {
+    modes: [...allowed],
+    modeLabels: Array.isArray(a.modeLabels) ? a.modeLabels : [],
+  };
+
+  // A static capability is advertised only when its EXPLICIT requirement holds.
+  const staticAvailable = (c) => {
+    const r = c.requires;
+    if (!r) return true;                                   // non-Studio business capability
+    if (r.anyStudioMode && allowed.size === 0) return false;
+    return true;
+  };
+
+  const studio = liveWorkflows().filter((w) => !w.mode || allowed.has(w.mode)).map((w) => ({
     id: w.id,
     kind: 'studio',
     title: w.title,
@@ -171,7 +217,17 @@ export function systemCapabilities() {
     engine: w.engine,
     tags: [...w.tags],
   }));
-  return [...studio, ...STATIC_CAPABILITIES.map((c) => ({ ...c }))];
+  // Unavailable entries are removed BEFORE any maxCapabilities slicing, so
+  // truncation can never promote a hidden capability into Jake's prompt.
+  const statics = STATIC_CAPABILITIES.filter(staticAvailable).map((c) => {
+    const { requires, describe, titleOf, ...safe } = c;
+    return {
+      ...safe,
+      title: typeof titleOf === 'function' ? titleOf(snapshot) : safe.title,
+      description: typeof describe === 'function' ? describe(snapshot) : safe.description,
+    };
+  });
+  return [...studio, ...statics];
 }
 
 // ---- small deterministic helpers ----
@@ -217,6 +273,8 @@ export function buildBusinessBrainContext(options = {}) {
   const includeServices = options.includeServices ?? true;
   const maxServices = clampInt(options.maxServices, 1, SERVICES.length, 8);
   const maxCapabilities = clampInt(options.maxCapabilities, 1, 24, 12);
+  // Injected by the caller from the authoritative mode set. Omitted => fail closed.
+  const availableModes = options.availableModes || [];
 
   const parts = [
     'הקשר עסקי — ArtValue Business Brain:',
@@ -238,7 +296,7 @@ export function buildBusinessBrainContext(options = {}) {
 
   if (includeCapabilities) {
     parts.push('', 'יכולות המערכת (לשימוש כהצעות ביצוע ידניות):');
-    for (const c of systemCapabilities().slice(0, maxCapabilities)) {
+    for (const c of systemCapabilities(availableModes).slice(0, maxCapabilities)) {
       parts.push(`- ${c.title}${c.mode ? ` [מצב: ${c.mode}]` : ''}: ${c.description}`);
     }
   }
@@ -296,6 +354,7 @@ function accountProfileLines(p) {
 // facts. Always ends with the universal capabilities + safety block.
 export function buildAccountBusinessContext(profile, options = {}) {
   const maxCapabilities = clampInt(options.maxCapabilities, 1, 24, 8);
+  const availableModes = options.availableModes || [];
   const parts = [];
   if (hasDurableProfile(profile)) {
     parts.push('הקשר עסקי — פרופיל העסק (מאושר ע״י המשתמש):', '', ...accountProfileLines(profile));
@@ -306,7 +365,7 @@ export function buildAccountBusinessContext(profile, options = {}) {
     );
   }
   parts.push('', 'יכולות המערכת (לשימוש כהצעות ביצוע ידניות):');
-  for (const c of systemCapabilities().slice(0, maxCapabilities)) {
+  for (const c of systemCapabilities(availableModes).slice(0, maxCapabilities)) {
     parts.push(`- ${c.title}${c.mode ? ` [מצב: ${c.mode}]` : ''}: ${c.description}`);
   }
   parts.push('', safetyBlock());
@@ -445,9 +504,9 @@ export function buildStudioPromptSeed(workflowId, topic, options = {}) {
     ]
     : ['ה-Workflow המבוקש לא נמצא בין היכולות החיות — הכן בריף כללי ל-Image Studio (טקסט → תמונה).'];
 
-  const productNote = wf && (wf.mode === 'lock' || wf.mode === 'presenter')
-    ? 'שים לב: זה workflow של מוצר — ציין שב"מוצר מדויק" (Product Lock) פיקסלי המוצר נשמרים 1:1, ובפרזנטור התוצאה מבוססת AI ועשויה להיות מקורבת.'
-    : '';
+  // PRODUCT DECISION (2026-07-27): the product-specific workflows were removed,
+  // so there is no product-mode note left to add.
+  const productNote = '';
 
   return [
     `ג׳יק, הכן לי בריף מוכן ל-Studio בנושא: ${subject}.`,

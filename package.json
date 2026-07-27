@@ -5,13 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:local": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "build": "vite build",
     "preview": "vite preview",
-    "preview:local": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
     "test": "vitest run",
-    "test:creative": "vitest run src/creative/v2",
-    "local:review-prep": "node scripts/local-review-prep.mjs"
+    "test:creative": "vitest run src/creative/v2"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
@@ -23,6 +20,7 @@
     "three": "^0.160.1"
   },
   "devDependencies": {
+    "@babel/parser": "^7.29.7",
     "@vitejs/plugin-react": "^4.3.1",
     "vite": "^5.4.0",
     "vitest": "^4.1.9"

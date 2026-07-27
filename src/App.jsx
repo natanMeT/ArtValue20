@@ -25,7 +25,6 @@ import Templates from './pages/Templates.jsx';
 import Quotes from './pages/Quotes.jsx';
 import Diagnose from './pages/Diagnose.jsx';
 import ImageStudio from './pages/ImageStudio.jsx';
-import AdStudio from './pages/AdStudio.jsx';
 import Finance from './pages/Finance.jsx';
 import Inventory from './pages/Inventory.jsx';
 import Activity from './pages/Activity.jsx';
@@ -129,10 +128,6 @@ function MainRoutes() {
         <Route path="/quotes" element={<Quotes />} />
         <Route path="/diagnose" element={<Diagnose />} />
         <Route path="/studio" element={<ImageStudio />} />
-        <Route path="/adstudio" element={<AdStudio />} />
-        {/* R4.1 — retired local-engine studios. Legacy links land on Image Studio. */}
-        <Route path="/workflow" element={<Navigate to="/studio" replace />} />
-        <Route path="/fooocus" element={<Navigate to="/studio" replace />} />
         <Route path="/finance" element={<Finance />} />
         <Route path="/inventory" element={<Inventory />} />
         <Route path="/activity" element={<Activity />} />
@@ -145,6 +140,13 @@ function MainRoutes() {
         <Route path="/calls" element={<GrowthBetaGate title="שיחות ופולואפים" sub="הכנה לשיחות מכירה"><Calls /></GrowthBetaGate>} />
 
         <Route path="/settings" element={<Settings />} />
+
+        {/* Local-engine retirement (2026-07-27): every route that existed only to
+            drive a workstation engine — /adstudio, /workflow, /fooocus — was
+            REMOVED with its page. A retired deep link, bookmark or restored
+            router state must fail SAFE rather than render an empty shell, so any
+            unknown path lands on the dashboard. */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
   );

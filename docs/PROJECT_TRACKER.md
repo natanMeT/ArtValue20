@@ -6,7 +6,7 @@
 **Purpose:** single source of truth for state, so work continues across sessions with no loss.
 Nathan passes this to ChatGPT so it can review/advise **without re-deriving or guessing** state.
 **ChatGPT does NOT edit this document.** Only Claude updates it.
-**Last updated:** 2026-07-26 — session: **Studio / Local-Engine UI Containment — CLOSED / LIVE VERIFIED in Production.** PR [#114](https://github.com/natanMeT/ArtValue20/pull/114) merged (`29cccdd…`) → docs PR [#115](https://github.com/natanMeT/ArtValue20/pull/115) merged (`03c23c2…`) → one build from `03c23c2` → Preview **`ec239e3b`** + authenticated QA acceptance PASS → **Production `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js`** deployed by reusing the accepted artifact (wrangler "Uploaded 0 files (12 already uploaded)", **12/12 served files byte-match**) + **authenticated non-mutating Account A Production smoke PASS**. **Current rollback target: `476830a2` / `index-BrR14XIC.js`** — retained and verified healthy (the older `e63198b7` is a **historical fallback only**). **No migration; Edge `ai-gateway` v35 unchanged and not redeployed.** **P1 Atomic Quote Persistence remains CLOSED / LIVE** — the same session's authenticated Production smoke confirmed Quotes/Finance render and authenticated reads are healthy; Account A held no quote or transaction rows and no Production create/edit was authorized, so quote-row visibility and a Production-UI RPC re-exercise remain an **optional additional validation, not an open release item** — see its section.  Prior closed session: **P1 Atomic Quote Persistence — CLOSED / LIVE VERIFIED in Production.** PRs [#108](https://github.com/natanMeT/ArtValue20/pull/108) → [#109](https://github.com/natanMeT/ArtValue20/pull/109) → [#110](https://github.com/natanMeT/ArtValue20/pull/110) → [#111](https://github.com/natanMeT/ArtValue20/pull/111) → docs [#112](https://github.com/natanMeT/ArtValue20/pull/112) merged to `main` (`7e30199`); migration `20260726120000_atomic_quote_persistence.sql` **APPLIED & verified**; `public.save_quote_atomic` **live**; failure-injection acceptance **13/13** and Preview UI acceptance PASSED; **Production `476830a2-f8ea-45dc-b0ce-a71876bc48dd` / `index-BrR14XIC.js`** deployed by reusing the accepted artifact (12/12 served files byte-match). Its then-rollback `e63198b7` is retained (now a historical fallback only). An authenticated Production smoke has since confirmed Quotes/Finance render and authenticated reads are healthy; only an **optional additional Production-UI validation** remains — see the section below. Prior closed session: **S0F.1 Creative Trust, Account Isolation & Brand-Palette Consumption — CLOSED / LIVE VERIFIED in Production** (PR [#106](https://github.com/natanMeT/ArtValue20/pull/106) → main `983f489` → Edge `ai-gateway` **v34→v35** (Jake persona text only) → Preview `0760f00e` + three-account (A/B/D) acceptance PASS → **Production `e63198b7` / `index-lvfFFwEn.js`** + authenticated non-mutating Account A smoke PASS). Truthful cloud containment of the creative/campaign lanes, account-aware Outreach and quote issuer, per-account device-local creative/gallery isolation, and account brand-palette consumption in ImageStudio are now live; **no migration**. Prior: S0E Guided Business Onboarding CLOSED / LIVE VERIFIED (Production `4b86993d`, retained as the S0F.1 frontend rollback).
+**Last updated:** 2026-07-27 — session: **ABSOLUTE CLOUD-ONLY BOUNDARY (ROUND 11) — IN FLIGHT / NOT RELEASED.** Nathan's absolute decision: no executable local-engine code anywhere in the repository, product AND tooling. Round 10's two disclosed exceptions are withdrawn. **The AI Gateway shared contract changed:** `comfyui` / `ollama` / `fooocus` / `a1111` are removed from `AI_PROVIDERS`, `AI_MODELS` and every routing chain, together with the `LOCAL_PROVIDERS` partition, the `localFirst` selection option (and its response metadata) and the local zero-cost branch — the 20-action cloud vocabulary is unchanged and every action still resolves to a non-empty all-API chain. **`scripts/local-review-prep.mjs` (a local-Ollama caller), its test, the whole `scripts/` directory, `comfy_help.txt` and the `local:review-prep` / `dev:local` / `preview:local` npm scripts are DELETED.** Docs corrected where they claimed local engines are still supported. Repo-wide proof scans **172 non-test executables** across `src/`, `supabase/`, root and `scripts/` for engine names and local addresses with comments stripped, and proves the `src/lib` Gateway shims are pure re-exports so no divergent copy can exist. Two further Codex P2s on `1233034` (a DemoMode copy regression of mine, and eval-provenance wording) were confirmed and fixed. Codex then broke the proof's hand-written scanner three times (URL `//` in string literals; nested `.mjs`/`.cjs`; then object literals in template substitutions, JSX text and regex after `return`). The approximation WAS the defect, so it is gone: the scanner is now **parser-backed via `@babel/parser`**, blanking only the parser's own comment ranges, and the address classes were widened to RFC1918/link-local/IPv6 private ranges in network context. Suite **110 files / 2,997 passed / 0 skipped / 0 failed**, build green (`index-C4frcMDi.js`, 608.05 kB); the app bundle now has **zero** hits for every local term including the provider-registry strings that survived round 10. Runtime: retired routes fail safe, all surviving creative routes render, 0 local requests, 0 console messages. ⚠️ **An Edge `ai-gateway` redeploy will be REQUIRED later — NOT performed here**; nothing deployed, no secret or remote configuration touched. Prior round summaries follow. **(Round 10)** 
 
 ---
 
@@ -168,7 +168,8 @@ Still open:
 - ✅ **Non-atomic quote persistence** — RESOLVED and LIVE: migration `20260726120000` applied, `public.save_quote_atomic` live, failure-injection acceptance 13/13, Production `476830a2`.
 
 ## Open follow-ups (non-blocking)
-- ⚠️ **Jake advertises creative capabilities that the cloud path cannot run — truthfulness follow-up, NOT a regression.** Observed during both the Preview and Production authenticated smokes: asked what he can do, Jake lists `סדרת דמות`, `אלבום דוגמנית` and `פרזנטור מוצר`, which are **hidden in the cloud UI** because they require a local engine. Cause: `systemCapabilities()` in `businessBrain.js` enumerates every *live* workflow from the catalog regardless of engine availability. **This predates the Studio containment slice** — that slice only removed the engine NAMES from the same text — so it is not a regression and did not block release. Worth a future slice that filters the advertised capability list by what the current runtime can actually execute. **Not selected; do not begin without Nathan's approval.**
+- 🔧 **Jake advertises creative capabilities that the cloud path cannot run — BEING FIXED in the Studio Hosted Mode Containment Correction (in flight, not deployed).** It turned out to be more than a wording issue: it was the **entry point** into the hidden-mode hand-off defect. Original entry retained below for history.
+- ⚠️ **(historical) Jake advertises creative capabilities that the cloud path cannot run — truthfulness follow-up, NOT a regression.** Observed during both the Preview and Production authenticated smokes: asked what he can do, Jake lists `סדרת דמות`, `אלבום דוגמנית` and `פרזנטור מוצר`, which are **hidden in the cloud UI** because they require a local engine. Cause: `systemCapabilities()` in `businessBrain.js` enumerates every *live* workflow from the catalog regardless of engine availability. **This predates the Studio containment slice** — that slice only removed the engine NAMES from the same text — so it is not a regression and did not block release. Worth a future slice that filters the advertised capability list by what the current runtime can actually execute. **Not selected; do not begin without Nathan's approval.**
 - ✅ **Quote cloud-save source label truthfulness — RESOLVED / LIVE.** `src/pages/Quotes.jsx` previously toasted "נשמר מקומית" in authenticated cloud mode even though the quote was durably persisted (wording/source-label only — never data loss). PR #108 routes both quote toasts through the source-aware `saveLabel(mode)` helper (`'נשמר במערכת'` in `supabase` mode); confirmed on Preview with the byte-identical artifact ("הצעת מחיר נוצרה · נשמר במערכת" / "ההצעה עודכנה · נשמר במערכת") and **shipped to Production in deployment `476830a2`**.
 
 ## Growth OS status (authenticated cloud beta)
@@ -191,13 +192,1054 @@ Recorded here only as a **planned future product slice / candidate**, not as an 
 - [x] **Next product slice — Studio / local-engine UI containment: DONE, CLOSED / LIVE in Production** (deployment `247ef9ec`) — see its section below. The candidate list below is preserved for the slice AFTER this one.
 - [ ] **Slice after this one — PENDING NATHAN DECISION.** Do NOT begin/design/invent the next slice until Nathan selects one and approves a spec. Candidate open items: durable **Asset Library**; durable **Campaigns** + account-aware Growth data model (the Growth reopening prerequisites); **Products / Projects / Inventory / Templates / Activity durability**; **organization boundaries**; **credits / cost controls**; **Website Scanner** (per the section above); Jake conversation-refresh UX. **NOT a candidate: the Quote cloud-save source-label correction — it is already RESOLVED and LIVE in Production (implemented in merged PR #108, shipped in deployment `476830a2`), so it must never be selected or re-implemented as a new slice.**
 
-## Studio / Local-Engine UI Containment — **CLOSED / LIVE IN PRODUCTION** (2026-07-26)
+## Studio Hosted Mode Containment Correction — **IN FLIGHT / NOT RELEASED** (2026-07-26)
 
-**Status: RELEASED. Live in Production as `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js` (source `03c23c2`).**
+> **Studio Containment is LIVE in Production with a corrective containment gap IN FLIGHT.** The released behaviour is
+> real and unchanged; the absolute closure wording below was **too strong** and is corrected here. **No rollback is
+> indicated** — this is a truthfulness/containment defect in an error string and a mode-selection guard, **not data
+> loss, not a security or Auth exposure, no schema/Gateway involvement.**
+
+**What was found (during the SAFE STOP on PR #117, raised by Codex):** the capability filter guarded only the **visible
+mode tiles**. A **Jake→Studio hand-off** set `mode` directly, and the Studio panels render from `mode`, not from the
+tile list. So in a **hosted** build the hidden `presenter` mode could be selected, its two-image panel rendered, and the
+resulting failure printed the raw engine string `Qwen-Image-Edit אינו מותקן במנוע` to the user.
+
+**PROVEN IN THE DOM before any edit** (hosted-configuration build, local-engine gate closed, deterministic hand-off
+injected through the real router-state seam — no LLM involved): the presenter **tile stayed hidden** while the panel
+`תמונת פרזנטור + תמונת מוצר` **rendered**, with the presenter CTA `צור ויזואל מוצר` active. The reachability chain
+(`jakeDecisionEngine` → `workflowIdToMode` → `readStudioHandoff` → `setMode`) carries **no capability gate at any step**.
+
+**Correction of a previously recorded FALSE claim:** this tracker and PR #117 stated that all residual `Qwen` artifact
+hits were **"non-rendered internals"**. **That classification was wrong** — at least one was user-reachable. String
+absence/presence in the bundle was treated as reachability evidence when it is not; the technical strings legitimately
+remain inside diagnostic `Error` objects.
+
+**Fixed in three defensive layers** (branch `fix/studio-hosted-mode-containment`, PR open, **not merged, not deployed**):
+1. **Jake truthfulness** — `systemCapabilities()` now takes the authoritative available-mode set and advertises only
+   workflows this configuration can actually open. **Fail closed** if a caller omits it. Availability is *injected*, not
+   imported, so `businessBrain.js` keeps its no-engine-imports boundary (its own guard test caught my first attempt).
+2. **Authoritative mode validation** — `src/lib/studioModes.js` owns the requirements and is authoritative for **every**
+   entry path. Hand-offs resolve through it; an unavailable request falls back to a valid business state with a truthful
+   notice. A `useLayoutEffect` net (pre-paint, so no flash) catches any other indirect input.
+3. **User-facing error boundary** — `src/lib/userFacingError.js` renders only text explicitly declared safe
+   (`userSafe` / `userMessage`); everything else falls back. Classification is by **identity, not substring matching**.
+   The technical message stays on the Error for diagnostics and is never rendered.
+
+**Verification:** 26 new regression tests through the real seams + **three real negative controls** (reverting each layer
+fails 1, 4 and 8 tests respectively); focused affected suite **30 files / 697 passed / 0 failed**; production build green.
+**Post-fix DOM proof:** hosted hand-off no longer renders the panel (truthful containment notice, CTA back to
+`צור תמונה עם AI`, **0 engine terms, 0 requests, 0 local-address requests**), valid hand-offs still work, and a
+local/demo build with the capability **positively declared but genuinely unavailable** still offers the mode, fails
+**closed**, and renders `יצירת ויזואל מוצר אינה זמינה כרגע` with **0 engine terms**.
+
+### Round 2 — the first PR #118 implementation was INCOMPLETE (2 further Codex P2s, both confirmed)
+
+**Both findings were real and both were mine.** Recorded rather than quietly folded in:
+
+1. **A regression I introduced.** The new fail-closed render boundary **flattened actionable hosted Gateway guidance**
+   (`'צריך להתחבר כדי ליצור תמונה'`, `'שירות התמונות עמוס כרגע — נסה שוב עוד רגע'`) into the generic fallback, because
+   those Errors carried neither marker. **Corrected** with a controlled reason→message table keyed by the Gateway
+   **reason code**: a known code renders its existing guidance, an unknown/technical one renders the safe generic, and
+   **provider-supplied text is never rendered and can never self-declare as safe** (proven with a hostile payload
+   carrying both a technical message and a forged `userSafe` flag). Diagnostics live in structured fields
+   (`gatewayReason` / `gatewayMapped`), **not** in `.message` — which preserves a stronger pre-existing invariant, pinned
+   by the Gateway suite, that a Gateway image Error never carries the raw code or server detail in its message.
+2. **An incomplete fix.** Layer 1 filtered the *workflow* list but not `STATIC_CAPABILITIES`, so Jake still advertised
+   `product-lock-blend` (gated by `hasLocalComfy`) and a `creative-modes` description naming editing, video and
+   presenter. **Corrected** by giving each Studio-related static entry an **explicit** availability relationship
+   (`requires: { capability }` / `requires: { anyStudioMode }`) — never array position or wording — and by deriving the
+   `creative-modes` description from the injected available-mode labels so it can only state what is actually open.
+   Filtering happens **before** any `maxCapabilities` slicing, so truncation cannot promote a hidden entry.
+
+**Round-2 verification:** 42 regression tests (16 added) including assertions against the **real final consumer** — the
+built Jake prompt text — plus **two more negative controls** (reverting the Gateway mapping fails 5 tests; reverting the
+static filter fails 4). Focused affected suite **30 files / 712 passed / 0 failed**; production build green.
+`ImageStudio.jsx` is **byte-identical** to the DOM-proven head, so the round-1 browser evidence still applies to the
+hand-off and render seams.
+
+### Round 3 — authorised DEFECT-CLASS SWEEP (rounds 1–2 fixed instances; this closes the classes)
+
+**Why a third round was needed — the method, not the luck.** Rounds 1 and 2 each fixed the reported instances while a
+sibling path in the *same class* survived, because I inventoried the paths I had reasoned about rather than enumerating
+the class. Round 3 was scoped as an exhaustive inventory across four axes before any edit: (1) every error producer →
+catch → rendered consumer; (2) every workflow / static capability / preset / badge / CTA / description that promises or
+routes to a capability; (3) every mode-or-tab write from indirect input; (4) every **gated subfeature inside an
+otherwise-available mode**.
+
+**Seven reachable instances found and corrected** (the three Codex reported, plus four the sweep surfaced):
+
+| # | Instance | Class |
+|---|---|---|
+| 1 | `AdStudio` **initial** generation loop rendered `e.message` (only the retry path had been fixed) | A · error render |
+| 2 | `AdStudio` scan + campaign paths rendered `e.message` | A |
+| 3 | **`gemini.js` pulled raw PROVIDER text into the thrown message** (`e?.error?.message`) — reached every consumer | A |
+| 4 | `MockupStudio` export `alert('יצוא נכשל: ' + e.message)` | A |
+| 5 | `Diagnose` + `Outreach` — rendered consumers of that same shared helper | A |
+| 6 | `product-lock` **description asserted the gated B2 AI seam/shadow enhancement** although it needs the local engine | D · gated subfeature |
+| 7 | Presets `photo_restoration` (→`img2img`) and `product_motion_video` (→`video`) rendered as `זמין` hosted **and printed "↳ run it in tab X"** for tabs that do not exist | B · capability promise |
+
+**How each class is now closed, structurally:** every creative render surface routes through `userFacingError`; the
+shared helper captures provider text as **diagnostics only** (`providerDetail` / `httpStatus`) and can no longer throw it
+as a message — **zero bare `throw new Error(` remain in `gemini.js`**; a gated subfeature is declared on its workflow
+(`subfeatures: [{ requires: 'comfy', … }]`) and appended to the description **only when satisfied**; presets are filtered
+by `isStudioModeAvailable(p.targetTab, …)` so an unavailable target mode means the preset is not offered at all, and a
+selected preset cannot outlive its availability.
+
+**Round-3 verification:** 53 regression tests (11 added, now asserting at **class level** — e.g. *no* creative surface
+may render a caught error message — not per-instance); **four further negative controls**, each failing on revert;
+focused affected suite **43 files / 931 passed / 1 pre-existing skip / 0 failed**; production build green.
+**Browser smokes re-run because rendered behaviour changed:** hosted → the two hidden-tab presets are **gone**, no
+"↳ הרץ בלשונית" guidance, hand-off still contained, **0 engine terms / 0 requests / 0 local-address requests**;
+local/demo with capabilities genuinely declared → **both presets return**, all 8 mode tiles return, the Product Lock B2
+button and its explainer return, and the declared-but-unavailable failure still renders
+`יצירת ויזואל מוצר אינה זמינה כרגע` with **0 engine terms**, failing closed.
+
+**PR [#117](https://github.com/natanMeT/ArtValue20/pull/117) remains OPEN and PAUSED** — its absolute closure wording and
+release anchors cannot be finalised until this correction is **deployed**, since the roadmaps describe the *released*
+artifact. **P1 Atomic Quote Persistence remains CLOSED / LIVE, unaffected.**
+
+### Round 4 — MECHANICALLY DERIVED BOUNDARIES (three more siblings; the *method* was the defect)
+
+Codex reviewed the round-3 head `563c6a9f` and found **three further instances inside the classes round 3 declared
+closed**. All three were verified real:
+
+| # | Instance | Class it should have been inside |
+|---|---|---|
+| 1 | `PosterEditor.jsx:141` — `alert('יצוא נכשל: ' + (e?.message || e))`; imported by `ImageStudio.jsx:24`, rendered at `:1539` | A · error render |
+| 2 | `ImageStudio.jsx:1208` — an **ungated** paragraph telling hosted users to click «שפר חיבור וצללים», while the button itself was gated at `:1276` | D · gated subfeature |
+| 3 | `hebrew_ui_mockup` — `targetTab: 'text'` (available) but `localReady: false`, `requiresApi: true`, `provider: 'gpt-image-2'`; it survived a tab-only filter | B · capability promise |
+
+**Why round 3 missed them — the structural causes, not the individual oversights.**
+
+1. **The verified surface set was hand-assembled.** `ImageStudio` imports three studio children (`PosterEditor`,
+   `MockupStudio`, `ProductPlacer`); only `MockupStudio` was checked, because the round-2 brief had named it. Worse, the
+   round-3 *class* test encoded that same literal `SURFACES` array, so the test inherited the blind spot and passed.
+   **A test whose scope is a literal list cannot detect a missing member.** (A second, independent reason #1 escaped: the
+   round-3 regex required `e.message` and the shipped code wrote `e?.message` — optional chaining slipped the pattern.)
+2. **The gate was applied to the ACTION, not to every reference to the gated thing.** The B2 button was correctly behind
+   `hasLocalComfy` and the Jake description was corrected, so the class looked closed — but the mode's own help text,
+   which *instructs the user to use* the control, was never grepped for the subfeature's label.
+3. **Availability was modelled on the axis that caused the original bug (modes) rather than on the requirement fields the
+   data already declares.** The preset schema carries `localReady` / `requiresApi` / `provider`; the round-3 edit even
+   rendered `!p.localReady && '· עתידי'` in the block being changed without connecting it to availability.
+
+Common meta-cause: **the inventory was bounded by the shape of the reported defect, not by the structure of the system.**
+
+**What round 4 changed — the boundaries are now derived mechanically, not by recall.**
+
+- **Derived render-surface graph** (`src/pages/__tests__/support/moduleGraph.js`, no new dependency): the verified set is
+  the transitive **project-local import closure** of the creative route roots. It resolves static / dynamic / side-effect
+  imports, follows only relative specifiers (so third-party modules stay out), and is sorted + order-independent.
+  `PosterEditor`, `MockupStudio`, `ProductPlacer`, `MaskCanvas` and `store.jsx` now enter verification automatically —
+  **46 modules**, where the hand-written list had 5. The CLASS-A predicate uses **balanced argument-list extraction**, so
+  "inside a sink call" is decided by the real extent of the expression rather than a character window.
+- **The derived graph immediately found two violations nobody had reported:** `store.jsx:360`
+  `setError(e.message || 'שגיאת טעינה')` (that `error` is exposed on the store context and rendered — Supabase/PostgREST
+  text could reach the UI), and `geminiImage.js:1090` `throw new Error(\`היצירה נכשלה: ${e.message}…\`)` which
+  interpolated the engine cause into the message. Both corrected; the technical detail is retained on the Error for
+  diagnostics via `engineError()`.
+- **One authority per gated subfeature** (`STUDIO_SUBFEATURES` in `lib/studioModes.js`): the requirement **and every
+  user-visible string** (action label, busy label, help sentence, note, Jake title/description/capability text) live in a
+  single record. `ImageStudio`, `creativeWorkflows.js` and `businessBrain.js` now reference it — the workflow card carries
+  `subfeatures: ['product-lock-blend']` (ids only) and availability is injected via `studioAvailability()`. **A surface
+  cannot render the label without asking for availability, because the surface no longer owns the text.**
+- **Complete preset requirement evaluation** (`lib/presetAvailability.js`): destination mode, local readiness, API
+  requirement and provider are all evaluated; unknown/undeclared values fail closed. `SUPPORTED_API_PROVIDERS` is
+  deliberately **empty — no new provider is introduced**. A **schema-coverage invariant** fails when a preset gains a
+  field that is in neither `PRESET_REQUIREMENT_FIELDS` nor `PRESET_DESCRIPTIVE_FIELDS`, so a requirement can never be
+  added and silently ignored. `futureProvider` is classified **descriptive on purpose** (a recipe can declare a better
+  future provider while being fully local-ready today) rather than given a rule that would never fire.
+
+**Round-4 verification.** Full suite on the FINAL head — **123 files / 3,196 passed / 1 pre-existing skip / 0 failed**
+(not a focused subset: this PR now spans shared creative helpers, the store, Business Brain and multiple rendered
+surfaces) — plus **one production build, green**. Four negative controls, each proving the invariant discriminates:
+the round-3 hand-written list is shown to be **provably incomplete** (it misses `PosterEditor`); dropping a transitive
+child from the roots removes it from the graph; ungating the B2 help text puts it outside the balanced gate region;
+a `targetTab`-only filter is shown to pass `hebrew_ui_mockup`; and an unhandled new requirement field is reported by the
+coverage check. The three shipped defect shapes (including the `e?.message` optional-chaining form) are each detected by
+the new predicate, while `console.*`, `userFacingError(...)` and data-contract `message:` fields correctly are not.
+
+**Evidence classes — stated separately, not merged.**
+- **Real DOM / runtime (browser, two builds served by `vite preview`):** *Hosted* (`index-CP1VZj91.js`) → exactly **2**
+  mode tiles; exactly **4** presets with `hebrew_ui_mockup` **absent**; Product Lock panel open shows the base guidance
+  but **no B2 label, no B2 help sentence, no B2 note**; a real generation attempt renders
+  `יצירת התמונה אינה זמינה כרגע.`; **0 console messages, 0 requests to any local-engine address**, 0 engine terms in the
+  DOM. *Configured local/demo* → **9** mode tiles, both engine-backed presets return, `hebrew_ui_mockup` **still absent**
+  (API-only ⇒ unavailable even locally), and the B2 **action + help sentence + note return together**; a real failed
+  generation renders `יצירת התמונה אינה זמינה כרגע. נסה/י שוב בעוד רגע.` with **0 engine terms**, failing closed.
+  ⚠️ Both smoke builds were served with Supabase intentionally unconfigured so the Studio DOM could be reached **without
+  entering any credentials**; that affects the auth gate only, not the local-engine axis under test.
+- **Executed code (not a source proxy):** the shipped `posterExportErrorText` mapping is exported and called directly
+  with a real canvas-taint `Error`, an `engineError`, junk values and a `userError` — technical text never survives.
+- **Source/test proxies (labelled as such):** the ImageStudio wiring pins (`studioSubfeature(...)`, `availablePresets(...)`,
+  the balanced-region gate containment) are assertions over source text, not runtime observations.
+
+**Still IN FLIGHT / NOT RELEASED.** PR #118 is not merged and nothing is deployed. **P1 Atomic Quote Persistence remains
+CLOSED / LIVE.** **PR #117 remains paused and untouched.**
+
+### Round 5 — ARCHITECTURE REPAIR after an independent review (the enforcement layer was the defect)
+
+Codex reviewed the round-4 head `cdd94308` and returned **three more P2 findings, all inside the classes the round-4
+"mechanical invariants" claimed to cover**. All three were verified by EXECUTING the real artifacts, not by inspection.
+An independent read-only architecture review was then run against the actual diff; its verdict was **repair in place
+(A), not rebuild or replace** — the runtime authorities from rounds 1–4 are sound and behaviour-verified; what failed
+four times is the **enforcement layer**, which tried to prove safety by scanning source text for known shapes.
+
+**The pattern behind all four escapes.** Each invariant mechanised ONE dimension and left the adjacent one hand-written:
+files derived but identifier names listed; text ownership enforced but the consumer set listed; schema fields enumerated
+but their semantics assumed. Enumerating unsafe *shapes* is open-ended; the fix is to make unsafe consumption return
+nothing at runtime, and to verify the narrow remainder from the parse tree.
+
+| Codex finding | Verified how | Root cause |
+|---|---|---|
+| A recognised local provider was accepted without checking its own capability | Executed: `photo_restoration` (`local-qwen-edit`) offered under `{comfy:true, qwen:false}`; `product_motion_video` (`local-ltx-video`) offered under `{video:true, ltx:false}` | The evaluator checked provider MEMBERSHIP, never CAPABILITY, on a false premise ("the mode already encodes the engine requirement") |
+| Raw-error detection depended on hand-written catch-variable names | Executed the shipped predicate: `catch(failure){setError(failure.message)}` → **0** violations | The file set was derived; the identifier set was not |
+| Gated-subfeature enforcement scanned only known consumers | `studioSubfeature()` returned the FULL text record plus `available:false` | An API hole, not a test gap: every consumer's gating discipline was load-bearing |
+
+**Stage 1 — capability-closed data access (the decisive change).** `studioSubfeature()` now returns **empty text fields**
+when the subfeature is unavailable, not the real text plus a flag. A consumer cannot render what it cannot obtain, so a
+new or careless child has nothing to leak — gated or not. `runLockBlend` also refuses at its own seam. The round-4
+balanced-region JSX scan was **deleted**: with a closed API it proves nothing the API does not already guarantee.
+
+**Stage 2 — provider registry.** `PRESET_PROVIDERS` declares what each provider NEEDS, resolved through
+`satisfiesCapability` — the same predicate modes and subfeatures use, so there is one capability vocabulary.
+**Owner decision (2026-07-27):** enforce the provider exactly where it EXECUTES. `text` is served by whichever lane owns
+text-to-image (the account's Gateway when hosted), so there `provider` is authoring metadata and gating on it would hide
+every business recipe in a hosted build without making any promise truer. Every other mode is enforced — and the
+exemption is a LIST (`PROVIDER_RECOMMENDATION_ONLY_MODES = ['text']`), so any mode added later is enforced by default.
+Remaining gap recorded, not silently closed: model-specific wording inside `qualityNotes` for the hosted text lane.
+
+**Stage 3 — the CLASS-A rule now reads the PARSE TREE** (`support/errorFlow.js`, using `@babel/parser` already present
+in the tree via `@vitejs/plugin-react` — **no new dependency**). Every `catch` is found structurally and its binding is
+whatever the author named it; every use is **DEFAULT-DENIED** unless it matches a small closed set of safe handlings
+(the declared boundaries, `console.*`, bare rethrow, inspection, and one level of alias whose own uses are all safe).
+Enumerating SAFETY is closed and reviewable; enumerating SINKS is not. 17 controls pass, including the two shapes the
+regex missed. Stated limit: alias tracking is one level. `gentleError` was added to the boundary list after reading it.
+
+**Stage 4 — the scope decision, recorded instead of implied.** Running the rule app-wide found leaks of this very class
+OUTSIDE the creative routes. **Owner decision: PR #118 stays scoped to the Studio** (47 modules, **0 violations**), and
+the rest is recorded as KNOWN DEBT with exact sites — asserted by a test that fails if the debt is fixed or if the file
+enters the graph, so it cannot go stale silently:
+- `src/pages/ProjectDetail.jsx:243,267,279` — `toast(err.message)` ×3, IndexedDB/File-API text. **Reachable**: unlike
+  `Projects.jsx`, the `/projects/:id` route has **no BetaUnavailable gate** — a separate containment gap worth its own PR.
+- `src/lib/jakeAgent.js:738` — action-handler failure text reaches Jake's visible log.
+- Latent (not a leak): `Settings.jsx:74` renders `err.message` only when it EQUALS a known Hebrew business string.
+- Non-rendering: `Assistant.jsx` `window.__creativeLastError` debug hook; creative/v2 structured `reason`/`details`/`log`.
+
+**Stage 5 — verification. Full suite on the final head: 123 files / 3,214 passed / 1 pre-existing skip / 0 failed;
+one production build green.** Three browser configurations, real DOM:
+- **Hosted** (`index-CgXN4ePx.js`): 2 mode tiles; exactly 4 presets, `hebrew_ui_mockup` absent; Product Lock shows its
+  base guidance with **no B2 label, sentence or note**; **0 console messages, 0 local-engine requests**, 0 engine terms.
+- **Fully declared local**: 9 tiles, 6 presets, B2 action + guidance + note return together.
+- **PARTIAL local rig (ComfyUI, no Qwen/PuLID declared)** — the configuration stage 2 exists for: 7 tiles, and
+  `photo_restoration` is **ABSENT** while `img2img` is open. That is the first Codex finding reproduced and closed in the DOM.
+
+⚠️ **Honest limit, recorded rather than papered over.** The LTX half could NOT be reproduced in the browser:
+`hasQwenEdit`/`hasPulidModel` are POSITIVELY declared, but `hasLtxVideo`/`hasVideoModel`/`hasKontextModel` are still
+derived as `COMFY_URL && <model constant>`, and those constants carry non-empty defaults — so `ltx` is true whenever
+ComfyUI is configured and the `{video:true, ltx:false}` state cannot occur live today. The guard is correct and
+**proven at the evaluator level by execution**, but dormant in the app until `ltx` is declared the way `qwen` is. A test
+pins this asymmetry so a future change forces the note to be updated.
+
+**Evidence classes stay separate:** real DOM (three configurations above) · executed code (`posterExportErrorText`,
+`presetUnavailableReason`, `isProviderExecutable`, `unsafeErrorFlows` on parsed fixtures) · source pins (the ImageStudio
+wiring and the capability-derivation asymmetry), labelled as such.
+
+### Round 6 — FINAL ARCHITECTURAL CORRECTION (four Codex findings on `f4fcf89`)
+
+Codex reviewed the round-5 head and raised four gaps. All four were verified before any edit — three of them by
+**executing the shipped code**, not by reading it.
+
+**1 · Provider EXECUTION authority (P1).** Availability said a recipe could be *offered*; it never made the declared
+provider *run*. The seam picked its path from raw flags — `ImageStudio.jsx:633`
+`hasKontextModel ? editImage : generateImg2Img` and `hasLtxVideo ? ltxVideo : animateImage` — and never consulted the
+active preset. So a `{qwen:true, kontext:false}` rig ran the Qwen identity recipe through **SDXL**, and a Kontext rig
+through **Kontext**, while the guidance named Qwen-Edit. Fixed: `PRESET_PROVIDERS` now declares an `executors` map
+(mode → execution-path id) and `resolveStudioExecution(mode, preset, caps)` decides the path. A preset that declares a
+provider runs on that provider **or not at all — there is no fallback branch on either failure path**; with nothing
+promised, the ordinary capability chain still applies. Both seams (`onCta` and `animateResult`) consume the resolution.
+**Consequence, stated plainly: `photo_restoration` is now unavailable in every configuration.** It declares
+`local-qwen-edit` and targets `img2img`, but Qwen-Edit's only execution path here is `qwenCompose` (multi-image,
+`presenter`) — there is no single-image Qwen edit. Offering it promised an engine that could never execute it.
+
+**2 · AST boundary semantics + catch patterns.** Two real holes: (a) treating everything under a named boundary as safe
+accepted `userError(e.message)` — which marks the provider text `userSafe`, so `userFacingError` renders it **verbatim**
+— and `engineError('tech', e.message)`, whose second argument becomes `userMessage`. The leak, laundered through the
+boundary. Fixed with `BOUNDARY_SEMANTICS`: each boundary declares WHICH argument positions may receive a caught value
+(`userFacingError`/`engineError`/sanitizers → `[0]`; `userError` → `[]`; `console.*` → all), and reaching an unsafe
+position is definitive even under an outer boundary. (b) `catch ({ message })` has an `ObjectPattern` param, so the
+early return skipped the **entire handler**. Fixed with `catchBindingNames`, which extracts bindings from object/array/
+default/rest patterns; an unrecognised pattern is **reported, never skipped**. 16 new parsed fixtures.
+
+**3 · Closed subfeature authority.** The raw registry was still exported, so a consumer could import it and render
+`REGISTRY[id].guidance` with no capability check — and the uniqueness invariant stayed green because the literal was
+still defined only in the authority file. The definitions are now **private**; `studioSubfeature()` is the only public
+route to user-visible text, and only non-sensitive metadata (`STUDIO_SUBFEATURE_IDS`, `SUBFEATURE_TEXT_FIELDS`,
+`SUBFEATURE_META_FIELDS`) is exported. A test imports the module namespace and asserts **no export carries any
+protected string**.
+
+**4 · Dependency ownership.** `@babel/parser` was used directly by test code while only present transitively through
+Vite. Declared as a direct devDependency (`^7.29.7`) and the lockfile updated.
+
+**5 · Fail-closed capability inputs.** Round 5 recorded that `ltx`/`video`/`kontext` were derived as
+`COMFY_URL && <model constant>` — and every constant carries a non-empty default, so they reported TRUE on any rig with
+an engine URL. Strict provider enforcement cannot be stronger than its inputs. **All five optional stacks now share one
+positive declaration** (`optionalStack` → `optionalCapabilityDeclared`), matching the convention already proven for
+PuLID/Qwen: `VITE_COMFYUI_LTX`, `VITE_COMFYUI_SVD`, `VITE_COMFYUI_KONTEXT`, `VITE_COMFYUI_PULID`,
+`VITE_COMFYUI_QWEN_EDIT`. `.env.example` documents all five and now states explicitly that a `*_MODEL` constant names
+which file to load and can never prove it exists. **The round-5 "recorded limit" is CLOSED, and it was closed in the DOM.**
+
+**Verification. Full suite on the final head: 123 files / 3,233 passed / 1 pre-existing skip / 0 failed. One production
+build, green.** Browser smoke limited to the changed runtime behaviour, three configurations:
+- **ComfyUI configured, NOTHING declared** — the state that could not exist before: **4 modes only** (video, before/after
+  and character all gone), and `product_motion_video` **absent**. That is the LTX case reproduced in the real DOM.
+- **Fully declared rig** — 9 modes, `product_motion_video` present, B2 action + guidance + note all return;
+  `photo_restoration` **absent by design** (finding 1).
+- **Hosted** (`index-yy5vPhJD.js`) — unchanged: 2 modes, 4 presets, no B2 text, **0 console messages, 0 local-engine
+  requests**, 0 engine terms.
+
+**Real execution evidence** (not proxies): `resolveStudioExecution` resolved against `STUDIO_EXECUTOR_FN` by **function
+identity** — a Qwen-declared recipe resolves to `qwenCompose` itself and to neither `editImage` nor `generateImg2Img`;
+an LTX recipe resolves to `ltxVideo` and, with SVD present but LTX absent, resolves to **nothing** rather than
+`animateImage`. Plus the AST rule executed over parsed fixtures, and the module-namespace import proving the registry is
+unreachable. **Source/AST proxies** (labelled): the two ImageStudio seam pins and the capability-declaration pins.
+
+**NOT verified, stated rather than implied:** no authenticated end-to-end generation was run (no engine and no
+credentials in this session), so provider routing is proven at the resolution seam and by function identity, not by a
+completed render on a live ComfyUI rig; the recorded out-of-scope debt (`ProjectDetail` ×3, `jakeAgent` ×1) is
+re-measured and unchanged but still **not fixed**; and no Production or Preview deployment was touched.
+
+**Still IN FLIGHT / NOT RELEASED.** **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+
+### Round 7 — two final Codex P2 corrections (head `11cf66b`)
+
+Both verified before editing.
+
+**1 · LTX-only result action.** Round 6 made `hasLtxVideo` and `hasVideoModel` independent positive declarations, which
+was correct — but the result-card "צור אנימציה" action at `ImageStudio.jsx:1520` was still gated on `hasVideoModel`
+alone. An LTX-only rig therefore had an open video mode and a working `ltx-video` executor, yet no way to animate a
+generated result. Fixed by giving VISIBILITY and EXECUTION the same resolution: `resolveResultAnimation(caps)` (=
+`resolveStudioExecution('video', null, caps)`) is computed once, the button renders on `resultAnimation.ok`, and
+`animateResult` runs `resultAnimation.executor` — so the two can no longer disagree. Verified by execution across all
+four configurations: **LTX-only → offered, routes `ltxVideo` (never `animateImage`); SVD-only → offered, routes
+`animateImage` (never `ltxVideo`); both → `ltx-video` by the declared chain order, deterministically; neither → hidden
+AND refused** (`no-executor-available`). No silent substitution on any branch.
+
+**2 · AST condition bypass.** The condition/comparison/unary exemptions were POSITIONAL only, so
+`catch (e) { if (setError(e.message)) retry(); }` reached the `IfStatement` with the whole call as `node.test` and was
+classified safe — although the value had already been rendered by the time the condition evaluated. `!setError(…)` and
+`setError(…) === 1` bypassed the same way through the unary and comparison exemptions. Fixed: inspection now
+additionally requires the sub-expression carrying the caught value to be **side-effect free** (`isSideEffectFree`
+rejects any call / new / assignment / update / await / yield / tagged template anywhere inside). Condition carriers were
+also widened to `do…while`, `for` and `SwitchCase`, so the exemption cannot be sidestepped by choosing a different loop
+form. **17 new parsed fixtures**: 9 bypass shapes all flagged, 8 legitimate inspections (`typeof`, `instanceof`,
+equality, bare property conditions, logical property inspection) all still accepted. The creative graph remains **0
+violations / 47 modules**, and the recorded out-of-scope debt re-measures unchanged (`ProjectDetail` ×3, `jakeAgent` ×1).
+
+**Verification. Full suite on the final head: 123 files / 3,243 passed / 1 pre-existing skip / 0 failed. One production
+build, green.** Minimal runtime smoke for the changed behaviour only — **LTX-only** (`index-DwWjD6y4.js`): video mode,
+before/after mode and the LTX recipe all present; **SVD-only**: video mode present while before/after and the LTX recipe
+are correctly absent, 0 engine terms.
+
+⚠️ **NOT verified, stated rather than implied.** The result-card BUTTON itself could not be observed in the DOM: it
+renders only inside a completed result, and producing one requires a live engine or Gateway credentials, neither
+available in this session. Its visibility is proven by **executing the shipped predicate** (`canAnimateResult` /
+`resolveResultAnimation`) across all four configurations and by function identity against `STUDIO_EXECUTOR_FN`; the JSX
+wiring itself is a **source pin**. The DOM evidence above covers the same capability resolution as expressed in the mode
+tiles and recipe list, not the button.
+
+📌 **Adjacent observation, deliberately NOT patched (out of scope for that round).** The `isCallee` exemption in
+`errorFlow.js` treats a method call on the caught value as safe, so `setError(e.toString())` currently reports **0
+violations**. It is latent — that shape occurs nowhere in the creative graph (grepped) — and it is a different exemption
+from the two findings, so it was left alone rather than widening the PR. Recorded here so the next review can decide.
+
+### Round 8 — PRODUCT DECISION: the Studio is CLOUD/GATEWAY ONLY (2026-07-27)
+
+**Owner decision, superseding the LTX correction:** ArtValue Studio is cloud/Gateway only. The LTX Codex finding was
+resolved by **removing the feature**, not by exposing or repairing it. Nothing local was preserved "for later".
+
+**Removed from the Studio's dependency and execution surface**
+- **7 of 9 modes deleted** (smart edit, area edit, image→video, before/after, product presenter, character pack, model
+  album) with their panels, handlers, state, idea packs and copy. `MODES` is now `text` + `lock`, matching
+  `STUDIO_MODE_REQUIREMENTS` exactly — the retired ids were removed from BOTH, not hidden in one.
+- **`geminiImage.js` and `comfyProgress.js` DELETED.** The Studio's image lane is a new `lib/hostedImage.js` containing
+  only the Gateway path — no engine URL, no model constant, no capability flag, no probe, no job watcher.
+- **The capability vocabulary is gone**: `hasLocalComfy / hasLtxVideo / hasVideoModel / hasKontextModel / hasPulidModel /
+  hasQwenEdit / liveStudioCapabilities` no longer exist. `studioModes.js` takes **no capability argument at all** — a
+  mode is either part of the product or it is not, so there is nothing left to infer optimistically.
+- **The provider registry and executor routing are gone** (`PRESET_PROVIDERS`, `MODE_EXECUTOR_CHAIN`,
+  `resolveStudioExecution`, `STUDIO_EXECUTOR_FN`, `resolveResultAnimation`). Presets carry no `provider`,
+  `recommendedModel` or `modelFamily`; the three recipes that targeted retired modes or an external provider were
+  deleted; model-specific wording (FLUX/SDXL) was rewritten as business guidance.
+- **The gated Product Lock B2 subfeature was removed entirely**, and with it the whole subfeature registry, snapshot and
+  Business-Brain plumbing. Product Lock B1 — the exact in-browser canvas composite — **survives untouched**.
+- **7 retired workflow cards removed** from the catalog; `engine` values `comfyui`/`fooocus`/`mixed` replaced by
+  `gateway`/`browser`, because Jake reads that field. `product_visual` no longer maps to a retired workflow or capability.
+- **Studio-only env declarations removed** (`VITE_COMFYUI_LTX/_SVD/_KONTEXT/_PULID/_QWEN_EDIT` and the LTX/Kontext model
+  constants). `VITE_COMFYUI_URL` stays, documented as **not used by the Studio**.
+
+**What was PRESERVED, and why**
+- The hosted Gateway lane, the two working modes and their business-facing experience.
+- The gallery/history (device-local, no engine), the poster editor, the mockup studio, the brand palette, the prompt
+  enhancement, the Gateway prompt-limit guard and the whole error boundary.
+- **`localComfyEngine.js` (new)** holds ONLY what two PROVEN consumers outside the Studio still call —
+  `AdStudio.jsx` → `generateMaxRealism`, and `comfyPoster.js` (Jake's poster) → `generateLocalImage` /
+  `checkLocalEngine` / `hasLocalComfy`. Every Studio-only engine path was deleted rather than moved. A test asserts
+  those are the **only two importers**.
+- **No Gateway contract, Edge function, schema, migration, Auth or Production change.** `supabase/` has zero diff.
+
+**Also in this round — the second Codex P2 (AST condition bypass) is fixed.** Inspection now additionally requires the
+sub-expression carrying the caught value to be **side-effect free**, so `if (setError(e.message)) retry();`,
+`!setError(…)` and `setError(…) === 1` are all rejected; carriers were widened to `do…while` / `for` / `SwitchCase`.
+17 parsed fixtures; legitimate `typeof` / `instanceof` / equality / property inspection unchanged.
+
+**Scope proof (executed, not asserted in prose)**
+- The Studio's own import closure (**33 modules**) contains **no** `localComfyEngine.js`, `localEngines.js`,
+  `comfyProgress.js` or `geminiImage.js`, and **no CODE** in it names a local engine, address or checkpoint (comments
+  are stripped first — several modules explain in prose why the engine is gone, which is the opposite of a leak).
+- `ImageStudio.jsx` contains none of `checkLocalEngine / listImageModels / hasPulidNode / hasQwenEditNode / onComfyJob /
+  markNextComfyJob / watchJob / cancelJob / object_info / system_stats` — opening the Studio performs no request.
+- The single generation call is `generateImage(p, { aspect })`: no provider, model, size, arch or engine field.
+- Every retired mode id resolves through `resolveStudioMode` to `text` with `contained:true, retired:true`; a hand-off
+  naming a retired workflow yields `mode: null` and still prefills the prompt.
+- Jake: no retired workflow, no gated subfeature, and no capability object naming an engine.
+
+**Verification.** Full suite **118 files / 3,058 passed / 1 pre-existing skip / 0 failed**; one production build green.
+Bundle **725 kB → 660 kB (−65 kB)**. Hosted browser smoke (`index-DK6hxNbp.js`): **2 mode tiles, 4 presets, 0 engine
+terms in the DOM, 0 console messages, and only same-origin asset requests** — no local address contacted; Product Lock
+opens and shows no B2 text; a real generation attempt renders `יצירת התמונה אינה זמינה כרגע.`.
+Local-engine browser matrices were retired with the feature and were **not** run.
+
+⚠️ **Stated rather than implied.** The built artifact still CONTAINS local-engine strings (`comfyui`, `8188`,
+`safetensors`, `KSampler`), because `AdStudio` and the Jake poster adapter legitimately still use
+`localComfyEngine.js`, and the server-side Gateway contract registers local provider NAMES for its own routing table.
+String presence in a single-chunk bundle is not proof of reachability — this project recorded that lesson earlier — so
+"no reachable Studio local path" is proven **structurally, by the Studio's import closure**, plus the DOM/network
+evidence above. No authenticated end-to-end generation was run (no credentials this session).
+
+**Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+
+### Round 9 — PRODUCT DECISION: Product Lock removed entirely + 4 Codex findings on `7f9daf8`
+
+**Owner decision:** Product Lock is unnecessary and is removed completely. Round 8 had preserved B1 (the browser
+composite); that is no longer approved. The Studio now has **exactly ONE creative mode: `text`** — description → image,
+served by the account's protected AI Gateway.
+
+**Codex reviewed `7f9daf8` and raised 4 findings. All were real; none was waved through as superseded.** Two were
+**regressions I introduced in round 8** — stated plainly:
+
+| # | Finding | Status |
+|---|---|---|
+| 1 (P1) | `maxRealismGraph` referenced `wrapNatural` / `wrapRealism` / `NATURAL_WILD` / `FACE_WILD`, which I did **not** carry over when splitting `localComfyEngine.js` out. **Every configured AdStudio render would have thrown a `ReferenceError` before submitting a job.** | **My regression. Fixed** — helpers restored into the module with their consumer. |
+| 2 (P2) | `jakeExecutionPlanner.js` still planned `product-presenter` steps and `seam-shadow-blend`; `jakeHandoffResolver.js` still described both. Nulling a capability had not removed the plumbing. | **Fixed** — plan types, step ids, step metadata and descriptions retired; both intents now land on the one hosted lane. |
+| 3 (P2) | A retired workflow yields `mode: null`, and the hand-off effect **skipped resolution entirely**, so an already-mounted Studio kept its current mode with the new prompt hidden behind it. | **Fixed** — *every* accepted hand-off resolves, including a null mode. |
+| 4 (P2) | Gallery delete still called `setSelectedIds` after round 8 removed that state → `ReferenceError` aborting `refreshGallery()`. | **My regression. Fixed** — stale call removed. |
+
+**Product Lock removal — removed, not hidden**
+- The `lock` mode, its tile, panel, controls, state (`lockBusy`, `placerRef`) and `buildLockComposite` handler.
+- **`ProductPlacer.jsx` and `lib/productLock.js` DELETED** — traced first: `productLock.js`'s only consumer was
+  `ProductPlacer`, whose only consumer was `ImageStudio`. Both were orphaned by the removal, so neither survives.
+- The `product-lock` workflow card; `lock` removed from `STUDIO_MODE_REQUIREMENTS` and `STUDIO_MODE_LABELS` and **added
+  to `RETIRED_STUDIO_MODES`**, so an indirect entry path is contained explicitly rather than falling through.
+- Jake: the `product_lock_flow` plan type, the `product-lock` / `exact-composite` / `seam-shadow-blend` steps, the
+  resolver title/description, and the Business-Brain product-mode note. The `product_lock` and `product_visual` intents
+  still classify — a user may well ask — but both now produce the **studio_marketing_asset** plan seeded with
+  `fast-image`, so a retired request lands safely on the remaining hosted experience **keeping its prompt**.
+- The two-image uploader and all upload state (`file`, `endFile`, previews, refs, pickers) became orphaned with the last
+  image-taking mode and were removed; `SOURCE_BY_MODE` collapsed to `{ text }`.
+- The Business-Brain `product-visuals` **service** pitch no longer claims 1:1 pixel preservation (a system capability
+  that no longer exists); the service itself is untouched.
+
+**Retained:** the hosted Gateway text-to-image experience, gallery/history, poster editor, mockup studio, brand palette,
+prompt enhancement, the error boundary — and **no Gateway contract, Edge, schema, migration or Auth change**
+(`supabase/` has zero diff). No replacement provider or new creative feature was introduced. Growth stays contained.
+
+**Verification.** Full suite **117 files / 3,040 passed / 1 pre-existing skip / 0 failed**; one production build green;
+bundle **660 → 648 kB**. Hosted browser smoke (`index-PzfbwgkL.js`): **1 mode tile, 4 presets, 0 file uploaders,
+0 Product Lock wording, 0 engine terms, 0 console messages, and no request to any local address**; a real generation
+attempt renders `יצירת התמונה אינה זמינה כרגע.`.
+
+⚠️ **Codex's review of `7f9daf8` is NOT merge-clearance for that head** — it raised 4 findings, all fixed here, and the
+head itself has been superseded. No authenticated end-to-end generation was run (no credentials this session).
+
+**Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+
+### Round 10 — FINAL PRODUCT DECISION: **the whole application is CLOUD-ONLY** (2026-07-27)
+
+**Owner decision (supersedes the round-8/9 boundary):** ArtValue is a cloud-only product. The boundary that retained
+local-engine support for **AdStudio** and the **Jake poster adapter** is withdrawn. Every remaining EXECUTABLE
+local-engine path across the entire application is **REMOVED, not repaired and not disabled**. The Codex findings about
+missing helpers and the parser inside `localComfyEngine.js` are therefore **structurally obsolete**: the module and all
+of its consumers are gone.
+
+**Inventory was derived from the real import graph**, not a keyword list — see the new proof suite
+`src/lib/__tests__/localEngineRetirement.test.js`, which walks the transitive closure from `src/main.jsx`.
+
+**Deleted modules (7 runtime + 6 test files)**
+
+| Deleted | Why it could not stay |
+|---|---|
+| `src/lib/localComfyEngine.js` | The ComfyUI bridge itself (submit / poll / `/view` / `system_stats` / FaceDetailer / upscale probes). |
+| `src/lib/localEngines.js` | The production gate. With no local engine left to gate, the gate is itself the last local-engine surface. |
+| `src/lib/comfyPoster.js` | Jake's workstation poster adapter — the only consumer of the bridge outside AdStudio. |
+| `src/creative/v2/poster/comfyPosterPrompt.js` | Its only consumer was `comfyPoster.js`; orphaned by that deletion. |
+| `src/components/ai/posterOverlay.js`, `src/components/ai/posterExport.js` | Overlay + PNG export for the workstation poster image; orphaned with the poster card. |
+| `src/pages/AdStudio.jsx` | Its ONLY output was a workstation render (`generateMaxRealism`). With no cloud implementation, the page had nothing left to do. **Deleted, not contained** — containment is for modules the product still has. |
+
+**Retired features (removed from every discoverable surface)**
+- **AdStudio** — page, `/adstudio` route, sidebar entry, `BETA_HIDDEN_MODULES` membership, and its DemoMode tour step
+  (retargeted to the hosted Studio with truthful copy). It is no longer "beta-hidden"; it does not exist.
+- **`/workflow` and `/fooocus`** — the legacy redirect routes were removed too; a route named after a workstation engine
+  is itself a local-engine surface. A **catch-all `path="*"` → `Navigate to "/"`** now makes every retired deep link,
+  bookmark or restored router state fail SAFE instead of rendering an empty shell.
+- **Jake's poster generation** — the poster CTA on the offer-brief card, `generatePoster`, the `posterProgress` /
+  `posterResult` / `posterError` cards, `PosterOverlay`, `PosterExportButton` and `posterErrorText`. The deterministic,
+  model-free **offer brief itself is untouched**, including its text poster/ad brief section.
+- **Brain selection** — `jakeBrainPref` / `setJakeBrain` / `jakeBrainLabel` / `jakeBrainOrder` had **no production
+  consumer** and the "local" branch named a workstation model. There is now exactly ONE brain: the account's Gateway.
+- **The local text lane in `gemini.js`** — `LOCAL_LLM_URL`, `localChat`, the ComfyUI VRAM self-heal (`freeImageVram`),
+  `freeCreativeModel`, `useLocalLLM` and every local branch. `toEnglishImagePrompt` was a model call; it is now
+  **deterministic and synchronous**. The Creative Director text pipeline survives on managed Gemini (or its demo stubs).
+- **The eval harness's REAL mode** — `runRealEval` called a workstation model and could never run again; removed with
+  `realGuard.test.js`. The committed baseline snapshot and the deterministic FIXTURE mode are unchanged.
+
+**Truthfulness fixes (required regardless of the deletion)**
+- Studio header no longer promises editing existing images or image-to-video; it now describes only description-to-image.
+- The `product_hero_shot` preset no longer tells the user to switch to the retired Smart Edit mode.
+- Business Brain no longer claims posters / product visuals / **video** are produced in-system; the DemoMode intro no
+  longer calls the Studio a creative engine that generates ads.
+- `localReady` → **`recipeReady`** across presets/availability: the flag meant "recipe usable today", but its name read
+  as "ready on the local engine".
+
+**Structural proof** (`localEngineRetirement.test.js`, plus updated suites)
+- Every deleted module is absent from disk; **nothing in `src/` imports one**.
+- The transitive import closure of `src/main.jsx` (>40 modules, reaching `App.jsx` and `ImageStudio.jsx`) contains
+  **no retired module, no local address, and no workstation-engine term in executable code**.
+- **No runtime file in `src/` reads any local-engine env var** (14 names asserted) and `.env.example` ships no such
+  assignment — so no setting can re-open a hidden path.
+- No retired route is registered; the catch-all is asserted; `/studio` is still registered.
+- Every LIVE workflow routes to an available Studio mode; every Jake intent that reaches the Studio resolves to a LIVE
+  cloud workflow (`fast-image`); no plan step or preset advertises a retired operation.
+- Growth stays `BetaUnavailable` behind the 5-route gate; **`supabase/` has zero diff**.
+
+**Built-artifact inspection** (supporting evidence only — route/import/runtime proof is authoritative)
+- App bundle: **0 `localhost`, 0 `127.0.0.1`, 0 `http://` URLs of any kind**, 0 `:8188` / `:7860` / `:11434`,
+  0 `safetensors` / `RealVisXL` / `flux1-dev` / `CheckpointLoaderSimple` / `FaceDetailer` / `prompt_id` / `system_stats`,
+  0 `adstudio`.
+- The `localhost` / `127.0.0.1` hits in `supabase-*.js` are inside the third-party `@supabase/supabase-js` vendor chunk.
+
+**Runtime checks (browser, production build)**
+- Hosted build (`dist/`, Supabase configured): login gate, **0 console messages**, **0 local-address requests** across
+  load, five route navigations and idle.
+- A scratch demo-mode build (temp dir; `dist/` untouched) exercised the route table: **`/adstudio`, `/workflow` and
+  `/fooocus` all resolve to `#/`** (fail safe); `/studio` renders with the corrected copy, **1 mode, 4 presets, 0 file
+  uploaders**; Jake opens with the offer chip and **no poster CTA**; **0 engine terms anywhere in the DOM**,
+  **0 local-engine requests**, 0 console messages. A generate click issued **zero network requests**.
+
+**KNOWN AND DISCLOSED — local terminology / code that REMAINS**
+
+| What | Why it stays |
+|---|---|
+| `supabase/functions/_shared/aiGateway.js` registers `comfyui` / `ollama` / `fooocus` / `a1111` as provider **NAMES** in the server's routing table (and reaches the browser bundle via the shared input-limits import). | It is part of the **DEPLOYED Gateway contract**, which this slice must not change. It is a name table only: asserted to contain **no local address and no fetch to one**, and the browser never selects a provider. |
+| `scripts/local-review-prep.mjs` still calls a LOCAL Ollama for an **advisory** review summary. | Developer tooling, not the product: outside `src/`, **never imported by the application** (asserted against the import closure) and never bundled. |
+| The preset id `local_ad_creative`. | "Local" here means a **local business**, not a local engine. |
+| `gemini.js` keeps `fetchSiteText` / `analyzeBusiness`, orphaned by AdStudio's deletion. | They are **not** local-engine paths — they call `r.jina.ai` and managed Gemini — and they are part of the **FROZEN Creative Director V1 public API**, whose surface is under a standing no-change-without-approval rule. Flagged for a future approved dead-code slice. |
+
+**Verification.** Full suite **111 files / 3,000 passed / 0 skipped / 0 failed**; one production build green
+(`index-DcZkyu7y.js`, 608.60 kB, down from 648 kB). The file count fell because 6 test files were deleted with their
+subjects and no compatibility scaffolding was retained.
+
+WARNING — **not verified:** no authenticated end-to-end hosted generation was run (no credentials this session), so the
+authenticated Studio/Jake path is proved structurally and by unauthenticated runtime, not by a signed-in run.
+
+**Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+
+### Round 11 — ABSOLUTE CLOUD-ONLY BOUNDARY: no executable local code anywhere in the repo (2026-07-27)
+
+**Owner decision (absolute):** ArtValue must contain **no executable local-engine code anywhere in the repository** —
+the whole product AND its supporting tooling, not only browser-reachable code. Round 10 removed the application paths
+and left two disclosed exceptions; this round removes both. Dormant executable local code is no longer acceptable
+merely because it is currently unreachable.
+
+The pending Codex review of `1233034` was **superseded by this decision** and was not waited on. Its four findings from
+the earlier `2ff51c2` review were already replied to and resolved; nothing in them touches surviving code.
+
+**AI GATEWAY CONTRACT CHANGE — the substantive change this round.**
+`supabase/functions/_shared/aiGateway.js` (canonical) no longer registers a local provider in ANY form:
+
+| Removed | Detail |
+|---|---|
+| Provider vocabulary | `comfyui`, `ollama`, `fooocus`, `a1111` removed from `AI_PROVIDERS`. `normalizeProvider('ollama')` now returns `null` — a retired name is not a provider, so it cannot be preferred, made available or excluded. |
+| Model registry | The `comfyui` (image/video/inpaint) and `ollama` (text) entries in `AI_MODELS`. |
+| Routing chains | Every occurrence in `DEFAULT_PROVIDER_BY_ACTION` — 12 text/CRM/Jake chains lost `ollama`; `image.poster`, `image.variation`, `image.product_presenter`, `image.product_lock`, `video.short_ad`, `video.product_demo` lost `comfyui`. |
+| Capability partition | `LOCAL_PROVIDERS` and the private `isLocalProvider` / `isApiProvider` helpers. `API_PROVIDERS` is now exactly the vocabulary minus the `none` sentinel. |
+| Provider SELECTION | The `localFirst` ordering option, and `metadata.localFirst` on every `buildAiRequest` result. `apiFirst` is retained as an accepted no-op (the partition is now the identity). |
+| Cost model | The local-provider zero-cost branch in `estimateCost`; only the explicit `none` sentinel is free. |
+
+**The cloud ACTION vocabulary is UNCHANGED** — all 20 action types survive, every one still resolves to a non-empty
+chain, and every provider in every chain is an API provider. No new provider was introduced and no business-facing
+behavior changed. `aiGatewayContract.js` had one stale comment naming `localFirst`; corrected.
+
+⚠️ **AN EDGE DEPLOYMENT WILL BE REQUIRED LATER — NOT PERFORMED IN THIS TASK.** The deployed `ai-gateway` function
+(v35) still carries the OLD shared table. Nothing was deployed, no secret or remote configuration was touched, and the
+running Production frontend is unaffected (it is still `247ef9ec`, built long before this branch).
+
+**Also deleted this round**
+- `scripts/local-review-prep.mjs` and `scripts/__tests__/local-review-prep.test.mjs` — the review-prep CLI called a
+  local Ollama for an advisory summary. It was disclosed last round as "tooling, not product"; that exception is now
+  withdrawn. The `scripts/` directory no longer exists.
+- `comfy_help.txt` (repo root) — a committed ComfyUI CLI help dump, i.e. local-engine setup reference material.
+- npm scripts `local:review-prep` (deleted tool) plus `dev:local` / `preview:local`, which pinned the dev/preview
+  servers to `127.0.0.1` with hardcoded ports. They were redundant with `dev` / `preview` and were the last
+  `127.0.0.1` strings in `package.json`.
+
+**Documentation corrected (current-state claims, not history)**
+- `ARTVALUE_ENGINEERING_METHOD.md` stated *"Local providers ... remain registered as dev/fallback providers — nothing
+  local is deleted or disabled by gateway work."* That is now the exact opposite of the rule; replaced with the
+  cloud-only invariant. The review step invoking the deleted script was removed and the checklist renumbered.
+- `Art-Value-Brief.md` carried a local-engine capability table (Ollama / ComfyUI / models) presented as the product's
+  engine. Replaced with the cloud reality, under an explicit **"היסטוריה בלבד — אינו נתמך יותר"** banner.
+- `AI_GATEWAY_DEPLOY.md` sample `providerChain` no longer shows `ollama`.
+- `DECISION_LOG.md` keeps its dated history and now carries an explicit **SUPERSEDED 2026-07-27** line.
+- `jakeos-doc/index.html` made three present-tense claims that Jake still runs locally on Ollama; corrected.
+
+**Repository-wide structural proof** (`src/lib/__tests__/localEngineRetirement.test.js`, extended)
+- **172 non-test executable files** scanned across `src/`, `supabase/`, the repo root and `scripts/` (asserted
+  non-vacuous): **no engine name and no local address in executable code** anywhere, comments stripped first.
+- No package script starts, probes or calls a local model; `scripts/` is asserted absent.
+- Gateway: no local name in `AI_PROVIDERS` / `API_PROVIDERS` / `AI_MODELS` / any chain / `normalizeProvider`;
+  `LOCAL_PROVIDERS` is `undefined`; `localFirst` cannot change any chain for any action and is absent from metadata;
+  all 20 actions keep a non-empty all-API chain.
+- **Canonical-copy synchronization proved structurally:** each `src/lib/aiGateway*.js` shim must be *nothing but*
+  `export * from '../../supabase/functions/_shared/…'`, so a second divergent provider table cannot exist.
+- Retained from round 10: the app import closure from `src/main.jsx` is clean; no retired route registered; catch-all
+  present; every Jake/Studio target is a LIVE cloud lane; Growth stays `BetaUnavailable`.
+
+**Verification.** Suite **110 files / 2,980 passed / 0 skipped / 0 failed**. One production build green
+(`index-CADF5y0K.js`, 608.02 kB). Artifact: the app bundle now has **0 hits for every one of** `localhost`,
+`127.0.0.1`, `comfy`, `ComfyUI`, `fooocus`, `ollama`, `a1111`, `automatic1111`, `:8188`, `:7860`, `:11434`,
+`safetensors`, `adstudio`, `localFirst`, `LOCAL_PROVIDERS` and `http://` — the provider-registry strings that survived
+round 10 are gone. No non-vendor chunk contains any of them.
+
+**Runtime smoke.** Hosted build (`dist/`): 5-route navigation + 3s idle → 8 requests, **0 local requests**, 0 console
+messages; the only non-origin request in either build is the Google Fonts stylesheet. Route table exercised on a
+scratch demo build (temp dir, deleted afterwards; `dist/` untouched): `/adstudio`, `/workflow`, `/fooocus` all resolve
+to `#/`; `/studio`, `/diagnose`, `/outreach`, `/assets`, `/growth` all render; Studio shows 4 presets and **0 file
+uploaders**; Jake opens with **no poster CTA**; **0 engine terms in the DOM, 0 local-engine requests, 0 console
+messages**.
+
+**Local terminology that REMAINS — all NON-EXECUTABLE history**
+| Where | Why it is not a path |
+|---|---|
+| `docs/DECISION_LOG.md`, `docs/PROJECT_TRACKER.md`, `docs/roadmaps/*`, `docs/Art-Value-Brief.md` | Dated release history and superseded decisions. Markdown; no setup instructions; the Brief's table is under an explicit "no longer supported" banner. |
+| Comments in `aiGateway.js`, `gemini.js`, `chatPersistence.js`, `betaCapabilities.js`, `jakeExecutionPlanner.js` and the test suites | They NAME the retired engines in order to record that they are gone. Every scan strips comments before asserting, and the test suites name them to assert absence. |
+| Preset id `local_ad_creative` | "Local" = a local *business*. |
+| `gemini.js` `fetchSiteText` / `analyzeBusiness` | Orphaned by AdStudio's deletion but not local paths (r.jina.ai + managed Gemini) and part of the FROZEN Creative Director V1 API. Flagged for a future approved dead-code slice. |
+
+**NOT PERFORMED — required later, in order:** Preview deploy + acceptance → **Edge `ai-gateway` redeploy** (the shared
+contract changed) → Production deploy. None was started; no remote mutation of any kind was made.
+
+**Codex reviewed `1233034` mid-round and raised 2 further P2 findings. Both were real, both are MINE, both are fixed:**
+
+| # | Finding | Status |
+|---|---|---|
+| 1 (P2) | The DemoMode Studio step I rewrote last round claimed *"היצירה רצה בענן המאובטח של החשבון שלך"*. But `shouldAutoOpenDemo` returns **false** in cloud mode — the tour auto-opens ONLY in local/demo, i.e. exactly where there is no account, no account cloud, and (with the default empty Pollinations token) no image lane at all. My copy promised both an account and a working generation in its primary environment. | **My regression. Fixed** — the step now describes the SURFACE and its always-available browser-side tools (prompt recipes, poster editor, mockup composer) and states that image creation itself is available once the account is connected to the creation service. |
+| 2 (P2) | My new `runCriticEval.js` header said the removed REAL mode's *"committed baseline snapshot ... is unchanged"*, implying the REAL runner produced it. It did not: `v1Snapshots.json` is `source: 'fixture-synthetic'`, hand-authored and expanded by `buildBaseline.js`, and the REAL runner only ever wrote separate candidate artifacts. Worse, `BASELINE_META.warning` still told evaluators that authoritative quality *"requires a human-labeled real local-model run"* — a now-impossible procedure — and `buildBaseline.js` still described the real-run path as existing. | **Fixed** — provenance stated precisely (removing the runner changes no snapshot provenance); the warning now says the real-model validation it pointed at is NO LONGER AVAILABLE in this repository and names the deterministic fixture run as the supported measurement, while still refusing to call it validation. `v1Snapshots.json` was **regenerated from the builder — a 1-line diff** (the warning string only), which is itself the proof that no sample data drifted; `dataset.test.js` re-derives and deep-equals it. |
+
+Re-verified after the fixes: suite **110 files / 2,980 passed / 0 failed**; build green (`index-C4frcMDi.js`, 608.05 kB);
+artifact still **0** for every local term; hosted runtime **0 local requests, 0 console messages**.
+
+**Codex then reviewed the retirement PROOF itself and raised 2 findings in it. Both were real; both are fixed.**
+This round changed **no product code** — only the proof and its new support module — so no rebuild was required and the
+verified artifact stays `index-C4frcMDi.js`.
+
+| # | Finding | Status |
+|---|---|---|
+| 1 (P1) | The comment stripper was `s.replace(/\/\/[^
+]*/g, '')`. It has no idea what a string is, so it read the `//` inside a URL as a line comment: `fetch('http://127.0.0.1:8188/prompt')` became `fetch('http:` **before either repository-wide assertion looked at it**. The single most common shape of a local-engine call walked straight through my own gate. | **Fixed** — replaced with a **syntax-aware scanner** (`src/lib/__tests__/support/sourceScan.js`) that removes comments while emitting string, template (incl. `${…}`) and regex literals verbatim. Regex handling matters independently: an apostrophe inside a regex used to open a phantom string that swallowed the rest of the file. Design rule: **every ambiguous case preserves text**, so the failure direction is a loud false positive, never a silent miss. |
+| 2 (P2) | The recursive walker matched only `.js/.jsx/.ts/.tsx`; `.mjs`/`.cjs` were recognised **only at the repository root**. A caller added as `src/tool.mjs`, `supabase/functions/tool.mjs` or a nested `.cjs` sat outside both scans. | **Fixed** — one `collectModules()` walks every root recursively over the full extension set (`.js .jsx .mjs .cjs .ts .tsx .cts .mts`), skipping only build/dep directories. `resolveLocal` resolves the same set. |
+
+**Negative controls added — the substantive part.** Every assertion in this suite is a *"nothing found"* assertion, and a
+scan that silently cannot find anything looks identical to one that found nothing. Codex caught exactly that twice, so
+the primitives were extracted into `support/sourceScan.js` and the controls now exercise **the same code the gate runs**:
+- 5 planted local-engine calls (single/double-quoted, template literal, template-with-substitution, object literal) must
+  be DETECTED — and the suite **reproduces the bypass**, asserting the OLD regex stripper loses every one of them while
+  the new one holds all five.
+- 4 comment forms (line, block, trailing, JSDoc) naming a retired address/engine must be IGNORED.
+- A regex-literal-with-apostrophe must not hide the call on the following line; division must not be misread as a regex.
+- 4 modules planted in a temp directory (`tool.mjs`, `nested/deep/probe.cjs`, `nested/adapter.ts`,
+  `nested/deep/legacy.cts`) must all be collected and reported — with the OLD extension filter asserted to miss the
+  `.mjs`/`.cjs` ones.
+
+**Result of re-running the corrected gate over the real repository:** still **0 offenders** across **172 non-test
+executables**. The fixes exposed nothing that the broken gate had been hiding — today the repo contains no `.mjs`/`.cjs`
+module at all — so this is a guard against a future bypass, not the discovery of a live one. Stated plainly rather than
+implied. The stale header comment claiming the deleted Ollama review script "remains as a known exception" was removed;
+there is no remaining exception.
+
+Suite **110 files / 2,997 passed / 0 skipped / 0 failed** (+17 control tests). No build re-run: no executable production
+code changed.
+
+**Codex broke the hand-written scanner a THIRD time (3 findings on `b6fbd04`). The approximation itself was the
+defect, so it is gone — replaced with parser-backed analysis.** This round changed **no product code**; the verified
+artifact stays `index-C4frcMDi.js`.
+
+| # | Finding | Status |
+|---|---|---|
+| 1 (P1) | A nested template whose substitution held an **object literal** ended the template early: the object's `}` decremented a depth its `{` never incremented, so ``const u = `${({}).x ? `http://127.0.0.1:8188/prompt` : ``}`;`` lost the URL. | **Obsolete by replacement** — the parser tracks substitution and brace nesting. |
+| 2 (P1) | **JSX text had no state at all**, so `<p>Open http://127.0.0.1:8188/prompt</p>` was truncated at `http:`. The scan explicitly covers `.jsx`/`.tsx`, so an address rendered as unquoted JSX text bypassed the boundary. | **Obsolete by replacement** — JSX text is never touched. |
+| 3 (P2) | Regex detection looked only at the previous **character**, so `return /it's fine/;` read as division; the apostrophe opened a phantom string that ate the rest of the line. | **Obsolete by replacement** — the parser tokenizes regex in every expression context. |
+
+**The method now (`support/sourceScan.js`).** `executableSource()` hands the file to **`@babel/parser`** (already a
+declared direct devDependency) and blanks **only the byte ranges the parser reports as comments**, preserving length and
+newlines. Nothing else is altered. That single rule satisfies every invariant structurally rather than heuristically:
+comments excluded; strings, template literals and JSX text left byte-for-byte inspectable; nested substitutions and
+ordinary nested braces handled by the parser; regex literals tokenized in every valid context; per-extension plugin sets
+so **JS / JSX / TS / TSX / MJS / CJS / MTS / CTS each parse as their real syntax** (a `.ts` reads `<T>x` as a type
+assertion, a `.tsx` as an element — they are asserted to get different plugins); and an unparseable executable file
+throws `UnparseableSourceError` naming the file — **never silently skipped**.
+
+**Address-class gap closed** (independently identified, not from the review). The invariant is about network
+DESTINATIONS, and a workstation engine is as reachable at `192.168.x.x` on the studio LAN as at `127.0.0.1`. The
+detector now covers loopback (the whole `127/8`), RFC1918 (`10/8`, `172.16/12`, `192.168/16`), IPv4 link-local
+(`169.254/16`), the unspecified address, and IPv6 loopback / link-local (`fe80::/10`) / unique-local (`fc00::/7`) —
+**only in a network context** (behind a scheme, behind a protocol-relative `//`, or followed by a port), so ordinary
+numeric business data is not mistaken for an endpoint. 8 positive and 8 negative controls pin both directions,
+including a version string `'10.0.0.1'`, an SKU embedding `192.168.1.50`, float arithmetic on `127.0`, a clock time,
+and a **public** IP endpoint `8.8.8.8:443` which must NOT flag.
+
+**Controls include Codex's three exact reproductions verbatim**, plus 8 regex-context cases (`return`, `if`, `while`,
+`case`, array, `&&`, call argument, `typeof`) each followed by a forbidden URL **on the same line**, 8 planted calls
+across quoting/JSX/TS/CJS forms, 5 comment forms (incl. a JSX expression comment), 8 per-extension syntax cases, and
+5 modules planted at depth in a temp directory. They call the **production primitive**, never a parallel copy.
+
+**Two real defects were caught by the new controls themselves, and fixed:** pinning `.cjs`/`.cts` to `sourceType:
+'script'` made valid `.cts` (`export = x`) unparseable — now `'unambiguous'` everywhere; and the import closure was
+resolving `./styles/app.css`, a non-executable asset, into the parser — `resolveLocal` now returns only real modules.
+The loud-failure invariant is what surfaced both.
+
+**Result over the real repository:** 283 files scanned, **all parse**, **0 offenders** across **169 non-test
+executables** (169 not 172 — the closure no longer counts the three non-module assets it used to resolve). The stricter
+address classes exposed nothing that had been hiding. Stated rather than implied.
+
+Suite **110 files / 3,043 passed / 0 skipped / 0 failed** (+46 controls). No build and no runtime re-run: no executable
+production code changed. **Superseded by the round below: Codex then found a UTF-16 offset drift and an address-form gap in this same proof layer.**
+
+**Codex found 2 further P1s in the proof layer on `d84cfdc`. Both real; both fixed. No product code changed** —
+the verified artifact stays `index-C4frcMDi.js`.
+
+| # | Finding | Status |
+|---|---|---|
+| 1 (P1) | Babel reports `start`/`end` as **UTF-16 code-unit** offsets, but the blanking loop walked `[...s]`, which iterates **code points**. Every astral character (an emoji) before a comment shifted the blanked window one place right; with enough of them the window slid past the comment and **erased executable text after it**, including part of a later forbidden URL. | **Fixed** — blanking is now done with `String.prototype.slice` between sorted comment ranges, so the mutable representation and Babel's offsets share one indexing space. Length and line structure are preserved exactly. |
+| 2 (P1) | Private-host detection was a list of **textual regex forms**. `fe80::/10` spans `fe80`–`febf` but only the literal `fe80` prefix matched, and URL parsing normalizes `127.1`, `2130706433` and `0x7f000001` all to `127.0.0.1`. With an unlisted port such as `9000`, nothing matched — code could reach a loopback or link-local workstation while the scan reported clean. | **Fixed by removing the regex host vocabulary entirely.** Candidate destinations now go through the platform's **WHATWG `URL` normalizer** — the same algorithm a browser applies — and the NORMALIZED host is classified **numerically**. |
+
+**The normalization boundary.** `hasLocalAddress()` extracts candidates (a scheme, a protocol-relative `//`, or an
+explicit `host:port`), hands each to `new URL()`, and classifies `url.hostname` by range: loopback `127/8`, RFC1918
+`10/8` · `172.16/12` · `192.168/16`, link-local `169.254/16`, the unspecified address, `localhost`, and IPv6 `::1`,
+`::`, **the whole `fe80::/10` (fe80–febf)** and **the whole `fc00::/7` (fc00–fdff)**. Because classification is numeric,
+it holds for **every textual form the parser accepts** — shorthand, decimal, hexadecimal, octal, compressed IPv6 —
+and for **any port**, not only the four engine ports (those remain a separate signal for composed expressions such as
+`base + ':8188/prompt'`, where no host exists to normalize). Zone identifiers (`fe80::1%eth0`, `%25eth0`) are rejected
+by the URL spec, so they are stripped and the base address is classified rather than lost.
+
+**The business-data boundary is preserved by the EXTRACTION step, not by the classifier:** standalone IP-like text is
+never a candidate, so it is never normalized. Controls pin that in both directions, including `const n = 2130706433;`
+— a bare integer that *would* normalize to loopback if it were a host — plus a version string, an SKU, float
+arithmetic, a clock time, and public endpoints (`8.8.8.8:443`, `[2606:4700::1]:443`) and the exact off-by-one
+neighbours `172.32.0.1`, `192.169.0.1`, `[fe7f::1]`, `[fec0::1]`.
+
+**Codex's exact reproductions are controls:** emoji before a comment with a forbidden destination after it (asserted
+still detectable, at 1/2/5/20/80 emoji, with the old code-point indexing shown to drift); and `127.1`, `2130706433`,
+`0x7f000001`, `[fe90::1]`, `[febf::1]` — every one on the unlisted port `9000`. All controls import the **production
+primitive** the repository scan calls.
+
+**One further real defect surfaced while fixing these:** the `http://${candidate}` parse fallback was being applied to
+already-schemed candidates, so `http://http://[fe80::1%25eth0]…` parsed with the truthy host `http` and pre-empted the
+zone-id retry — swallowing a link-local destination. Exactly one parse shape per candidate now.
+
+**Result over the real repository:** 283 files scanned, **all parse**, **0 offenders** across 169 non-test executables.
+The stricter normalization exposed nothing that had been hiding.
+
+Suite **110 files / 3,069 passed / 0 skipped / 0 failed** (+26 controls). **Superseded by the round below: Codex then
+showed that a destination assembled at runtime can never be seen by ANY source-text scan, so the text proof was replaced
+by a runtime network-policy boundary plus an AST egress invariant.**
+
+**Codex's review of `826de90` ended the text-scanning approach. 2 P1s; the second is decisive.** The first was another
+missing address form (IPv4-mapped IPv6, `[::ffff:127.0.0.1]` → `[::ffff:7f00:1]`). The second was not a missing form at
+all: a destination assembled at runtime —
+
+    const host = '127.0.0.1'; fetch('http://' + host + ':9000/x');   fetch(`http://${host}:9000/x`);
+
+— **never exists as a URL literal**, so no source-text scan can ever see it. That is proof that a source-level proxy
+cannot decide a runtime property. Both were reproduced before any edit.
+
+> ⚠️ **THE ENTIRE FRAMEWORK DESCRIBED IN THE REST OF THIS ROUND WAS REMOVED IN ROUND 12 (below).** `networkPolicy.js`,
+> `guardedFetch`, the AST sink registry and its suite no longer exist, and the five production sinks were restored to
+> their prior cloud behaviour. It is recorded here as the historical account of a **scope expansion**, not as a
+> description of the code. Read Round 12 for the shipped state.
+
+**THE PROOF WAS REPLACED, NOT EXTENDED.** The cloud-only claim is now the CONJUNCTION of two layers, and this round
+changed PRODUCTION code to create the first one.
+
+**Layer 1 — RUNTIME (`src/lib/networkPolicy.js`, NEW production module).** The real execution boundary. Every approved
+adapter issues its request through `guardedFetch()`, which normalizes the destination with the platform's **WHATWG URL
+parser** and refuses loopback, RFC1918, link-local, unspecified and **IPv4-mapped IPv6** hosts, on **any port**. However
+the string was assembled, by the time it reaches this function it is concrete — and concrete destinations are decidable.
+Five real sinks were routed through it, behavior-preserving: `gemini.js` ×2 (the Google API call, and `fetchSiteText`,
+where the **user-supplied target** is now classified before the reader proxy is asked to fetch it), `hostedImage.js`,
+`galleryStore.js`, `PosterEditor.jsx`. `data:`/`blob:` pass as NON-EGRESS; unparseable/host-less/unsupported-scheme
+destinations **fail closed**.
+
+**Layer 2 — STRUCTURAL (`support/networkEgress.js` + `networkEgressInvariant.test.js`, NEW).** Network sinks are found
+in the **AST by shape** — `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `Worker`, `sendBeacon`,
+`importScripts`, non-literal `import()`, `element.src=` — never by identifier name or URL text. An explicit
+**ADAPTER_REGISTRY** lists the only 4 modules permitted to hold a sink; every other product module must hold **zero**.
+`src/lib/networkPolicy.js` is asserted to be the **only** module in the product that may call `fetch` at all.
+
+**Neither layer alone is the proof, and the suite says so:** layer 1 without layer 2 is bypassed by adding a second
+sink; layer 2 without layer 1 cannot see an assembled host.
+
+**Controls (47 in the new suite).** Both Codex reproductions; destinations assembled by concatenation, template
+substitution, object field, array join and a concatenated scheme; IPv4-mapped IPv6 forbidden *and* public variants;
+11 disguised sinks including `window.fetch`, `globalThis.fetch` and **`const cloudTransport = fetch`** (aliasing the
+global into a friendly name); a simulated new unapproved `telemetryClient.js` that must fail the registry; five
+sink-free sources that must NOT be falsely accused (a property named `fetch`, a function named `fetchClients`, a JSX
+`src` prop); and approved cloud traffic (Supabase, Gemini, Pollinations, r.jina.ai, fonts, `data:`, `blob:`) still
+allowed. `guardedFetch` is asserted to issue **no request at all** when it refuses.
+
+**Three real defects were caught by these controls while writing them:** the sink detector missed a **global aliased
+into a variable** and missed `import(x)` under Babel's `Import` callee shape (both fixed); and a `0.0.0.0/8` rule was
+too wide — the URL parser normalizes the clock string `12:30` to host `0.0.0.12`, which would have broken the
+business-data boundary, so only the unspecified address itself is rejected.
+
+**ONE narrow, disclosed exemption.** The policy module is the classifier, so it necessarily NAMES `localhost` and the
+RFC1918 octets. It is excluded from the *address text* scans, with a **compensating assertion** that it holds no URL
+candidate of its own — and layer 2 independently proves it is the sole `fetch` holder. In the built bundle the only two
+`localhost` occurrences are that classifier's own comparison: the string is now present **because it is blocked**.
+
+**Evidence quality, stated explicitly**
+- **Enforced at the real execution boundary:** every destination passed to `guardedFetch`/`assertPublicDestination` —
+  including one assembled at runtime — is normalized and classified before a request is issued.
+- **Enforced structurally (AST/registry):** no product module outside the 4 registered adapters may contain any network
+  sink; only the policy module may call `fetch`; a new raw client wrapper cannot enter silently whatever it is named.
+- **Only a source-level proxy now:** the destination-text scanner, explicitly DEMOTED to defence-in-depth. It is no
+  longer presented as proof that assembled local destinations are impossible.
+- **Still NOT provable statically:** a destination reached through a sink the platform adds later; egress from a
+  third-party dependency's own code (Supabase's transport is trusted, not proven); DNS resolving a public name to a
+  private address — a network-layer property this boundary cannot decide; and `element.src=` in the 3 registered image
+  components, which is contained structurally but **not** runtime-validated.
+- **Not verified:** no authenticated end-to-end hosted generation (no credentials in any of these sessions).
+
+**Verification.** Suite **111 files / 3,117 passed / 0 skipped / 0 failed**. One production build green
+(`index-Cb5pUh5g.js`, 610.27 kB — +2.2 kB, the policy module). Runtime smoke: 5-route navigation + 3s idle → 8 requests,
+**0 local requests**, 0 console messages, the only non-origin request being the Google Fonts stylesheet.
+
+**Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+
+### Round 12 — SCOPE CORRECTION: the network-egress framework is REMOVED (2026-07-27)
+
+**Codex's review of `4382331` raised five valid findings against the newly introduced network-policy and structural
+egress framework:** redirects can reach a private destination after the initial check; dynamic JSX resource attributes
+bypass `guardedFetch`; destructured or reflective captures of network globals bypass the structural detector;
+`0.0.0.0/8` is incompletely classified; CGNAT `100.64.0.0/10` is not rejected.
+
+**None of the five was patched.** They were correct, and they were correct about a framework that should not have been
+built. Rounds 10–11 drifted from the approved product decision — *remove all executable local-engine integrations from
+ArtValue* — into an unapproved universal guarantee: **that arbitrary future JavaScript can never construct a
+private-network request.** That is a different problem with a different solution shape, and a hand-built runtime shim
+plus an AST scanner is not that solution. Each review round made the framework more elaborate without making the
+product decision any more established than it already was.
+
+**Removed in this round**
+
+| Removed | Was |
+| --- | --- |
+| `src/lib/networkPolicy.js` | production module: `guardedFetch`, `assertPublicDestination`, `classifyDestination`, `isForbiddenHost` |
+| `src/lib/__tests__/support/networkEgress.js` | AST structural sink detector |
+| `src/lib/__tests__/networkEgressInvariant.test.js` | ADAPTER_REGISTRY invariant suite (47 controls) |
+
+**Restored to their pre-framework cloud behaviour** (plain `fetch`, byte-for-byte as previously released):
+`gemini.js` ×2 (the Google API call and `fetchSiteText`), `hostedImage.js` (`downloadImage`), `galleryStore.js`
+(`srcToBlob`), `PosterEditor.jsx` (image load). **No cloud functionality was removed with the framework** — the diff is
+purely the removal of the wrapper and its imports, verified line by line.
+
+**The retirement scanner is kept, and re-scoped to what it can honestly prove.** `support/sourceScan.js` still parses
+with `@babel/parser` and still normalizes candidates through the WHATWG `URL` parser — those were genuine fixes, and
+normalization is what makes the narrow claim correct (`127.1`, `2130706433` and `0x7f000001` are all the same loopback
+address). What is gone is the universal private-address classifier. It now classifies **loopback only** —
+`localhost`/`*.localhost`, `127.0.0.0/8`, `[::1]` and the IPv4-mapped loopback form — plus the four retired engine
+ports (`8188`, `8189`, `7860`, `11434`). That is exactly the surface the retired engines occupied. RFC1918, link-local,
+unique-local, CGNAT and the unspecified range are **explicitly out of scope**, and controls now pin that in both
+directions.
+
+**Why the five findings are structurally obsolete rather than patched**
+
+| Codex finding | Why it no longer applies |
+| --- | --- |
+| Redirects reach a private destination after the initial check | `guardedFetch` — the thing that performed an initial check — does not exist |
+| Dynamic JSX resource attributes bypass `guardedFetch` | same: there is no boundary to bypass |
+| Destructured / reflective captures bypass the structural detector | the structural detector and its registry are deleted |
+| `0.0.0.0/8` incompletely classified | there is no address-class classifier; loopback is `127/8` and nothing else |
+| CGNAT `100.64.0.0/10` not rejected | CGNAT is out of scope by design, and stated as such in the code and the controls |
+
+**The claim this PR now makes — and only this claim**
+
+- All known executable ComfyUI, Ollama, Fooocus and A1111 integrations were removed.
+- Their consumers, routes, provider registrations, configuration, scripts and tooling were removed.
+- The Studio and the product no longer expose or invoke those engines.
+- Runtime smoke observed **zero** local-engine requests.
+- Regression tests prevent the **specifically retired** modules, providers, routes and configuration from returning.
+
+**What this PR explicitly does NOT claim.** It does not claim that arbitrary future JavaScript can never construct a
+private-network request. That is a platform-level security-hardening concern — CSP `connect-src`, server-side egress
+policy, or an approved network architecture — and it is recorded below as an unselected follow-up, not implemented here.
+
+**Verification**
+
+- Suite **110 files / 3,057 passed / 0 skipped / 0 failed**.
+- Production build green — and the emitted artifact is **`index-C4frcMDi.js`**, byte-identical by content hash to the
+  pre-framework artifact that was already smoke-verified earlier in this PR. The removal restored the previously
+  verified bundle exactly; the framework's `index-Cb5pUh5g.js` is gone. `localhost` occurrences in the app bundle: **0**
+  (they existed only because the deleted classifier named them).
+- **Browser smoke re-run** on a build of this head: 8 retired route paths (`/adstudio`, `/workflow`, `/workflowstudio`,
+  `/fooocus`, `/comfy`, `/comfyui`, `/ollama`, `/a1111`) all fail safe to the dashboard; `/studio` renders with **0**
+  engine terms; Jake opens with **0** engine terms; with a spy over `fetch`/`XMLHttpRequest`/`WebSocket`/`EventSource`
+  across the whole drive plus an 8s idle: **0 requests total, 0 local-engine requests, 0 console messages**.
+- **Smoke limitation, stated:** the drive was unauthenticated (no credentials in this session), so authenticated
+  Studio generation and Jake Gateway calls were not exercised — the same limitation recorded in earlier rounds.
+
+**Unselected follow-up (NOT implemented, NOT in this PR): platform-level egress hardening.** If the product ever needs a
+guarantee that no code path can reach a private address, the mechanism is a CSP `connect-src` allowlist plus server-side
+egress policy — not application-level JavaScript. One concrete sub-item worth naming: `fetchSiteText` passes a
+user-supplied URL to the third-party reader proxy, so the proxy can be asked to fetch a private address on the user's
+behalf. That is pre-existing, released behaviour and is unchanged by this PR.
+
+**Still IN FLIGHT / NOT RELEASED. Not merged, not deployed. P1 remains CLOSED / LIVE. PR #117 remains paused and
+untouched.**
+
+### Round 13 — the retirement MANIFEST (2 Codex P2s on `753ee2e`, both regression coverage only)
+
+**Both findings were valid, and both had one root cause.** The retirement was enforced against two lists that were
+**written, not derived** — so anything nobody happened to type stayed unprotected:
+
+1. the removed-module set omitted implementations this PR actually deleted — `comfyProgress.js`, `geminiImage.js`,
+   `productLock.js`, `ProductPlacer.jsx`, `local-review-prep.mjs`;
+2. the retired-variable set omitted almost the entire removed ComfyUI configuration family — the PuLID, Kontext, Qwen,
+   LTX, SVD and FLUX-tuning variables, plus `VITE_JAKE_CLOUD_MODEL` and `VITE_GEMINI_IMAGE_MODEL`.
+
+**One authoritative source now exists: `src/lib/__tests__/support/retirementManifest.js`.** Its contents were **derived
+mechanically from the PR diff and repository history, not recalled**, and the derivation commands are recorded in its
+header so the next person re-derives rather than re-guesses:
+
+- **modules** — `git diff --diff-filter=D --name-only 5d7506d1..HEAD`, plus the earlier retirement commits `1233034`,
+  `705575a`, `95e70a1`; each entry carries the commit that removed it. **15 modules** (was 7).
+- **environment** — production reads at the PR base **minus** production reads at HEAD, unioned with the `VITE_*`
+  assignments this PR removed from `.env.example`, minus everything production still reads. **29 variables** (was 14).
+- providers, routes and package-script terms moved into the same manifest, so the suite enumerates nothing of its own.
+
+**What the suite now proves:** every manifest-listed file is absent; no production source imports **or recreates** a
+manifest module under its retired path (with a control proving that predicate fires on `./comfyProgress.js` and stays
+quiet on `./hostedImage.js`); no executable production source reads any manifest variable; no retired assignment remains
+in `.env.example`; the manifest contains Codex's named omissions **and is strictly larger than them** (≥18 `VITE_COMFYUI_*`
+entries, so the finding cannot be satisfied by adding five strings); and — the opposite failure direction — it lists
+**none** of the seven variables production still legitimately reads.
+
+**The pre-fix gate is demonstrated to have been permissive, not merely narrower.** Controls reconstruct both `753ee2e`
+lists verbatim and show the old sets reporting **CLEAN** while `src/lib/comfyProgress.js` is back on disk and while
+`import.meta.env.VITE_COMFYUI_PULID` is read — and the manifest rejecting both. A third control shows the gap was
+systematic (≥8 modules and ≥14 variables missed), and a fourth shows **why terminology scanning cannot replace the
+manifest**: the engine regex is word-anchored, so `VITE_COMFYUI_QWEN_VAE` never trips it. Terminology scanning stays as
+**supporting** evidence only.
+
+**Verification.** **Test-only change — no production source was touched, so no build and no browser smoke were run**
+(the artifact remains the already-verified `index-C4frcMDi.js`). Focused proof suites: **2 files / 167 passed / 0
+failed** (`localEngineRetirement.test.js` **115 passed**, up from 103; `studioHostedModeContainment.test.js` 52).
+**Correction to Round 12's count:** the full-suite figure recorded there (110 files / 3,057) predates these 12 added
+assertions and was not re-run in this round. *(Superseded by Round 14 below: the retirement total is now 119.)*
+
+### Round 14 — the retirement invariants now cover the WHOLE repository (1 Codex P2 on `1c6987b`)
+
+**Finding confirmed against the real code.** The retired-environment assertion — and the manifest's retired-path import
+assertion with it — walked `src/` only, via a `runtimeFiles()` helper. The **Supabase Edge function and its shared
+modules under `supabase/functions/` are production code that ships and executes**, so a retired variable read there was
+never inspected. Tooling roots and repository-root modules were equally uncovered.
+
+**Fix, within the existing structure and with no new walker.** The repository-wide collector `repoExecutables()` already
+existed inside the repository-scan describe block; it is **hoisted to module scope** and paired with one
+`productionExecutables()` = repository-wide executables **minus** tests. The `src/`-only helper is **deleted**, so every
+retirement invariant — legacy env reads, manifest env reads, manifest retired-path imports — now shares one set by
+construction and cannot drift apart again. Tests stay excluded in the one place, because a test may legitimately NAME a
+retired module or variable in order to assert nothing reads it (this suite does exactly that).
+
+**Result: no live offender.** Widening the scan to `supabase/` and the repository root found **0** retired variable
+reads. This is a **coverage guard against a future regression, not the discovery of a live one** — stated plainly rather
+than presented as a catch.
+
+**Four controls pin the new coverage:** the production set demonstrably reaches `supabase/functions/`, `src/` and the
+repository root and is strictly larger than the `src/`-only set; it still excludes every test path, including this file;
+the pre-fix `src/`-only scope is shown **not to contain** a real Edge module that the corrected set does contain; and a
+non-vacuity check confirms the scan reads real source (>100 files) and that the predicate fires on a planted
+`import.meta.env.VITE_COMFYUI_QWEN_UNET`.
+
+**Verification.** **Test-only change — no production source touched, so no build and no browser smoke were run**;
+the artifact remains the already-verified `index-C4frcMDi.js`. Focused proof suites: **2 files / 171 passed / 0 failed**
+(`localEngineRetirement.test.js` **119**, up from 115; `studioHostedModeContainment.test.js` 52). The full suite was not
+re-run this round. No product behavior changed; the removed network-policy work is not reopened. Not merged, not
+deployed. PR #117 remains paused and untouched. *(Counts superseded by Round 15 below.)*
+
+### Round 15 — TERMINAL walk fix + PROOF SCOPE FROZEN (1 Codex P2 on `d417d00`)
+
+**The finding, and why it was the third of its kind.** The "repository-wide" collector still enumerated a FIXED set of
+roots (`src`, `supabase`, `scripts`, plus root-level files), so an executable module placed in `public/` — or in any
+future top-level directory — was silently omitted. This is the same class Codex raised on `1361a84` (root-level
+`.mjs`/`.cjs`) and `1c6987b` (the `supabase/` tree). Each previous fix widened an **allowlist**, which is exactly why
+the question kept returning.
+
+**Independent review before acting.** Fable reviewed the actual diff, the Codex history and the real repository layout
+read-only and found: the product implementation is complete, **no product-code blocker**, the P2 is technically valid
+but protects only **hypothetical future file placement** (`docs/`, `posts/`, `public/`, `jakeos-doc/` contain **zero**
+executable modules today, and a root-recursive walk therefore adds nothing to the present scan), and repository-root
+recursion is the correct **terminal** fix for the class. Recorded honestly: this round is a **future-placement guard,
+not the discovery of a live gap**.
+
+**Fix — the allowlist is gone, not widened.** `repoExecutables()` is now `collectModules('.')`: recursion from the
+repository root using the existing collector. **No new walker, no new scanner.** Exclusions live in one place
+(`SKIP_DIRS` in `support/sourceScan.js`) and are limited to three kinds — dependencies (`node_modules`), build/generated
+output (`dist`, `dist-profile`, `coverage`, `artifacts`, `.vite`) and operational state (`.git`, `.wrangler`, `.claude`).
+**Ordinary content directories are deliberately NOT excluded**: `docs/`, `posts/`, `public/` and `jakeos-doc/` hold no
+module today, and skipping them would rebuild the same allowlist inverted. Test exclusion stays centralized in
+`productionExecutables()`.
+
+**Controls, including the required demonstration.** A real `.mjs` module is **planted in `docs/`** — a directory no list
+ever named — and proved to be (a) collected by the production set, (b) **absent** from the pre-fix fixed-root set, and
+(c) caught by the retired-variable assertion (`VITE_COMFYUI_PULID`); it is removed again in a `finally`, with cleanup
+asserted. Further controls prove the set reaches `src/`, `supabase/functions/` and the root `vite.config.js`; that tests
+remain excluded (including this file and the manifest) **while the raw walk still sees them**, so the exclusion is
+centralized rather than accidental; that `node_modules`, `dist`, `dist-profile`, `coverage`, `artifacts`, `.git`,
+`.wrangler`, `.claude` and `.vite` are all absent from the walk **and** that the walk is not over-excluded (>200
+modules); and non-vacuity of the scan itself.
+
+**Verification.** **Test-only change — no production source touched, so no build and no browser smoke were run**; the
+artifact remains the already-verified `index-C4frcMDi.js`. Focused proof: **2 files / 172 passed / 0 failed**
+(`localEngineRetirement.test.js` **120**). **Full suite re-run once to replace the stale count: 110 files / 3,074 passed
+/ 0 skipped / 0 failed** — this supersedes the Round 12 figure (110 / 3,057) that predated the manifest work.
+
+**PROOF SCOPE IS NOW FROZEN.** Any further Codex finding is to be **classified, not auto-patched**: an actual current
+product defect, an invalid release claim, or another hypothetical proof-completeness improvement — and reported for
+Nathan's merge decision. Still IN FLIGHT / NOT RELEASED, not merged, not deployed. P1 remains CLOSED / LIVE. PR #117
+remains paused and untouched.
+
+**No product behavior changed. The removed network-policy work is not reopened.** Still IN FLIGHT / NOT RELEASED, not
+merged, not deployed. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.
+
+## Studio / Local-Engine UI Containment — **LIVE IN PRODUCTION** (2026-07-26)
+
+**Status: RELEASED. Live in Production as `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js` (source `03c23c2`)** —
+with the corrective containment gap recorded above **IN FLIGHT / NOT RELEASED**.
 
 - **Code:** PR [#114](https://github.com/natanMeT/ArtValue20/pull/114) merged as `29cccddda52e1c546b4ae46be052285ec24d2116`; docs PR [#115](https://github.com/natanMeT/ArtValue20/pull/115) merged as `03c23c23568905cb42e7f154014dd2ddc32bb58f`. Codex round 2 clean (reviewed commit `bb8e955ef2`), 0 unresolved threads.
 - **Build: exactly ONE**, from `main` @ `03c23c2`. The same `dist/` was deployed to Preview and then promoted to Production **without rebuilding** — re-hashed immediately before promotion and confirmed identical, and wrangler reported **"Uploaded 0 files (12 already uploaded)"**.
-- **Artifact scan:** local-engine gate **provably closed** (`VITE_ENABLE_LOCAL_ENGINES` absent from the baked env ⇒ `resolveLocalEngineUrl()` returns `""` unconditionally). **0 occurrences** of `ComfyUI` / `Fooocus` / `PuLID` / `start_engine` / `Start ArtValue Image Engine` and every removed Hebrew label. Residual `LTX` 15 / `Qwen` 7 / `SDXL` 2 / `Kontext` 1 / `Ollama` 1 were each opened and confirmed to be graph `class_type` names, model filename constants, non-rendered preset `qualityNotes`, or the Jake error-matcher regex.
+- **Artifact scan:** local-engine gate **provably closed** (`VITE_ENABLE_LOCAL_ENGINES` absent from the baked env ⇒ `resolveLocalEngineUrl()` returns `""` unconditionally). **0 occurrences** of `ComfyUI` / `Fooocus` / `PuLID` / `start_engine` / `Start ArtValue Image Engine` and every removed Hebrew label. Residual `LTX` / `Qwen` / `SDXL` / `Kontext` / `Ollama` hits were classified as graph `class_type` names, model filename constants, non-rendered preset `qualityNotes`, or the Jake error-matcher regex. **⚠️ THAT CLASSIFICATION WAS PARTLY FALSE:** at least one `Qwen` occurrence (`Qwen-Image-Edit אינו מותקן במנוע`) was **user-reachable** through a hosted Jake→Studio hand-off — see the correction section above. String presence in a bundle is not proof of rendering, and its absence is not proof of correct routing.
 - **Preview `ec239e3b`** (branch `studio-containment-preview-03c23c2`): 12/12 served files byte-identical; **authenticated QA-account acceptance PASS**.
 - **Production `247ef9ec`:** 12/12 served files byte-identical on the canonical URL; **authenticated non-mutating Account A smoke PASS**.
 - **Rollback — the CURRENT target is `476830a2` / `index-BrR14XIC.js`** (source `7e30199`, the immediately previous Production deployment), retained and verified healthy post-deploy. The older `e63198b7` (S0F.1) is a **historical fallback only**, never the current target.
@@ -431,6 +1473,8 @@ non-mutating Account A smoke PASS**. **Current rollback target: `476830a2` / `in
 — retained and verified healthy; `e63198b7` (S0F.1) is a **historical fallback only**, never the current target.
 No migration; Edge `ai-gateway` **v35** unchanged.
 
+**IN FLIGHT:** the **Studio Hosted Mode Containment Correction** (see its section) — corrective PR open, **not merged, not deployed**. PR #117 (roadmaps/exports) is **paused** until this correction is deployed.
+
 **Carried-forward notes — neither is an open release item and neither blocks anything:**
 1. **P1 — an OPTIONAL additional Production-UI validation.** **P1 Atomic Quote Persistence is CLOSED / LIVE**; its
    atomicity is established by the 13/13 failure-injection acceptance, the authorization/RLS evidence, the Preview UI
@@ -446,6 +1490,9 @@ canonical roadmap advance is a separate, separately-approved documentation step.
 PENDING NATHAN DECISION** and must not be started until he selects one.
 
 ## Change log
+- **2026-07-26** — **Studio Hosted Mode Containment Correction — round 3, authorised DEFECT-CLASS SWEEP.** Rounds 1 and 2 fixed reported instances while siblings in the same class survived; round 3 inventoried the class across four axes before editing and corrected **seven reachable instances** — AdStudio's initial generation loop (the missed sibling of the retry path), AdStudio scan/campaign, **`gemini.js` pulling raw provider text into the thrown message**, MockupStudio's export alert, Diagnose + Outreach as rendered consumers of that shared helper, the `product-lock` description asserting the **gated** B2 enhancement, and the two presets that advertised and routed to hidden tabs. Structural closures: every creative render surface routes through `userFacingError`; provider text is diagnostics-only and **zero bare `throw new Error(` remain in `gemini.js`**; gated subfeatures are declared per workflow and appended only when satisfied; presets are filtered by target-mode availability. 53 tests (class-level assertions), four further negative controls, 43 files / 931 passed / 1 skip, build green, and both browser smokes re-run (hosted: hidden-tab presets gone, 0 engine terms, 0 requests; local/demo: presets, all 8 modes and Product Lock B2 restored, failure still fails closed with business-facing text). **Still IN FLIGHT / NOT RELEASED; PR #117 paused; P1 CLOSED / LIVE.**
+- **2026-07-26** — **Studio Hosted Mode Containment Correction — round 2 (the first implementation was INCOMPLETE).** Codex raised two further P2s on the corrective PR and **both were confirmed real**: (a) the new render boundary **flattened actionable hosted Gateway guidance** into the generic fallback — a regression introduced by the fix itself — now corrected with a controlled reason→message table keyed by the Gateway reason code, where provider text is never rendered and cannot self-declare as safe, and diagnostics sit in structured fields rather than `.message` (preserving the stronger pre-existing invariant that a Gateway image Error never carries the raw code or server detail); and (b) `STATIC_CAPABILITIES` was left unfiltered, so Jake still advertised `product-lock-blend` and a `creative-modes` description naming hidden workflows — now each Studio-related static entry carries an **explicit** availability requirement and the `creative-modes` text is derived from the injected available-mode labels, with filtering applied **before** any `maxCapabilities` slicing. 42 regression tests including assertions on the real built Jake prompt, two further negative controls (5 and 4 failures on revert), 30 files / 712 passed, build green. **Still IN FLIGHT / NOT RELEASED; PR #117 still paused; P1 remains CLOSED / LIVE.**
+- **2026-07-26** — **Studio Hosted Mode Containment Correction — IN FLIGHT / NOT RELEASED.** Codex raised a P2 on docs PR #117; the SAFE STOP investigation proved the defect is **hosted-reachable**, not local/demo-only. The capability filter guarded only the visible mode tiles, while a **Jake→Studio hand-off** set `mode` directly and the panels render from `mode` — so a hosted build could render the hidden `presenter` panel and print the raw engine string `Qwen-Image-Edit אינו מותקן במנוע`. **Proven in the DOM against a hosted-configuration build using a deterministic hand-off through the real router-state seam (no LLM), before any edit.** Corrected in three layers: capability-aware Jake advertising (fail closed, availability injected so `businessBrain.js` keeps its no-engine-imports boundary); an authoritative available-mode set (`src/lib/studioModes.js`) enforced on every entry path plus a pre-paint safety net; and a user-facing error boundary (`src/lib/userFacingError.js`) that renders only explicitly declared text and classifies by **identity, not substring matching**, keeping technical detail on the Error for diagnostics. 26 new regression tests through the real seams, **three real negative controls** (reverting each layer fails 1 / 4 / 8 tests), focused affected suite **30 files / 697 passed**, production build green, and post-fix DOM proof in both hosted and local/demo configurations. **Also corrected a FALSE claim** previously recorded here and in PR #117: the residual `Qwen` artifact hits were **not** all non-rendered internals. **No migration, no Gateway/Edge/Auth/schema change, no rollback indicated, nothing deployed.** PR #117 paused; P1 remains CLOSED / LIVE.
 - **2026-07-26** — **Studio / Local-Engine UI Containment CLOSED / LIVE VERIFIED in Production.** Release chain: PR [#114](https://github.com/natanMeT/ArtValue20/pull/114) → `29cccdd` → docs PR [#115](https://github.com/natanMeT/ArtValue20/pull/115) → `03c23c2` → **one build** from `03c23c2` + artifact scan (local-engine gate provably closed; 0 occurrences of every removed user-facing engine label) → Preview **`ec239e3b`** (12/12 byte-identical, authenticated QA acceptance PASS) → **Production `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js`** by reusing the accepted `dist/` (wrangler "Uploaded 0 files (12 already uploaded)"; **12/12 served files byte-identical**) + **authenticated non-mutating Account A Production smoke PASS**. **Current rollback target `476830a2` / `index-BrR14XIC.js`** retained and verified healthy post-deploy (the older S0F.1 `e63198b7` is a **historical fallback only**, not the current target). **Test evidence, exact scope:** the full suite (121 files / 3,098 passed / 1 skip / 0 failed) was last green on the **earlier implementation head**; after the fail-closed capability correction the **focused affected suite** was run on the **final corrected code** (27 files / 1,608 passed / 0 failed) plus a **green production build at `03c23c2`** — the full suite was deliberately not rerun on the final head, and the final head's end-to-end coverage comes from the Preview and Production authenticated acceptances. Delivered: removal of the local-GPU status/setup panel and its 15s poll, the ComfyUI/Fooocus-badged workflow map, the checkpoint picker, the PuLID/Kontext engine toggle, the job card's engine graph-node readout, three mount-time local-engine probes (replaced by fail-closed configuration-derived capability flags), and every user-visible engine name across ImageStudio, AdStudio, Jake, the preset pack, the workflow catalog and thrown generation errors — **including the catalog text that reaches Jake's system prompt** (verified live: a 1,174-character Jake reply enumerating the creative capabilities with **0 engine names**). Retained: all nine creative modes where the runtime supports them, business presets, brand palette, gallery, Poster Editor, Mockup Studio, Product Lock, the Jake→Studio hand-off. **Production smoke measured 0 requests on Studio open, 0 during a 17s idle, 0 local-address requests, 0 engine terms, 0 console errors and 0 mutating requests.** **No migration, no schema/Auth/Gateway-contract change, Edge v35 not redeployed, Growth still BetaUnavailable, no user data touched.** One recorded nuance: an initial served-bytes sweep briefly returned the SPA index.html fallback for the new entry asset on one edge node (propagation race) — a clean refetch and full re-sweep were 12/12. Two carried-forward notes, **neither an open release item**: **P1 Atomic Quote Persistence remains CLOSED / LIVE** with one **optional additional Production-UI validation** outstanding — the same-session authenticated Production smoke proved Quotes/Finance render and authenticated reads are healthy, while Account A held 0 quote and 0 transaction rows and no Production create/edit was authorized, so quote-row visibility and a Production-UI RPC re-exercise were not observed; atomicity was already established by the 13/13 failure-injection acceptance, the authorization/RLS evidence and the Preview UI acceptance on the same artifact. And **Jake advertising cloud-unavailable creative capabilities** (pre-existing truthfulness follow-up, not a regression).
 - **2026-07-26** — **Tracker consistency correction (documentation-only).** Removed a self-invalidating assertion that repository `main` *equals* the PR #114 merge SHA — merging any documentation PR advances `main`, so the claim would have been false immediately and could have led later release work to treat the #114 merge as the repository head. The baseline now defines **three distinct anchors that must never be collapsed**: (1) the repository head, **deliberately not recorded** and resolved live at every preflight; (2) the **merged-but-unreleased application-code anchor** `29cccdd…` (the PR #114 merge commit, a historical anchor); (3) the **deployed Production source** `7e30199`. Divergence between them is expected and is not deployment drift. Also de-duplicated two leftover Production / rollback-branch-and-tag lines in the Studio status section (meaning unchanged) and re-anchored the `src/`-tree equality claim to the merge commit rather than to a moving head. Raised as a Codex P2 on PR #115. No code, tests, configuration, roadmaps or exports changed; no deployment; Production and Edge unchanged; P1 remains CLOSED / LIVE.
 - **2026-07-26** — **Studio / Local-Engine UI Containment MERGED into `main` — NOT RELEASED.** PR [#114](https://github.com/natanMeT/ArtValue20/pull/114) merged as `29cccddda52e1c546b4ae46be052285ec24d2116` (parents `4f4180b` + `c30dff2`), pinned to the approved head SHA. Codex round 2 clean (reviewed commit `bb8e955ef2`), **0 unresolved review threads**; the `src/` tree on `main` is byte-identical to the reviewed tree (`255bd4c7edb0aa2fbd181a1b22cb528fa6de9aee`). **No Preview or Production deployment was performed:** Production stays `476830a2` / `index-BrR14XIC.js` (source `7e30199`), Edge `ai-gateway` v35 unchanged and not redeployed, **no migration**, schema/Auth/Gateway contracts untouched, Growth still `BetaUnavailable`, no user data touched. Branch `studio/local-engine-ui-containment` @ `c30dff2` and tag `pre-studio-local-engine-containment` @ `4f4180b` retained. **`main` now carries merged application code that has never been built or deployed — "merged" is not "live".** Open release gate: **authenticated cloud acceptance on Preview** (all browser verification so far was local/demo). Documentation-only correction in this PR; no code, tests, configuration, roadmaps or exports changed.

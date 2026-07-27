@@ -78,7 +78,7 @@ describe('valid actionType', () => {
     expect(res.ok).toBe(true);
     expect(res.actionType).toBe('text.copy');
     expect(res.execution.status).toBe(AI_GATEWAY_EXECUTION_STATUS.NOT_IMPLEMENTED);
-    expect(res.routing.providerChain).toEqual(['gemini', 'openai', 'openrouter', 'ollama']);
+    expect(res.routing.providerChain).toEqual(['gemini', 'openai', 'openrouter']);
     expect(res.routing.selectedProvider).toBe('gemini');
     expect(res.routing.costTier).toBe('low');
     expect(res.routing.requiresServer).toBe(true);
@@ -147,13 +147,13 @@ describe('provider/model hints are never trusted execution authority', () => {
 
   it('a VALID caller preferredProvider still cannot reorder routing (routing is server-owned)', () => {
     // Regression guard for the pre-merge authority fix: an untrusted request
-    // may NOT move a supported provider (e.g. ollama) ahead of the default.
+    // may NOT move a supported provider (e.g. openrouter) ahead of the default.
     const res = buildAiGatewayResponse({
       actionType: 'text.copy',
-      options: { preferredProvider: 'ollama' },
+      options: { preferredProvider: 'openrouter' },
     });
-    expect(res.routing.selectedProvider).toBe('gemini'); // default, NOT ollama
-    expect(res.routing.providerChain).toEqual(['gemini', 'openai', 'openrouter', 'ollama']);
+    expect(res.routing.selectedProvider).toBe('gemini'); // default, NOT openrouter
+    expect(res.routing.providerChain).toEqual(['gemini', 'openai', 'openrouter']);
     expect(res.request.options).toEqual({});
   });
 
@@ -163,21 +163,24 @@ describe('provider/model hints are never trusted execution authority', () => {
       options: { availableProviders: ['pollinations'], evil: true, apiKey: 'k' },
     });
     // availableProviders is NOT client-trusted → full default chain
-    expect(res.routing.providerChain).toEqual(['openai', 'gemini', 'replicate', 'pollinations', 'comfyui']);
+    expect(res.routing.providerChain).toEqual(['openai', 'gemini', 'replicate', 'pollinations']);
     expect(res.request.options).toEqual({});
   });
 });
 
 describe('routing authority · untrusted request cannot alter the provider route', () => {
-  const DEFAULT_TEXT_COPY_CHAIN = ['gemini', 'openai', 'openrouter', 'ollama'];
+  const DEFAULT_TEXT_COPY_CHAIN = ['gemini', 'openai', 'openrouter'];
   // Each hostile options object individually, then all combined.
   const ROUTING_OPTION_CASES = [
+    { preferredProvider: 'openrouter' },
+    // retired local-provider names and the retired localFirst option are listed
+    // on purpose: they must be INERT, not merely refused at the boundary.
     { preferredProvider: 'ollama' },
     { localFirst: true },
     { apiFirst: true },
     { excludeProviders: ['gemini'] },
-    { availableProviders: ['ollama'] },
-    { preferredProvider: 'ollama', localFirst: true, apiFirst: true, excludeProviders: ['gemini'], availableProviders: ['ollama'] },
+    { availableProviders: ['openrouter'] },
+    { preferredProvider: 'ollama', localFirst: true, apiFirst: true, excludeProviders: ['gemini'], availableProviders: ['comfyui'] },
   ];
 
   it('every caller routing option leaves text.copy on the default server-owned route with empty options', () => {
@@ -209,10 +212,13 @@ describe('routing authority · untrusted request cannot alter the provider route
   it('the pure ROUTER still honors TRUSTED options (only the untrusted boundary refuses them)', () => {
     // selectProvider/buildAiRequest are the internal trusted-orchestration APIs;
     // this fix must NOT weaken them. A trusted preferredProvider still reorders.
-    expect(selectProvider('text.copy', { preferredProvider: 'ollama' })[0]).toBe('ollama');
+    expect(selectProvider('text.copy', { preferredProvider: 'openrouter' })[0]).toBe('openrouter');
     expect(selectProvider('text.copy', { excludeProviders: ['gemini'] })).not.toContain('gemini');
-    const req = buildAiRequest('text.copy', { prompt: 'p' }, { preferredProvider: 'ollama' });
-    expect(req.selectedProvider).toBe('ollama');
+    const req = buildAiRequest('text.copy', { prompt: 'p' }, { preferredProvider: 'openrouter' });
+    expect(req.selectedProvider).toBe('openrouter');
+    // ...but NOT a retired local provider, even through the TRUSTED router.
+    expect(selectProvider('text.copy', { preferredProvider: 'ollama' })[0]).toBe('gemini');
+    expect(buildAiRequest('text.copy', { prompt: 'p' }, { preferredProvider: 'comfyui' }).selectedProvider).toBe('gemini');
   });
 });
 
@@ -947,7 +953,7 @@ describe('guardrail · frozen files carry no gateway wiring', () => {
   it('no do-not-touch file references the AI gateway (no wiring crept in)', () => {
     // gemini.js left this list in Slice B (jake.draft_message): its ONE
     // authorized gateway operation is draftWithJake, guarded precisely below.
-    // geminiImage.js left this list in M2 J3C S4.2: its ONE authorized gateway
+    // hostedImage.js owns the ONE authorized gateway
     // operation is studio.generate_image (generateImage), guarded precisely below.
     const frozen = [
       '../../components/ai/Assistant.jsx',
@@ -960,8 +966,8 @@ describe('guardrail · frozen files carry no gateway wiring', () => {
     }
   });
 
-  it('geminiImage.js: ONLY studio.generate_image is gateway-routed — no other operation migrated', () => {
-    const code = read('../geminiImage.js');
+  it('hostedImage.js: ONLY studio.generate_image is gateway-routed — no other operation migrated', () => {
+    const code = read('../hostedImage.js');
     // the single allowed gateway import
     expect(/import \{ callAiGateway \} from '\.\/aiGatewayClient\.js';/.test(code)).toBe(true);
     // the ONE migrated lane: hosted text→image (M2 J3C S4.2)

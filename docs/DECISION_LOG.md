@@ -7,6 +7,7 @@
 
 ### 2026-06-09 · Build the Creative Director inside the CRM, not as a separate Python project
 - **Reason:** The CRM already had the ComfyUI/Ollama clients and AdStudio; a separate engine would duplicate pipelines and fragment the product.
+- **SUPERSEDED 2026-07-27:** ArtValue is a cloud-only product. The ComfyUI/Ollama clients and AdStudio no longer exist.
 - **Alternatives:** Standalone `creative-engine/` Python CLI (per an early spec); hybrid module + CLI.
 - **Outcome:** Engine lives in `src/lib/gemini.js`, surfaced via `/adstudio`. One product.
 

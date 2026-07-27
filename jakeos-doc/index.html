@@ -303,7 +303,7 @@
       <div class="node done">✓</div>
       <div class="body">
         <h4>שלב 5: מוח-ענן + דמואים ציבוריים + מגדל פיקוד <span class="tag ok">הושלם · חי</span></h4>
-        <p>הדמואים עובדים עכשיו <b style="color:var(--ink)">לכל לקוח</b>, מהדפדפן, בלי התקנה: מוח-ענן (Gemini) דרך פרוקסי-שרת ב-Cloudflare שמחזיק את המפתח כסוד (לא חשוף), עם fallback אוטומטי בין מודלים. מקומית ג'יק עדיין רץ על Ollama פרטי. ובנינו את <b style="color:var(--ink)">מגדל הפיקוד</b> — דשבורד אחד מעל כל ההטמעות: סטטוס, מוח, ארגז-כלים מלא, וכל הקישורים במקום אחד.</p>
+        <p>הדמואים עובדים עכשיו <b style="color:var(--ink)">לכל לקוח</b>, מהדפדפן, בלי התקנה: מוח-ענן (Gemini) דרך פרוקסי-שרת ב-Cloudflare שמחזיק את המפתח כסוד (לא חשוף), עם fallback אוטומטי בין מודלים. כל הרצה עוברת דרך הענן המאובטח — אין יותר מסלול מקומי. ובנינו את <b style="color:var(--ink)">מגדל הפיקוד</b> — דשבורד אחד מעל כל ההטמעות: סטטוס, מוח, ארגז-כלים מלא, וכל הקישורים במקום אחד.</p>
         <div class="meta"><span class="pill">functions/api/jake.js</span><span class="pill">Gemini proxy</span><span class="pill">jake-console.pages.dev</span><span class="pill">מפתח מוצפן</span></div>
       </div>
     </div>
@@ -337,9 +337,9 @@
   <div class="rv">
     <div class="truth"><div class="ti">🧠</div><div><b>המוח המקומי (aya‑8B) אינו צוואר הבקבוק.</b> <span>הוא מצטיין במשימות חישוביות ורב-פעולתיות. qwen3:14b לא הוסיף איכות — רק היה איטי פי 3‑5. נשארים עם aya.</span></div></div>
     <div class="truth"><div class="ti">⚡</div><div><b>קפיצת ה‑IQ האמיתית היא מוח‑API (Claude / Kimi).</b> <span>עולה כסף, דורש מפתח, והמידע יוצא מהמחשב — לכן זו החלטת בעלים פר‑לקוח, לא ברירת מחדל.</span></div></div>
-    <div class="truth"><div class="ti">💻</div><div><b>בניית המוצר היא קוד טהור — כל מחשב מספיק.</b> <span>רק הרצת מודל מקומי דורשת GPU. לקוח שרוצה פרטיות מלאה → Ollama מקומי (חינם + פרטי). לקוח אחר → API מכל מחשב.</span></div></div>
+    <div class="truth"><div class="ti">💻</div><div><b>בניית המוצר היא קוד טהור — כל מחשב מספיק.</b> <span>אין דרישת GPU ואין התקנה: כל לקוח עובד מול ה‑API המאובטח מכל מחשב.</span></div></div>
     <div class="truth"><div class="ti">🔒</div><div><b>לקרן צדקה (AI לבעלים בלבד) → מקומי הוא התאמה מושלמת.</b> <span>פרטיות מלאה, ללא עלות שוטפת, רץ על המחשב של הגבאי.</span></div></div>
-    <div class="truth"><div class="ti">☁️</div><div><b>לדמו שמראים ללקוח → ענן דרך פרוקסי-שרת.</b> <span>כדי שג'יק יעבוד לכל מבקר בלי התקנה ובלי GPU — Gemini דרך פונקציית-שרת ב-Cloudflare. המפתח יושב כסוד בצד-שרת ולא נחשף בקוד הדפדפן. תפר-המוח אומת חי: מקומי (Ollama) ↔ ענן (Gemini) בלי לגעת בלוגיקה.</span></div></div>
+    <div class="truth"><div class="ti">☁️</div><div><b>לדמו שמראים ללקוח → ענן דרך פרוקסי-שרת.</b> <span>כדי שג'יק יעבוד לכל מבקר בלי התקנה ובלי GPU — Gemini דרך פונקציית-שרת ב-Cloudflare. המפתח יושב כסוד בצד-שרת ולא נחשף בקוד הדפדפן. תפר-המוח מופשט מהלוגיקה, כך שהחלפת ספק ענן אינה נוגעת בה.</span></div></div>
   </div>
 </section>
 

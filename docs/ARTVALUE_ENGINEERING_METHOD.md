@@ -95,8 +95,7 @@ After implementation, before reporting:
 4. `git status --short` — clean except untracked `dist-profile/`.
 5. No broad staging occurred (never `git add -A`; every `git add` names exact paths).
 6. Source-purity and guardrail tests pass where relevant (they are part of the suite; call them out in the brief).
-7. Where the repo defines it, run `npm run local:review-prep -- --no-model` and report the verdict.
-8. Browser QA only when the change is user-visible **and** port 5173 is free; if the user's dev server occupies 5173, report and skip — never kill it.
+7. Browser QA only when the change is user-visible **and** port 5173 is free; if the user's dev server occupies 5173, report and skip — never kill it.
 
 ## 9. Post-merge Method
 
@@ -162,8 +161,8 @@ These invariants hold in every slice, always:
 - **No prompt payloads in persisted chat.** Transient cards/messages (handoff, progress, critique) are stripped before save and never rehydrated.
 - **Confirm-mode remains the sole action gate** for Jake actions — propose → confirm → execute; nothing executes without the confirm step.
 - The AI Gateway router and contract stay **pure and deterministic** (node-testable, frozen vocabularies, never-throws); the Edge Function stays a thin shell delegating to them.
-- Local providers (ComfyUI, Ollama, Fooocus, A1111) remain registered as dev/fallback providers — nothing local is deleted or disabled by gateway work.
-- Product Lock's pixel-preservation contract (product pixels 1:1, `grow_mask_by: 0` paste-back) must never be weakened.
+- **ArtValue is a CLOUD-ONLY product (owner decision, 2026-07-27).** Local providers (ComfyUI, Ollama, Fooocus, A1111) are **removed from the provider vocabulary, from every model entry and from every routing chain** — they are not registered, not selectable and not orderable. There is no `LOCAL_PROVIDERS` partition and no `localFirst` option. A gateway slice may never re-add one.
+- Product Lock was removed from the product; no pixel-preservation contract remains to protect.
 
 ## 15. Frozen Files and Protected Areas
 

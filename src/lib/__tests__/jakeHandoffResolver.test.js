@@ -96,8 +96,8 @@ describe('per-intent seed resolution', () => {
 
   it('product visual / product lock / studio prompt resolve buildStudioPromptSeed', () => {
     for (const [text, wf] of [
-      ['תכין לי ויזואל למוצר עם פרזנטור', 'product-presenter'],
-      ['אני רוצה להחליף רקע למוצר', 'product-lock'],
+      ['תכין לי ויזואל למוצר עם פרזנטור', 'fast-image'],
+      ['אני רוצה להחליף רקע למוצר', 'fast-image'],
       ['תכין לי פרומפט לסטודיו', 'fast-image'],
     ]) {
       const p = promptOf(text);

@@ -17,7 +17,7 @@ describe('ImageStudio preset picker — wiring', () => {
 
   it('renders a preset picker labelled for business recipes', () => {
     expect(src).toContain('מתכוני עסק');
-    expect(src).toContain('CREATIVE_PRESETS.map');
+    expect(src).toContain('presets.map');
     expect(src).toContain('applyPreset');
   });
 
