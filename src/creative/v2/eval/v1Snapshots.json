@@ -5,7 +5,7 @@
     "mode": "fixture",
     "model": null,
     "sampleCount": 1,
-    "warning": "SYNTHETIC DETERMINISTIC FIXTURE — NOT a real-model quality baseline. Hand-authored concepts to exercise the harness; the fixture PASS is directional only. Authoritative quality requires a human-labeled real local-model run (see artifacts/critic-eval/). Do NOT treat this as evidence the critic is validated, and do NOT promote it to a real baseline.",
+    "warning": "SYNTHETIC DETERMINISTIC FIXTURE — NOT a real-model quality baseline. Hand-authored concepts to exercise the harness; the fixture PASS is directional only. The real-model validation this warning used to point at required a local engine and is NO LONGER AVAILABLE in this repository (removed 2026-07-27); the supported measurement is this deterministic fixture run, which cannot establish quality. Do NOT treat this as evidence the critic is validated, and do NOT promote it to a real baseline.",
     "note": "Goldens are pinned to these samples. A real candidate has different concepts and must be promoted + re-labeled before its golden metrics apply.",
     "createdAt": "2026-06-26T00:00:00.000Z"
   },

@@ -66,7 +66,12 @@ const STEPS = [
   {
     icon: 'image',
     title: 'סטודיו התמונות',
-    body: 'כותבים תיאור בעברית ומקבלים תמונה עסקית — לוגו, מוצר, באנר או תמונת נושא. היצירה רצה בענן המאובטח של החשבון שלך, ואפשר לשמור לגלריה, לערוך פוסטר או להרכיב מוקאפ.',
+    // TRUTHFULNESS: this tour auto-opens ONLY in local/demo (shouldAutoOpenDemo
+    // returns false in cloud mode), i.e. exactly where there is NO account and,
+    // without an image lane configured, no generation either. The copy therefore
+    // describes the SURFACE and its always-available browser-side tools, and
+    // promises no account, no cloud and no successful generation.
+    body: 'מסך אחד ליצירת ויזואלים לעסק: כותבים תיאור בעברית — לוגו, מוצר, באנר או תמונת נושא — ומקבלים מתכוני פרומפט מוכנים, עורך פוסטר ומרכיב מוקאפים. יצירת התמונה עצמה זמינה כשהחשבון מחובר לשירות היצירה.',
     to: '/studio',
     look: 'צפה בסטודיו',
   },

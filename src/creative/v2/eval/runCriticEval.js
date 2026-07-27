@@ -6,9 +6,19 @@
 // committed goldens. Fully deterministic — no model, no network.
 //
 // The REAL (opt-in) mode was REMOVED with the local-engine retirement
-// (2026-07-27): it called a workstation model through the adapter to write a
-// candidate artifact, so it could never run again once the product became
-// cloud-only. The committed baseline snapshot it once produced is unchanged.
+// (2026-07-27): it called a workstation model through the adapter, so it could
+// never run again once the product became cloud-only.
+//
+// PROVENANCE — stated precisely: the REAL runner never produced the committed
+// snapshot. `v1Snapshots.json` is `source: 'fixture-synthetic'`, hand-authored
+// and expanded by `buildBaseline.js`; the REAL runner wrote SEPARATE candidate
+// artifacts and never overwrote it. Removing that runner therefore changes no
+// snapshot provenance — but it does mean the authoritative real-model
+// validation the fixture warning used to point at is no longer available in
+// this repository. The supported path is the deterministic FIXTURE measurement
+// below, which is directional only and is NOT evidence that the critic is
+// validated (concept-critic-v1 measured WORSE than the V1 baseline and stays
+// disabled at runtime).
 // ===================================================================
 import SNAPSHOT from './v1Snapshots.json';
 import { GOLDENS } from './goldens.js';
