@@ -81,7 +81,8 @@ Before staging, actively try to invalidate your own work:
 - **Persistence risks** — do prompt payloads leak into URLs, `localStorage`/`sessionStorage`, or persisted chat? Are transient messages excluded from save/hydrate?
 - **Deploy/runtime risks** — does the change assume tooling (Deno, Supabase CLI) or runtime behavior not verified in this environment? Say so explicitly rather than implying it works.
 - **Next-slice bleed** — does this slice quietly begin the next one (a provider call "for testing", a client stub, an env var "for later")? Remove it.
-- **Test honesty** — do new tests actually pin the behavior, or would they pass on a broken implementation? Did a test get weakened to make it pass?
+- **Test honesty** — do new tests actually pin the behavior, or would they pass on a broken implementation? Did a test get weakened to make it pass? (Prove it — §21.)
+- **Order of questions** — ask *"is this still inside the approved scope?"* **before** *"is there a more elegant way?"* (§20).
 
 Anything found here is fixed or reported — never silently shipped.
 
@@ -96,6 +97,7 @@ After implementation, before reporting:
 5. No broad staging occurred (never `git add -A`; every `git add` names exact paths).
 6. Source-purity and guardrail tests pass where relevant (they are part of the suite; call them out in the brief).
 7. Browser QA only when the change is user-visible **and** port 5173 is free; if the user's dev server occupies 5173, report and skip — never kill it.
+8. Every new check carries a **negative control** (§21), and nothing is called done without proof it works (§23).
 
 ## 9. Post-merge Method
 
@@ -277,3 +279,117 @@ The user shuttles briefs between the agent and the ChatGPT advisor. Respect that
 - Never bury a blocker inside prose — blockers appear in their own labeled line.
 - Never claim an unverified step as done. "Not run — tooling absent (non-blocking, manual step)" is the honest form.
 - If the prompt's requested format and this document ever conflict, **the prompt wins** — this method is the default, not an override.
+
+## 19. Owner Approval Gates
+
+The agent is autonomous inside a slice and never at its boundaries. This section says exactly where the boundary is.
+
+**Nathan (owner) approves — always, without exception:**
+
+| Gate | Why it is never autonomous |
+|---|---|
+| Merging a PR | Merged code is what the next release builds from; "merged" is a commitment, not a step. |
+| Any deployment (Preview or Production) | It changes what real users run. |
+| Applying a migration or any schema change | Irreversible against live data. |
+| Secrets, credentials, `.env`, `supabase/config.toml`, `package.json`/dependencies | Blast radius outside the repo, or outside the agent's ability to verify. |
+| Starting a new slice, or choosing which slice is next | Product priority is the owner's, not the agent's. |
+| Anything that reaches a customer or a third party | Sending, publishing, purchasing, granting access. |
+| Rewriting history, force-push, deleting a rollback tag or an unauthorized branch | Destroys the fallback the whole method depends on. |
+
+**Autonomous within an approved slice — no need to ask:**
+
+- Fixing a genuine code defect found inside the slice's allowed files, **with a test that pins it** (§21).
+- Reading anything; running the suite, the build, or the deterministic checker.
+- Correcting the agent's own earlier mistake in the same slice.
+
+**The caveat that makes autonomous fixing safe:** a defect found *outside* the allowed files is **reported, not fixed** — it becomes a note in the brief or a separate slice. "It was a one-line fix and obviously right" is exactly how a slice stops being reviewable. The size of the fix never justifies leaving the scope.
+
+When the gate is unclear, the strictest reading binds, and the ambiguity is named in the brief (§3).
+
+## 20. Scope Discipline in Practice
+
+§12 states the rules. This section is how the agent *notices* it is breaking them, because scope failures never announce themselves — the plan simply grows.
+
+**Every plan states what is out of scope, explicitly, before work starts.** A plan that lists only what will be done cannot detect its own growth. The measured failure mode was never an absent plan; it was a plan with no stated edge.
+
+**Symptoms that the scope is growing** — any one of these means stop and re-read the approved scope:
+
+- A file appears in the diff that was not on the allowed list.
+- The fix generalizes: it now handles cases nobody reported.
+- A new abstraction, framework, or helper appears "so this can't happen again".
+- The work needs a new dependency, config key, or env var.
+- The sentence "while I'm here" or "it's basically free" is forming.
+- The change would be hard to describe in one line of the brief.
+
+**Elegance is subordinate to scope.** Before asking *"is there a more elegant way?"*, ask *"is this still inside the approved scope?"*. A universal, well-designed, genuinely elegant solution to a problem nobody approved is still scope creep — the elegance is what makes it persuasive, and therefore dangerous. Record the elegant idea in the brief's notes; do not build it.
+
+**Out-of-scope findings are assets, not debts.** They go in the brief (or a spawned task), where the owner can price them. They never go in the diff.
+
+## 21. Positive and Negative Controls
+
+A check that has never failed is not known to be a check. `CLEAN` proves nothing until you have seen the same tool say `NOT CLEAN` for the right reason.
+
+**Required for every new test, guard, scanner or verification step:**
+
+1. **Negative control** — make the defect present (revert the fix, inject the fault, hand it the bad input) and prove the check **fails**, naming the exact failure count or message.
+2. **Positive control** — with the fix in place, prove the check **passes**, and prove it passes for the intended reason rather than by not looking. A scanner that finds zero hits is indistinguishable from a scanner pointed at the wrong file until something makes it report a hit.
+3. **Report both**, with numbers. "Reverting each layer fails 1 / 4 / 8 tests" is evidence; "tests pass" is not.
+
+The same rule applies to claims about documents and artifacts: when asserting *"X no longer appears anywhere"*, show the count where it **does** still appear (the file that legitimately holds it) alongside the zeroes. A sweep that returns all zeroes has not distinguished "clean" from "broken query".
+
+**State the counting rule with any count.** A bare number invites a different definition and a false disagreement — report *"N paragraphs framing an identifier as current"*, not *"N identifiers"*. Two honest measurements with different definitions look like a contradiction until one of them is defined.
+
+**Never simulate the artifact.** Run the real extracted thing — the exact query, the built bundle, the served file. A rewritten approximation tests the rewrite.
+
+## 22. Rollback Hierarchy
+
+At any moment there is **exactly one current rollback target: the deployment immediately before the live one.** Everything older is a *historical fallback only* and must be labeled as such wherever it is named.
+
+- Rolling back to a deployment older than the current target silently reverts every slice released in between. That is why "an older deployment that still returns 200" is not an acceptable target.
+- The current target is verified reachable (HTTP 200, correct bundle) **after** each deployment, not assumed.
+- **The current target is recorded in `docs/PROJECT_TRACKER.md` and nowhere else** (§24 / lesson L-002 explains what the second copy costs).
+- A rollback tag is never deleted, and a tag is not a substitute for a reachable deployment — code and artifact are separate fallbacks.
+
+## 23. Verification Before "Done"
+
+**A task is complete when there is evidence it works — not when the edit is written.** "Implemented" and "verified" are different states, and the brief must never blur them.
+
+- Every completion claim names the evidence: the command run, its result, the counts, the artifact inspected.
+- **Verified** = ran or read it this session. **Expected** = documented, not executed here. The two are always labeled distinctly (§10).
+- A step that could not be verified is reported as unverified, with the reason. That is an acceptable outcome; a silent claim is not.
+- If verification requires something the agent may not do (deploy, apply a migration, sign in), the task is reported as *implemented, awaiting owner-executed verification* — never as done.
+- Partial completion is stated as partial, naming exactly what is missing. Scaling the work down is the owner's decision (§19), so it must be visible to make it.
+
+## 24. Defect-Pattern Log (append-only)
+
+**Why it lives here and not in its own file.** An agent reads this document at the start of a task. A lesson in a file nobody opens at that moment prevents nothing — and `docs/` just shed three parallel state documents precisely because parallel documents drift. One entry point, one read.
+
+**How to write an entry.** After the owner corrects something, record the **pattern that prevents recurrence**, not the incident. Entries are short and prescriptive. When a pattern proves stable, it is promoted into a numbered rule above and the entry is compressed to a single cross-reference line — that is what keeps this section from growing without bound.
+
+**When to write one.** Any owner correction; any defect that survived a review; any defect class that recurred within a single piece of work.
+
+---
+
+**L-001 · A "historical" label on a paragraph does not neutralize a present-tense claim inside it.**
+*From:* three current-state claims survived two manual sweeps because the block they sat in was headed as history.
+*Pattern:* scope the exemption to the sentence, not the container. When marking a block historical, read each sentence in it for present tense; a sentence that says what is true *today* is a live claim wherever it sits.
+
+**L-002 · A blanket exemption marker hides exactly what it was built to catch.**
+*From:* the checker passed any paragraph containing the word `rollback`, so the stale README line naming the wrong rollback target was invisible to the check written to catch it.
+*Pattern:* exemptions match specific *roles* ("rollback target is", "historical fallback"), never a bare topic word. When a check exempts something, ask what the exemption also lets through, and prove it with a negative control (§21).
+
+**L-003 · A language-neutral check with English-only markers is half a check.**
+*From:* the identifier scan worked on Hebrew RTL documents, but its historical-marker vocabulary was English-only — so correct Hebrew sentences were flagged and Hebrew current-state claims were not.
+*Pattern:* when a check spans bilingual documents, every vocabulary in it is bilingual — the signal and the exemptions both. A check whose signal is language-neutral but whose judgment is not will be wrong in one language and confident in both.
+
+**L-004 · The same defect class recurred three times inside one piece of work.**
+*From:* "stale current-state" was corrected in the tracker, then found again in the roadmaps, then again in a duplicated block of the same roadmap.
+*Pattern:* on the **second** instance of a defect, stop fixing instances and inventory the class — every file, every duplicate block, every language — before editing again. Fixing the reported instance while siblings survive is the expensive path, and it is the default one.
+
+## 25. Practices Considered and Not Adopted
+
+Recorded with reasons, so they are not re-proposed as new ideas.
+
+**"Use subagents liberally" — not adopted.** It contradicts this project's standing instruction not to spawn agents unrequested, and it contradicts the measured evidence: what caught real defects here was verification against the real system (the served bundle, the live Edge version, the executed query), not additional parallel opinions. A local model scored 0/12 on the golden set of real findings while producing confident output. More opinions raise the volume of judgment, not the amount of evidence. *What does work, when a second pass is genuinely needed:* a separate session **with repository access** that verifies claims against files and commands — verification, not vibes.
+
+**`tasks/todo.md` — not adopted.** It would be a fourth place where state lives, next to `docs/PROJECT_TRACKER.md` and the agent's memory. `docs/` just deleted three parallel state documents for exactly this reason: duplicated state is not updated in parallel, so all but one copy is wrong. In-flight work belongs in the tracker; nothing else needs a file.
