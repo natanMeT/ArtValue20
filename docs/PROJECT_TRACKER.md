@@ -6,7 +6,11 @@
 **Purpose:** single source of truth for state, so work continues across sessions with no loss.
 Nathan passes this to ChatGPT so it can review/advise **without re-deriving or guessing** state.
 **ChatGPT does NOT edit this document.** Only Claude updates it.
-**Last updated:** 2026-07-27 — session: **ABSOLUTE CLOUD-ONLY BOUNDARY (ROUND 11) — IN FLIGHT / NOT RELEASED.** Nathan's absolute decision: no executable local-engine code anywhere in the repository, product AND tooling. Round 10's two disclosed exceptions are withdrawn. **The AI Gateway shared contract changed:** `comfyui` / `ollama` / `fooocus` / `a1111` are removed from `AI_PROVIDERS`, `AI_MODELS` and every routing chain, together with the `LOCAL_PROVIDERS` partition, the `localFirst` selection option (and its response metadata) and the local zero-cost branch — the 20-action cloud vocabulary is unchanged and every action still resolves to a non-empty all-API chain. **`scripts/local-review-prep.mjs` (a local-Ollama caller), its test, the whole `scripts/` directory, `comfy_help.txt` and the `local:review-prep` / `dev:local` / `preview:local` npm scripts are DELETED.** Docs corrected where they claimed local engines are still supported. Repo-wide proof scans **172 non-test executables** across `src/`, `supabase/`, root and `scripts/` for engine names and local addresses with comments stripped, and proves the `src/lib` Gateway shims are pure re-exports so no divergent copy can exist. Two further Codex P2s on `1233034` (a DemoMode copy regression of mine, and eval-provenance wording) were confirmed and fixed. Codex then broke the proof's hand-written scanner three times (URL `//` in string literals; nested `.mjs`/`.cjs`; then object literals in template substitutions, JSX text and regex after `return`). The approximation WAS the defect, so it is gone: the scanner is now **parser-backed via `@babel/parser`**, blanking only the parser's own comment ranges, and the address classes were widened to RFC1918/link-local/IPv6 private ranges in network context. Suite **110 files / 2,997 passed / 0 skipped / 0 failed**, build green (`index-C4frcMDi.js`, 608.05 kB); the app bundle now has **zero** hits for every local term including the provider-registry strings that survived round 10. Runtime: retired routes fail safe, all surviving creative routes render, 0 local requests, 0 console messages. ⚠️ **An Edge `ai-gateway` redeploy will be REQUIRED later — NOT performed here**; nothing deployed, no secret or remote configuration touched. Prior round summaries follow. **(Round 10)** 
+**Last updated:** 2026-07-27 — session: **COMPLETE LOCAL-ENGINE RETIREMENT (rounds 8–15) — PR [#118](https://github.com/natanMeT/ArtValue20/pull/118) MERGED / NOT RELEASED.** Merge commit `9ecb8ebf023886f32496d3002944a3b092314cfe` (parents `5d7506d1` + the approved head `cd651ea`), 2026-07-27T07:00:34Z, **0 unresolved review threads**, Codex clean on the exact merged head. **The retirement is on `main` and is running NOWHERE:** Production unchanged at **`247ef9ec` / `index-BZ3B-0yd.js` (source `03c23c2`)**, no Preview created, Edge `ai-gateway` still **v35 ACTIVE / `verify_jwt=true`** with its merged contract changes **NOT live**. No migration, schema, Auth or secret change. Rollback tag `pre-local-engine-retirement` @ `5d7506d1`. At the merged head: focused proof 2 files / 172 passed; **full suite 110 files / 3,074 passed / 0 skipped / 0 failed**. **The PR #118 box in the Baseline below is the authoritative state.** Still unverified: authenticated Studio generation and authenticated Jake Gateway calls. ⚠️ **An Edge `ai-gateway` redeploy is REQUIRED before release and has NOT been performed.**
+
+> *Everything below in this summary is a **HISTORICAL** account of how the slice was built. Round labels such as "IN FLIGHT" describe the state **at that round**, not today.*
+
+**(Round 11 — historical)** Nathan's absolute decision: no executable local-engine code anywhere in the repository, product AND tooling. Round 10's two disclosed exceptions are withdrawn. **The AI Gateway shared contract changed:** `comfyui` / `ollama` / `fooocus` / `a1111` are removed from `AI_PROVIDERS`, `AI_MODELS` and every routing chain, together with the `LOCAL_PROVIDERS` partition, the `localFirst` selection option (and its response metadata) and the local zero-cost branch — the 20-action cloud vocabulary is unchanged and every action still resolves to a non-empty all-API chain. **`scripts/local-review-prep.mjs` (a local-Ollama caller), its test, the whole `scripts/` directory, `comfy_help.txt` and the `local:review-prep` / `dev:local` / `preview:local` npm scripts are DELETED.** Docs corrected where they claimed local engines are still supported. Repo-wide proof scans **172 non-test executables** across `src/`, `supabase/`, root and `scripts/` for engine names and local addresses with comments stripped, and proves the `src/lib` Gateway shims are pure re-exports so no divergent copy can exist. Two further Codex P2s on `1233034` (a DemoMode copy regression of mine, and eval-provenance wording) were confirmed and fixed. Codex then broke the proof's hand-written scanner three times (URL `//` in string literals; nested `.mjs`/`.cjs`; then object literals in template substitutions, JSX text and regex after `return`). The approximation WAS the defect, so it is gone: the scanner is now **parser-backed via `@babel/parser`**, blanking only the parser's own comment ranges, and the address classes were widened to RFC1918/link-local/IPv6 private ranges in network context. Suite at that round **110 files / 2,997 passed / 0 skipped / 0 failed** *(superseded — the merged head measured 3,074)*, build green (`index-C4frcMDi.js`, 608.05 kB); the app bundle now has **zero** hits for every local term including the provider-registry strings that survived round 10. Runtime: retired routes fail safe, all surviving creative routes render, 0 local requests, 0 console messages. ⚠️ **An Edge `ai-gateway` redeploy will be REQUIRED later — NOT performed here**; nothing deployed, no secret or remote configuration touched. *(Still true today — see the PR #118 box.)* Prior round summaries follow. **(Round 10 — historical)** 
 
 ---
 
@@ -26,6 +30,45 @@ Nathan passes this to ChatGPT so it can review/advise **without re-deriving or g
 ---
 
 ## Baseline (current — Studio / Local-Engine UI Containment CLOSED / LIVE in Production)
+
+> ### ⚠️ PR #118 IS **MERGED** BUT **NOT RELEASED** (2026-07-27)
+>
+> The **complete local-engine retirement is on `main`** and is **not running anywhere**. Read this box before any
+> statement below about what is live.
+>
+> | | |
+> | --- | --- |
+> | PR [#118](https://github.com/natanMeT/ArtValue20/pull/118) | **MERGED** 2026-07-27T07:00:34Z |
+> | Merge commit | **`9ecb8ebf023886f32496d3002944a3b092314cfe`** (parents `5d7506d1` + `cd651ea`) |
+> | Approved head = merged 2nd parent | **`cd651ead168f728aee50bd8c481df611b7b704f9`** ✅ verified |
+> | **Merged application-code anchor** | **`753ee2ee0b8ed60a262b2bff9396eb1a603f85d1`** — the last commit touching production code; `1c6987b`, `d417d00` and `cd651ea` are **test-only** |
+> | Production | **UNCHANGED — still `247ef9ec` / `index-BZ3B-0yd.js` / source `03c23c2`** |
+> | Preview | **none created for this release** |
+> | Edge `ai-gateway` | **v35 ACTIVE, `verify_jwt=true` — UNCHANGED. Merged contract changes are NOT live and require an approved redeploy** |
+> | Migration / schema / Auth / secrets | **none — 6/6 migrations applied and matching, nothing pending** |
+> | Rollback tag | **`pre-local-engine-retirement` @ `5d7506d1`** (pre-merge `main`), pushed and retained |
+> | Branch | `fix/studio-hosted-mode-containment` retained at `cd651ea` |
+>
+> **Test evidence at the merged head `cd651ea`:** focused retirement proof **2 files / 172 passed / 0 failed**
+> (`localEngineRetirement` 120, `studioHostedModeContainment` 52); **full suite 110 files / 3,074 passed / 0 skipped /
+> 0 failed**. Production build green at the pre-merge application anchor, emitting `index-C4frcMDi.js`; runtime smoke on
+> that build recorded 0 local-engine requests, 0 engine terms and 0 console messages.
+>
+> **Codex evidence — CORRECTION TO THE MERGE REPORT.** The merge report stated that no final Codex verdict had returned
+> before merging. **That was wrong.** Verified live in GitHub: Codex posted a clean verdict on the exact approved head —
+> *"Codex Review: Didn't find any major issues. 🚀 — Reviewed commit `cd651ead16`"*
+> ([comment 5088018183](https://github.com/natanMeT/ArtValue20/issues/118#issuecomment-5088018183)) at
+> **2026-07-27T06:27:54Z, 33 minutes BEFORE the 07:00:34Z merge**, and no Codex review was submitted after it.
+> **0 unresolved review threads** at merge. *(Precision: the verdict is a clean-verdict comment carrying a 🚀 emoji in
+> its own text; it carries no 👍 reaction — the comment itself is the evidence.)*
+>
+> **Still unverified, carried forward:** authenticated Studio generation and authenticated Jake Gateway calls have
+> **never** been exercised in any session (no credentials). **Unselected follow-up, not implemented:** platform-level
+> egress hardening (CSP `connect-src`, server-side egress policy), including that `fetchSiteText` passes a user-supplied
+> URL to the third-party reader proxy — pre-existing released behaviour.
+>
+> **P1 Atomic Quote Persistence remains CLOSED / LIVE.** **PR #117 remains paused and untouched.**
+
 - Repo: `C:\Users\PC\ArtValue` (origin/main). GitHub repo `natanMeT/ArtValue20`.
 - **Active application release code anchor:** `03c23c23568905cb42e7f154014dd2ddc32bb58f` (repository `main` after docs PR #115; the Studio-containment Production artifact was built from this commit). The prior P1 anchor `7e301993f21a8a56ab1a4dd2d9b7cec6c9793df6` is retained historically as the rollback deployment's source. The prior S0F.1 anchor `983f4899a7c9736669d97b49ed1575129f820653` is retained historically as the rollback deployment's source.
 - **Three DISTINCT anchors — never collapse them.** This tracker records no fixed value for the repository head, because documentation merges advance it continuously and any pinned value would be false within minutes:
@@ -168,7 +211,7 @@ Still open:
 - ✅ **Non-atomic quote persistence** — RESOLVED and LIVE: migration `20260726120000` applied, `public.save_quote_atomic` live, failure-injection acceptance 13/13, Production `476830a2`.
 
 ## Open follow-ups (non-blocking)
-- 🔧 **Jake advertises creative capabilities that the cloud path cannot run — BEING FIXED in the Studio Hosted Mode Containment Correction (in flight, not deployed).** It turned out to be more than a wording issue: it was the **entry point** into the hidden-mode hand-off defect. Original entry retained below for history.
+- 🔧 **Jake advertises creative capabilities that the cloud path cannot run — FIXED in the Studio Hosted Mode Containment Correction — **MERGED into `main` 2026-07-27 as PR #118, NOT deployed**.** It turned out to be more than a wording issue: it was the **entry point** into the hidden-mode hand-off defect. Original entry retained below for history.
 - ⚠️ **(historical) Jake advertises creative capabilities that the cloud path cannot run — truthfulness follow-up, NOT a regression.** Observed during both the Preview and Production authenticated smokes: asked what he can do, Jake lists `סדרת דמות`, `אלבום דוגמנית` and `פרזנטור מוצר`, which are **hidden in the cloud UI** because they require a local engine. Cause: `systemCapabilities()` in `businessBrain.js` enumerates every *live* workflow from the catalog regardless of engine availability. **This predates the Studio containment slice** — that slice only removed the engine NAMES from the same text — so it is not a regression and did not block release. Worth a future slice that filters the advertised capability list by what the current runtime can actually execute. **Not selected; do not begin without Nathan's approval.**
 - ✅ **Quote cloud-save source label truthfulness — RESOLVED / LIVE.** `src/pages/Quotes.jsx` previously toasted "נשמר מקומית" in authenticated cloud mode even though the quote was durably persisted (wording/source-label only — never data loss). PR #108 routes both quote toasts through the source-aware `saveLabel(mode)` helper (`'נשמר במערכת'` in `supabase` mode); confirmed on Preview with the byte-identical artifact ("הצעת מחיר נוצרה · נשמר במערכת" / "ההצעה עודכנה · נשמר במערכת") and **shipped to Production in deployment `476830a2`**.
 
@@ -192,9 +235,9 @@ Recorded here only as a **planned future product slice / candidate**, not as an 
 - [x] **Next product slice — Studio / local-engine UI containment: DONE, CLOSED / LIVE in Production** (deployment `247ef9ec`) — see its section below. The candidate list below is preserved for the slice AFTER this one.
 - [ ] **Slice after this one — PENDING NATHAN DECISION.** Do NOT begin/design/invent the next slice until Nathan selects one and approves a spec. Candidate open items: durable **Asset Library**; durable **Campaigns** + account-aware Growth data model (the Growth reopening prerequisites); **Products / Projects / Inventory / Templates / Activity durability**; **organization boundaries**; **credits / cost controls**; **Website Scanner** (per the section above); Jake conversation-refresh UX. **NOT a candidate: the Quote cloud-save source-label correction — it is already RESOLVED and LIVE in Production (implemented in merged PR #108, shipped in deployment `476830a2`), so it must never be selected or re-implemented as a new slice.**
 
-## Studio Hosted Mode Containment Correction — **IN FLIGHT / NOT RELEASED** (2026-07-26)
+## Studio Hosted Mode Containment Correction — **MERGED / NOT RELEASED** (opened 2026-07-26; merged 2026-07-27 as PR #118)
 
-> **Studio Containment is LIVE in Production with a corrective containment gap IN FLIGHT.** The released behaviour is
+> **Studio Containment is LIVE in Production; the corrective work below is MERGED into `main` but NOT deployed.** The released behaviour is
 > real and unchanged; the absolute closure wording below was **too strong** and is corrected here. **No rollback is
 > indicated** — this is a truthfulness/containment defect in an error string and a mode-selection guard, **not data
 > loss, not a security or Auth exposure, no schema/Gateway involvement.**
@@ -214,7 +257,7 @@ hits were **"non-rendered internals"**. **That classification was wrong** — at
 absence/presence in the bundle was treated as reachability evidence when it is not; the technical strings legitimately
 remain inside diagnostic `Error` objects.
 
-**Fixed in three defensive layers** (branch `fix/studio-hosted-mode-containment`, PR open, **not merged, not deployed**):
+**Fixed in three defensive layers** (branch `fix/studio-hosted-mode-containment`; *written while the PR was open — it was **merged** on 2026-07-27 as PR #118 and is **still not deployed***):
 1. **Jake truthfulness** — `systemCapabilities()` now takes the authoritative available-mode set and advertises only
    workflows this configuration can actually open. **Fail closed** if a caller omits it. Availability is *injected*, not
    imported, so `businessBrain.js` keeps its no-engine-imports boundary (its own guard test caught my first attempt).
@@ -374,7 +417,7 @@ the new predicate, while `console.*`, `userFacingError(...)` and data-contract `
 - **Source/test proxies (labelled as such):** the ImageStudio wiring pins (`studioSubfeature(...)`, `availablePresets(...)`,
   the balanced-region gate containment) are assertions over source text, not runtime observations.
 
-**Still IN FLIGHT / NOT RELEASED.** PR #118 is not merged and nothing is deployed. **P1 Atomic Quote Persistence remains
+**MERGED / NOT RELEASED.** PR #118 was merged 2026-07-27 (merge `9ecb8eb`); nothing is deployed — Production, Preview and Edge are unchanged (see the PR #118 box in the Baseline). **P1 Atomic Quote Persistence remains
 CLOSED / LIVE.** **PR #117 remains paused and untouched.**
 
 ### Round 5 — ARCHITECTURE REPAIR after an independent review (the enforcement layer was the defect)
@@ -509,7 +552,7 @@ credentials in this session), so provider routing is proven at the resolution se
 completed render on a live ComfyUI rig; the recorded out-of-scope debt (`ProjectDetail` ×3, `jakeAgent` ×1) is
 re-measured and unchanged but still **not fixed**; and no Production or Preview deployment was touched.
 
-**Still IN FLIGHT / NOT RELEASED.** **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+**MERGED / NOT RELEASED** (round record). **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 
 ### Round 7 — two final Codex P2 corrections (head `11cf66b`)
 
@@ -617,7 +660,7 @@ String presence in a single-chunk bundle is not proof of reachability — this p
 "no reachable Studio local path" is proven **structurally, by the Studio's import closure**, plus the DOM/network
 evidence above. No authenticated end-to-end generation was run (no credentials this session).
 
-**Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+**MERGED / NOT RELEASED** (round record; the slice was merged on 2026-07-27 as PR #118 — nothing deployed). **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 
 ### Round 9 — PRODUCT DECISION: Product Lock removed entirely + 4 Codex findings on `7f9daf8`
 
@@ -662,7 +705,7 @@ attempt renders `יצירת התמונה אינה זמינה כרגע.`.
 ⚠️ **Codex's review of `7f9daf8` is NOT merge-clearance for that head** — it raised 4 findings, all fixed here, and the
 head itself has been superseded. No authenticated end-to-end generation was run (no credentials this session).
 
-**Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+**MERGED / NOT RELEASED** (round record; the slice was merged on 2026-07-27 as PR #118 — nothing deployed). **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 
 ### Round 10 — FINAL PRODUCT DECISION: **the whole application is CLOUD-ONLY** (2026-07-27)
 
@@ -752,7 +795,7 @@ subjects and no compatibility scaffolding was retained.
 WARNING — **not verified:** no authenticated end-to-end hosted generation was run (no credentials this session), so the
 authenticated Studio/Jake path is proved structurally and by unauthenticated runtime, not by a signed-in run.
 
-**Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+**MERGED / NOT RELEASED** (round record; the slice was merged on 2026-07-27 as PR #118 — nothing deployed). **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 
 ### Round 11 — ABSOLUTE CLOUD-ONLY BOUNDARY: no executable local code anywhere in the repo (2026-07-27)
 
@@ -1034,7 +1077,7 @@ candidate of its own — and layer 2 independently proves it is the sole `fetch`
 (`index-Cb5pUh5g.js`, 610.27 kB — +2.2 kB, the policy module). Runtime smoke: 5-route navigation + 3s idle → 8 requests,
 **0 local requests**, 0 console messages, the only non-origin request being the Google Fonts stylesheet.
 
-**Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+**MERGED / NOT RELEASED** (round record; the slice was merged on 2026-07-27 as PR #118 — nothing deployed). **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 
 ### Round 12 — SCOPE CORRECTION: the network-egress framework is REMOVED (2026-07-27)
 
@@ -1114,8 +1157,8 @@ egress policy — not application-level JavaScript. One concrete sub-item worth 
 user-supplied URL to the third-party reader proxy, so the proxy can be asked to fetch a private address on the user's
 behalf. That is pre-existing, released behaviour and is unchanged by this PR.
 
-**Still IN FLIGHT / NOT RELEASED. Not merged, not deployed. P1 remains CLOSED / LIVE. PR #117 remains paused and
-untouched.**
+**MERGED / NOT RELEASED** (round record; merged 2026-07-27, nothing deployed). **P1 remains CLOSED / LIVE. PR #117
+remains paused and untouched.**
 
 ### Round 13 — the retirement MANIFEST (2 Codex P2s on `753ee2e`, both regression coverage only)
 
@@ -1184,8 +1227,9 @@ non-vacuity check confirms the scan reads real source (>100 files) and that the 
 **Verification.** **Test-only change — no production source touched, so no build and no browser smoke were run**;
 the artifact remains the already-verified `index-C4frcMDi.js`. Focused proof suites: **2 files / 171 passed / 0 failed**
 (`localEngineRetirement.test.js` **119**, up from 115; `studioHostedModeContainment.test.js` 52). The full suite was not
-re-run this round. No product behavior changed; the removed network-policy work is not reopened. Not merged, not
-deployed. PR #117 remains paused and untouched. *(Counts superseded by Round 15 below.)*
+re-run this round. No product behavior changed; the removed network-policy work is not reopened. **Nothing was
+deployed at this round**; the slice was merged later, on 2026-07-27, and is still not released. PR #117 remains paused
+and untouched. *(Counts superseded by Round 15 below.)*
 
 ### Round 15 — TERMINAL walk fix + PROOF SCOPE FROZEN (1 Codex P2 on `d417d00`)
 
@@ -1226,16 +1270,121 @@ artifact remains the already-verified `index-C4frcMDi.js`. Focused proof: **2 fi
 
 **PROOF SCOPE IS NOW FROZEN.** Any further Codex finding is to be **classified, not auto-patched**: an actual current
 product defect, an invalid release claim, or another hypothetical proof-completeness improvement — and reported for
-Nathan's merge decision. Still IN FLIGHT / NOT RELEASED, not merged, not deployed. P1 remains CLOSED / LIVE. PR #117
+Nathan's merge decision. **MERGED 2026-07-27 / NOT RELEASED** — nothing deployed. P1 remains CLOSED / LIVE. PR #117
 remains paused and untouched.
 
-**No product behavior changed. The removed network-policy work is not reopened.** Still IN FLIGHT / NOT RELEASED, not
-merged, not deployed. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.
+**No product behavior changed. The removed network-policy work is not reopened.** **Nothing was deployed at this
+round**; the slice was merged later, on 2026-07-27, as PR #118, and is still not released. P1 remains CLOSED / LIVE.
+PR #117 remains paused and untouched.
 
+## PR #118 Release Readiness — **MERGED / NOT RELEASED** (preflight only, 2026-07-27)
+
+Read-only preflight. **Nothing was deployed, no secret or configuration was mutated, no build was run.** Four
+independent approval gates follow; each needs its own explicit authorization.
+
+### Merge record (verified live, not assumed)
+
+| Item | Verified value |
+| --- | --- |
+| PR #118 | **MERGED** 2026-07-27T07:00:34Z |
+| Merge commit | `9ecb8ebf023886f32496d3002944a3b092314cfe` |
+| Parents | `5d7506d1` (pre-merge `main`) + **`cd651ead168f728aee50bd8c481df611b7b704f9`** (the approved head, as 2nd parent ✅) |
+| Unresolved review threads | **0** |
+| Codex verdict | clean on the **exact** approved head: *"Didn't find any major issues. 🚀 — Reviewed commit `cd651ead16`"*, 2026-07-27T06:27:54Z — **33 min before the merge**; no Codex review submitted afterwards |
+| Rollback tag | `pre-local-engine-retirement` @ `5d7506d1`, pushed and retained |
+
+**Correction of record:** the merge report claimed no final Codex verdict had returned before merging. It had. The
+statement was wrong and is corrected here.
+
+### Gate 2 — Edge `ai-gateway` redeploy (read-only preflight)
+
+- **Exactly one deployed function requires redeployment: `ai-gateway`.** It is the **only** function that exists on the
+  project (`supabase functions list` returns a single entry) and the only one the merge touches.
+- **Live now:** `ai-gateway` **v35, status ACTIVE, `verify_jwt=true`**, entrypoint `supabase/functions/ai-gateway/index.ts`.
+  Redeploying makes it **v36**.
+- **What the merge changed, and is NOT live** — `supabase/functions/_shared/` only, 2 files, −58/+36 lines:
+  - `aiGateway.js` — `comfyui` / `ollama` / `fooocus` / `a1111` removed from `AI_PROVIDERS`; the `LOCAL_PROVIDERS`
+    partition **deleted**; `comfyui` and `ollama` entries removed from `AI_MODELS`; `ollama` removed from the tail of
+    **11** `DEFAULT_PROVIDER_BY_ACTION` chains; the `localFirst` ordering branch and its `metadata.localFirst` field
+    **removed** (`apiFirst` retained as an accepted no-op, so existing callers keep working); the local-provider
+    zero-cost branch in `estimateCost` reduced to the `'none'` sentinel.
+  - `aiGatewayContract.js` — **comment only**: `localFirst` dropped from the list of routing options the untrusted
+    boundary discards. **No behavioural change** (the boundary already discarded *every* caller-supplied routing key).
+- **Cloud action vocabulary is UNCHANGED** — all 20 action types remain, and every action still has a non-empty chain of
+  API providers. `ai-gateway/index.ts` and every adapter under `ai-gateway/` are **untouched** by the merge.
+- **Canonical ↔ shim synchronization: VERIFIED IN SYNC.** All three `src/lib` shims are pure re-exports of the canonical
+  `supabase/functions/_shared/` modules (`export * from '../../supabase/functions/_shared/<name>.js';`), asserted by the
+  retirement suite. The frontend and the Edge function therefore read one contract; **they should be released together**,
+  and a frontend-only release would ship a bundle whose contract copy is ahead of the deployed Edge function.
+- **No migration, schema, Auth, secret or configuration mutation is required.** `supabase migration list --linked`
+  confirms **6/6 applied and matching, none pending**; the merge adds no migration and touches no `config.toml`,
+  `wrangler.toml` or secret. `.env.example` and `package.json` changed (retired variables and scripts removed) — both are
+  **repository documentation/tooling, not deployed configuration**.
+- **Future commands (NOT executed):**
+  ```
+  supabase functions deploy ai-gateway --project-ref weciwurjfwmqihcyexzj
+  supabase functions list --project-ref weciwurjfwmqihcyexzj      # expect version 36, ACTIVE, verify_jwt=true
+  ```
+  Post-deploy smoke: one authenticated `jake.chat` and one `studio.generate_image` call, confirming a normal reply, and
+  a negative check that a request naming a local provider is not routable.
+- **Rollback method:** redeploy the **previous** function source from the pre-merge tree
+  (`git checkout pre-local-engine-retirement -- supabase/functions` → `supabase functions deploy ai-gateway`), which
+  restores the v35 contract as a new version. **Currently live rollback target: v35 itself, which stays live until an
+  approved deploy replaces it.**
+
+### Gate 3/4 — frontend release (read-only preflight)
+
+- **Merged application-code anchor: `753ee2ee0b8ed60a262b2bff9396eb1a603f85d1`.** Verified: the three commits after it
+  on the branch — `1c6987b`, `d417d00`, `cd651ea` — touch **only** `src/lib/__tests__/**` and `docs/`, i.e. they are
+  **test-and-documentation-only**. The release source is nevertheless the **merge commit `9ecb8eb`**.
+- **The previously tested artifact is NOT eligible for promotion.** `dist/assets/index-C4frcMDi.js` on disk was built
+  **before** the merge, from the `753ee2e`-era tree. Exact-artifact promotion requires an artifact built **from the
+  released commit**, so a fresh build from `9ecb8eb` is mandatory. *(It is expected — not guaranteed — to reproduce the
+  same content hash, since the intervening commits are test-only; if it does, that reproduction is itself corroborating
+  evidence, and if it does not, the difference must be explained before promotion.)*
+- **Required steps, in order:** (1) confirm clean tree at `9ecb8eb`; (2) **one** production build; (3) artifact scan —
+  0 occurrences of `comfy`/`ComfyUI`/`ollama`/`fooocus`/`a1111`/`localhost`/`127.0.0.1`/`:8188`/`:11434`/`:7860` and of
+  every retired `VITE_*` name in the emitted bundle; (4) deploy that `dist/` to a **Preview** branch; (5) verify the
+  Preview serves the built bundle (12/12 files byte-identical); (6) authenticated acceptance; (7) promote the **same**
+  `dist/` to Production unchanged (expect wrangler "Uploaded 0 files"); (8) served-bytes proof 12/12; (9) authenticated
+  non-mutating Production smoke.
+- **Authenticated acceptance checklist (the gap that has never been closed):** sign in as Account A → **Studio**: open
+  `/studio`, run **one real cloud generation** end-to-end and confirm an image returns with a truthful in-product
+  message on failure; confirm the brand palette applies; confirm gallery save/download work. **Jake**: open the
+  assistant, send one real message and confirm a Gateway reply, and confirm Jake's capability text names **no** engine.
+  Confirm Business Context loads and Growth lanes remain `BetaUnavailable`.
+- **Retired-route and zero-local-engine-request checks:** navigate `/adstudio`, `/workflow`, `/workflowstudio`,
+  `/fooocus`, `/comfy`, `/comfyui`, `/ollama`, `/a1111` — each must fail safe to the dashboard; with a spy over
+  `fetch` / `XMLHttpRequest` / `WebSocket` / `EventSource` across the whole session plus an idle period, expect
+  **0 requests to any loopback address or engine port**, 0 engine terms in rendered text, and 0 console errors.
+- **Production smoke:** non-mutating, authenticated, on the canonical `artvalue-product.pages.dev` — correct bundle
+  served, all assets HTTP 200, 0 console errors, 0 mutating requests, DB row counts unchanged before/after.
+- **Frontend rollback — three distinct roles, never collapse them (verified LIVE against Cloudflare Pages, 2026-07-27):**
+  1. **LIVE now:** **`247ef9ec-ad3a-4c15-8b16-25afa1c47f2b`** (source `03c23c2`) — the canonical
+     `artvalue-product.pages.dev` serves its bundle **`index-BZ3B-0yd.js`**.
+  2. **CURRENT rollback target, until this new release is promoted:** **`476830a2-f8ea-45dc-b0ce-a71876bc48dd`**
+     (source `7e30199`, bundle `index-BrR14XIC.js`) — the immediately previous Production deployment. It is **NOT**
+     live: its alias serves its own, different bundle.
+  3. **AFTER the future Studio-retirement promotion:** the new deployment becomes live and **`247ef9ec`** becomes the
+     rollback target; `476830a2` demotes to historical fallback.
+
+  Restored via the Cloudflare Pages deployment history. Git-level rollback: `pre-local-engine-retirement` @ `5d7506d1`.
+
+### Four approval gates — none authorized yet
+
+| # | Gate | Target | Rollback target | Ready for approval |
+| --- | --- | --- | --- | --- |
+| 1 | Documentation PR merge | this tracker PR (1 file, docs-only) | revert the docs merge | **YES** |
+| 2 | Edge `ai-gateway` deploy | v35 → v36 from `9ecb8eb` | redeploy the pre-merge `_shared/` (v35 contract) | **YES** — read-only preflight complete |
+| 3 | Frontend build + Preview | one build from `9ecb8eb` → Preview deploy | none needed (Preview is isolated) | **YES** — build is the first executing step |
+| 4 | Production deploy | promote the Preview-accepted `dist/` unchanged | **`476830a2`** until promotion; **`247ef9ec`** (the currently LIVE deployment) after it | **NO** — blocked on gate 3 evidence: Preview artifact + **authenticated Studio/Jake acceptance**, which has never been performed |
+
+**Recommended order: 1 → 2 → 3 → 4.** Gates 2 and 3 should land close together because the frontend shims and the Edge
+function share one contract module.
 ## Studio / Local-Engine UI Containment — **LIVE IN PRODUCTION** (2026-07-26)
 
 **Status: RELEASED. Live in Production as `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js` (source `03c23c2`)** —
-with the corrective containment gap recorded above **IN FLIGHT / NOT RELEASED**.
+with the corrective containment work recorded above **MERGED into `main` on 2026-07-27 (PR #118) but NOT RELEASED**.
 
 - **Code:** PR [#114](https://github.com/natanMeT/ArtValue20/pull/114) merged as `29cccddda52e1c546b4ae46be052285ec24d2116`; docs PR [#115](https://github.com/natanMeT/ArtValue20/pull/115) merged as `03c23c23568905cb42e7f154014dd2ddc32bb58f`. Codex round 2 clean (reviewed commit `bb8e955ef2`), 0 unresolved threads.
 - **Build: exactly ONE**, from `main` @ `03c23c2`. The same `dist/` was deployed to Preview and then promoted to Production **without rebuilding** — re-hashed immediately before promotion and confirmed identical, and wrangler reported **"Uploaded 0 files (12 already uploaded)"**.
@@ -1467,13 +1616,17 @@ Every stage below is **done**; nothing here is an outstanding instruction.
 **No slice is in flight.** S0A + S0B + S0C + S0D + S0E + S0F.1 + P1 Atomic Quote Persistence + **Studio / Local-Engine
 UI Containment are all CLOSED / LIVE.**
 
+> ⚠️ **But `main` carries merged, undeployed work.** The **complete local-engine retirement** (PR
+> [#118](https://github.com/natanMeT/ArtValue20/pull/118), merged 2026-07-27 as `9ecb8eb`) is on `main` and is
+> **running nowhere** — see the PR #118 box in the Baseline and the Release Readiness section. **Merged is not live.**
+
 Production is **`247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js`** (source `03c23c2`), promoted from the
 accepted Preview artifact without rebuilding, with **12/12 byte-identical served files** and an **authenticated
 non-mutating Account A smoke PASS**. **Current rollback target: `476830a2` / `index-BrR14XIC.js`** (source `7e30199`)
 — retained and verified healthy; `e63198b7` (S0F.1) is a **historical fallback only**, never the current target.
 No migration; Edge `ai-gateway` **v35** unchanged.
 
-**IN FLIGHT:** the **Studio Hosted Mode Containment Correction** (see its section) — corrective PR open, **not merged, not deployed**. PR #117 (roadmaps/exports) is **paused** until this correction is deployed.
+**MERGED / NOT RELEASED:** the **Studio Hosted Mode Containment Correction** and the complete local-engine retirement (see their sections) — **merged 2026-07-27 as PR #118**, **not deployed**. PR #117 (roadmaps/exports) is **paused** until this work is deployed.
 
 **Carried-forward notes — neither is an open release item and neither blocks anything:**
 1. **P1 — an OPTIONAL additional Production-UI validation.** **P1 Atomic Quote Persistence is CLOSED / LIVE**; its
@@ -1490,9 +1643,9 @@ canonical roadmap advance is a separate, separately-approved documentation step.
 PENDING NATHAN DECISION** and must not be started until he selects one.
 
 ## Change log
-- **2026-07-26** — **Studio Hosted Mode Containment Correction — round 3, authorised DEFECT-CLASS SWEEP.** Rounds 1 and 2 fixed reported instances while siblings in the same class survived; round 3 inventoried the class across four axes before editing and corrected **seven reachable instances** — AdStudio's initial generation loop (the missed sibling of the retry path), AdStudio scan/campaign, **`gemini.js` pulling raw provider text into the thrown message**, MockupStudio's export alert, Diagnose + Outreach as rendered consumers of that shared helper, the `product-lock` description asserting the **gated** B2 enhancement, and the two presets that advertised and routed to hidden tabs. Structural closures: every creative render surface routes through `userFacingError`; provider text is diagnostics-only and **zero bare `throw new Error(` remain in `gemini.js`**; gated subfeatures are declared per workflow and appended only when satisfied; presets are filtered by target-mode availability. 53 tests (class-level assertions), four further negative controls, 43 files / 931 passed / 1 skip, build green, and both browser smokes re-run (hosted: hidden-tab presets gone, 0 engine terms, 0 requests; local/demo: presets, all 8 modes and Product Lock B2 restored, failure still fails closed with business-facing text). **Still IN FLIGHT / NOT RELEASED; PR #117 paused; P1 CLOSED / LIVE.**
-- **2026-07-26** — **Studio Hosted Mode Containment Correction — round 2 (the first implementation was INCOMPLETE).** Codex raised two further P2s on the corrective PR and **both were confirmed real**: (a) the new render boundary **flattened actionable hosted Gateway guidance** into the generic fallback — a regression introduced by the fix itself — now corrected with a controlled reason→message table keyed by the Gateway reason code, where provider text is never rendered and cannot self-declare as safe, and diagnostics sit in structured fields rather than `.message` (preserving the stronger pre-existing invariant that a Gateway image Error never carries the raw code or server detail); and (b) `STATIC_CAPABILITIES` was left unfiltered, so Jake still advertised `product-lock-blend` and a `creative-modes` description naming hidden workflows — now each Studio-related static entry carries an **explicit** availability requirement and the `creative-modes` text is derived from the injected available-mode labels, with filtering applied **before** any `maxCapabilities` slicing. 42 regression tests including assertions on the real built Jake prompt, two further negative controls (5 and 4 failures on revert), 30 files / 712 passed, build green. **Still IN FLIGHT / NOT RELEASED; PR #117 still paused; P1 remains CLOSED / LIVE.**
-- **2026-07-26** — **Studio Hosted Mode Containment Correction — IN FLIGHT / NOT RELEASED.** Codex raised a P2 on docs PR #117; the SAFE STOP investigation proved the defect is **hosted-reachable**, not local/demo-only. The capability filter guarded only the visible mode tiles, while a **Jake→Studio hand-off** set `mode` directly and the panels render from `mode` — so a hosted build could render the hidden `presenter` panel and print the raw engine string `Qwen-Image-Edit אינו מותקן במנוע`. **Proven in the DOM against a hosted-configuration build using a deterministic hand-off through the real router-state seam (no LLM), before any edit.** Corrected in three layers: capability-aware Jake advertising (fail closed, availability injected so `businessBrain.js` keeps its no-engine-imports boundary); an authoritative available-mode set (`src/lib/studioModes.js`) enforced on every entry path plus a pre-paint safety net; and a user-facing error boundary (`src/lib/userFacingError.js`) that renders only explicitly declared text and classifies by **identity, not substring matching**, keeping technical detail on the Error for diagnostics. 26 new regression tests through the real seams, **three real negative controls** (reverting each layer fails 1 / 4 / 8 tests), focused affected suite **30 files / 697 passed**, production build green, and post-fix DOM proof in both hosted and local/demo configurations. **Also corrected a FALSE claim** previously recorded here and in PR #117: the residual `Qwen` artifact hits were **not** all non-rendered internals. **No migration, no Gateway/Edge/Auth/schema change, no rollback indicated, nothing deployed.** PR #117 paused; P1 remains CLOSED / LIVE.
+- **2026-07-26** — **Studio Hosted Mode Containment Correction — round 3, authorised DEFECT-CLASS SWEEP.** Rounds 1 and 2 fixed reported instances while siblings in the same class survived; round 3 inventoried the class across four axes before editing and corrected **seven reachable instances** — AdStudio's initial generation loop (the missed sibling of the retry path), AdStudio scan/campaign, **`gemini.js` pulling raw provider text into the thrown message**, MockupStudio's export alert, Diagnose + Outreach as rendered consumers of that shared helper, the `product-lock` description asserting the **gated** B2 enhancement, and the two presets that advertised and routed to hidden tabs. Structural closures: every creative render surface routes through `userFacingError`; provider text is diagnostics-only and **zero bare `throw new Error(` remain in `gemini.js`**; gated subfeatures are declared per workflow and appended only when satisfied; presets are filtered by target-mode availability. 53 tests (class-level assertions), four further negative controls, 43 files / 931 passed / 1 skip, build green, and both browser smokes re-run (hosted: hidden-tab presets gone, 0 engine terms, 0 requests; local/demo: presets, all 8 modes and Product Lock B2 restored, failure still fails closed with business-facing text). **Status AT THAT DATE: IN FLIGHT / NOT RELEASED** *(the slice was merged 2026-07-27 as PR #118 and remains undeployed)*; **PR #117 paused; P1 CLOSED / LIVE.**
+- **2026-07-26** — **Studio Hosted Mode Containment Correction — round 2 (the first implementation was INCOMPLETE).** Codex raised two further P2s on the corrective PR and **both were confirmed real**: (a) the new render boundary **flattened actionable hosted Gateway guidance** into the generic fallback — a regression introduced by the fix itself — now corrected with a controlled reason→message table keyed by the Gateway reason code, where provider text is never rendered and cannot self-declare as safe, and diagnostics sit in structured fields rather than `.message` (preserving the stronger pre-existing invariant that a Gateway image Error never carries the raw code or server detail); and (b) `STATIC_CAPABILITIES` was left unfiltered, so Jake still advertised `product-lock-blend` and a `creative-modes` description naming hidden workflows — now each Studio-related static entry carries an **explicit** availability requirement and the `creative-modes` text is derived from the injected available-mode labels, with filtering applied **before** any `maxCapabilities` slicing. 42 regression tests including assertions on the real built Jake prompt, two further negative controls (5 and 4 failures on revert), 30 files / 712 passed, build green. **Status AT THAT DATE: IN FLIGHT / NOT RELEASED** *(merged 2026-07-27 as PR #118, still undeployed)*; **PR #117 still paused; P1 remains CLOSED / LIVE.**
+- **2026-07-26** — **Studio Hosted Mode Containment Correction — IN FLIGHT / NOT RELEASED** *(status at that date; merged 2026-07-27 as PR #118, still undeployed)*. Codex raised a P2 on docs PR #117; the SAFE STOP investigation proved the defect is **hosted-reachable**, not local/demo-only. The capability filter guarded only the visible mode tiles, while a **Jake→Studio hand-off** set `mode` directly and the panels render from `mode` — so a hosted build could render the hidden `presenter` panel and print the raw engine string `Qwen-Image-Edit אינו מותקן במנוע`. **Proven in the DOM against a hosted-configuration build using a deterministic hand-off through the real router-state seam (no LLM), before any edit.** Corrected in three layers: capability-aware Jake advertising (fail closed, availability injected so `businessBrain.js` keeps its no-engine-imports boundary); an authoritative available-mode set (`src/lib/studioModes.js`) enforced on every entry path plus a pre-paint safety net; and a user-facing error boundary (`src/lib/userFacingError.js`) that renders only explicitly declared text and classifies by **identity, not substring matching**, keeping technical detail on the Error for diagnostics. 26 new regression tests through the real seams, **three real negative controls** (reverting each layer fails 1 / 4 / 8 tests), focused affected suite **30 files / 697 passed**, production build green, and post-fix DOM proof in both hosted and local/demo configurations. **Also corrected a FALSE claim** previously recorded here and in PR #117: the residual `Qwen` artifact hits were **not** all non-rendered internals. **No migration, no Gateway/Edge/Auth/schema change, no rollback indicated, nothing deployed.** PR #117 paused; P1 remains CLOSED / LIVE.
 - **2026-07-26** — **Studio / Local-Engine UI Containment CLOSED / LIVE VERIFIED in Production.** Release chain: PR [#114](https://github.com/natanMeT/ArtValue20/pull/114) → `29cccdd` → docs PR [#115](https://github.com/natanMeT/ArtValue20/pull/115) → `03c23c2` → **one build** from `03c23c2` + artifact scan (local-engine gate provably closed; 0 occurrences of every removed user-facing engine label) → Preview **`ec239e3b`** (12/12 byte-identical, authenticated QA acceptance PASS) → **Production `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js`** by reusing the accepted `dist/` (wrangler "Uploaded 0 files (12 already uploaded)"; **12/12 served files byte-identical**) + **authenticated non-mutating Account A Production smoke PASS**. **Current rollback target `476830a2` / `index-BrR14XIC.js`** retained and verified healthy post-deploy (the older S0F.1 `e63198b7` is a **historical fallback only**, not the current target). **Test evidence, exact scope:** the full suite (121 files / 3,098 passed / 1 skip / 0 failed) was last green on the **earlier implementation head**; after the fail-closed capability correction the **focused affected suite** was run on the **final corrected code** (27 files / 1,608 passed / 0 failed) plus a **green production build at `03c23c2`** — the full suite was deliberately not rerun on the final head, and the final head's end-to-end coverage comes from the Preview and Production authenticated acceptances. Delivered: removal of the local-GPU status/setup panel and its 15s poll, the ComfyUI/Fooocus-badged workflow map, the checkpoint picker, the PuLID/Kontext engine toggle, the job card's engine graph-node readout, three mount-time local-engine probes (replaced by fail-closed configuration-derived capability flags), and every user-visible engine name across ImageStudio, AdStudio, Jake, the preset pack, the workflow catalog and thrown generation errors — **including the catalog text that reaches Jake's system prompt** (verified live: a 1,174-character Jake reply enumerating the creative capabilities with **0 engine names**). Retained: all nine creative modes where the runtime supports them, business presets, brand palette, gallery, Poster Editor, Mockup Studio, Product Lock, the Jake→Studio hand-off. **Production smoke measured 0 requests on Studio open, 0 during a 17s idle, 0 local-address requests, 0 engine terms, 0 console errors and 0 mutating requests.** **No migration, no schema/Auth/Gateway-contract change, Edge v35 not redeployed, Growth still BetaUnavailable, no user data touched.** One recorded nuance: an initial served-bytes sweep briefly returned the SPA index.html fallback for the new entry asset on one edge node (propagation race) — a clean refetch and full re-sweep were 12/12. Two carried-forward notes, **neither an open release item**: **P1 Atomic Quote Persistence remains CLOSED / LIVE** with one **optional additional Production-UI validation** outstanding — the same-session authenticated Production smoke proved Quotes/Finance render and authenticated reads are healthy, while Account A held 0 quote and 0 transaction rows and no Production create/edit was authorized, so quote-row visibility and a Production-UI RPC re-exercise were not observed; atomicity was already established by the 13/13 failure-injection acceptance, the authorization/RLS evidence and the Preview UI acceptance on the same artifact. And **Jake advertising cloud-unavailable creative capabilities** (pre-existing truthfulness follow-up, not a regression).
 - **2026-07-26** — **Tracker consistency correction (documentation-only).** Removed a self-invalidating assertion that repository `main` *equals* the PR #114 merge SHA — merging any documentation PR advances `main`, so the claim would have been false immediately and could have led later release work to treat the #114 merge as the repository head. The baseline now defines **three distinct anchors that must never be collapsed**: (1) the repository head, **deliberately not recorded** and resolved live at every preflight; (2) the **merged-but-unreleased application-code anchor** `29cccdd…` (the PR #114 merge commit, a historical anchor); (3) the **deployed Production source** `7e30199`. Divergence between them is expected and is not deployment drift. Also de-duplicated two leftover Production / rollback-branch-and-tag lines in the Studio status section (meaning unchanged) and re-anchored the `src/`-tree equality claim to the merge commit rather than to a moving head. Raised as a Codex P2 on PR #115. No code, tests, configuration, roadmaps or exports changed; no deployment; Production and Edge unchanged; P1 remains CLOSED / LIVE.
 - **2026-07-26** — **Studio / Local-Engine UI Containment MERGED into `main` — NOT RELEASED.** PR [#114](https://github.com/natanMeT/ArtValue20/pull/114) merged as `29cccddda52e1c546b4ae46be052285ec24d2116` (parents `4f4180b` + `c30dff2`), pinned to the approved head SHA. Codex round 2 clean (reviewed commit `bb8e955ef2`), **0 unresolved review threads**; the `src/` tree on `main` is byte-identical to the reviewed tree (`255bd4c7edb0aa2fbd181a1b22cb528fa6de9aee`). **No Preview or Production deployment was performed:** Production stays `476830a2` / `index-BrR14XIC.js` (source `7e30199`), Edge `ai-gateway` v35 unchanged and not redeployed, **no migration**, schema/Auth/Gateway contracts untouched, Growth still `BetaUnavailable`, no user data touched. Branch `studio/local-engine-ui-containment` @ `c30dff2` and tag `pre-studio-local-engine-containment` @ `4f4180b` retained. **`main` now carries merged application code that has never been built or deployed — "merged" is not "live".** Open release gate: **authenticated cloud acceptance on Preview** (all browser verification so far was local/demo). Documentation-only correction in this PR; no code, tests, configuration, roadmaps or exports changed.
