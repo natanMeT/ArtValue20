@@ -86,7 +86,7 @@ describe('crm.diagnose_quote · canonical vocabulary + routing', () => {
   });
 
   it('is gemini-first, gemini-executable, and decides to gemini', () => {
-    expect(DEFAULT_PROVIDER_BY_ACTION[ACTION]).toEqual(['gemini', 'openai', 'openrouter', 'ollama']);
+    expect(DEFAULT_PROVIDER_BY_ACTION[ACTION]).toEqual(['gemini', 'openai', 'openrouter']);
     expect(selectProvider(ACTION)[0]).toBe('gemini');
     expect(isGeminiExecutableAction(ACTION)).toBe(true);
     expect(GEMINI_EXECUTABLE_ACTION_TYPES.includes(ACTION)).toBe(true);

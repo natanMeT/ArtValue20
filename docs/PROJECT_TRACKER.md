@@ -6,7 +6,7 @@
 **Purpose:** single source of truth for state, so work continues across sessions with no loss.
 Nathan passes this to ChatGPT so it can review/advise **without re-deriving or guessing** state.
 **ChatGPT does NOT edit this document.** Only Claude updates it.
-**Last updated:** 2026-07-27 — session: **COMPLETE LOCAL-ENGINE REMOVAL — the whole application is CLOUD-ONLY (ROUND 10) — IN FLIGHT / NOT RELEASED.** Nathan's final product decision supersedes the boundary that retained local engines for AdStudio and the Jake poster adapter. **7 runtime modules + 6 test files DELETED** (`localComfyEngine.js`, `localEngines.js`, `comfyPoster.js`, `comfyPosterPrompt.js`, `posterOverlay.js`, `posterExport.js`, `AdStudio.jsx`), the `/adstudio` `/workflow` `/fooocus` routes removed behind a fail-safe catch-all, Jake's poster generation and the brain-selection surface retired, and the local text lane (Ollama + the ComfyUI VRAM self-heal) stripped out of `gemini.js`. The Codex findings inside `localComfyEngine.js` are **structurally obsolete** — the module is gone. Both truthfulness fixes landed as instructed (Studio header copy; the Smart-Edit preset instruction). Inventory came from the **real import graph**; a new proof suite walks the closure from `main.jsx` and asserts that no retired module, no local address, no workstation-engine term and no local env read is reachable. Suite **111 files / 3,000 passed / 0 skipped / 0 failed**, build green, bundle 648 → **608.60 kB**. Runtime: retired routes fail safe to `#/`, Studio shows 1 mode / 4 presets / 0 uploaders, 0 engine terms, 0 local requests, 0 console messages. **`supabase/` has zero diff.** Disclosed exceptions: the server-side provider-NAME registry inside the deployed Gateway contract, and the developer review-prep CLI. Prior round summaries follow. **(Round 9)** 
+**Last updated:** 2026-07-27 — session: **ABSOLUTE CLOUD-ONLY BOUNDARY (ROUND 11) — IN FLIGHT / NOT RELEASED.** Nathan's absolute decision: no executable local-engine code anywhere in the repository, product AND tooling. Round 10's two disclosed exceptions are withdrawn. **The AI Gateway shared contract changed:** `comfyui` / `ollama` / `fooocus` / `a1111` are removed from `AI_PROVIDERS`, `AI_MODELS` and every routing chain, together with the `LOCAL_PROVIDERS` partition, the `localFirst` selection option (and its response metadata) and the local zero-cost branch — the 20-action cloud vocabulary is unchanged and every action still resolves to a non-empty all-API chain. **`scripts/local-review-prep.mjs` (a local-Ollama caller), its test, the whole `scripts/` directory, `comfy_help.txt` and the `local:review-prep` / `dev:local` / `preview:local` npm scripts are DELETED.** Docs corrected where they claimed local engines are still supported. Repo-wide proof scans **172 non-test executables** across `src/`, `supabase/`, root and `scripts/` for engine names and local addresses with comments stripped, and proves the `src/lib` Gateway shims are pure re-exports so no divergent copy can exist. Suite **110 files / 2,980 passed / 0 skipped / 0 failed**, build green (`index-CADF5y0K.js`, 608.02 kB); the app bundle now has **zero** hits for every local term including the provider-registry strings that survived round 10. Runtime: retired routes fail safe, all surviving creative routes render, 0 local requests, 0 console messages. ⚠️ **An Edge `ai-gateway` redeploy will be REQUIRED later — NOT performed here**; nothing deployed, no secret or remote configuration touched. Prior round summaries follow. **(Round 10)** 
 
 ---
 
@@ -751,6 +751,93 @@ subjects and no compatibility scaffolding was retained.
 
 WARNING — **not verified:** no authenticated end-to-end hosted generation was run (no credentials this session), so the
 authenticated Studio/Jake path is proved structurally and by unauthenticated runtime, not by a signed-in run.
+
+**Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+
+### Round 11 — ABSOLUTE CLOUD-ONLY BOUNDARY: no executable local code anywhere in the repo (2026-07-27)
+
+**Owner decision (absolute):** ArtValue must contain **no executable local-engine code anywhere in the repository** —
+the whole product AND its supporting tooling, not only browser-reachable code. Round 10 removed the application paths
+and left two disclosed exceptions; this round removes both. Dormant executable local code is no longer acceptable
+merely because it is currently unreachable.
+
+The pending Codex review of `1233034` was **superseded by this decision** and was not waited on. Its four findings from
+the earlier `2ff51c2` review were already replied to and resolved; nothing in them touches surviving code.
+
+**AI GATEWAY CONTRACT CHANGE — the substantive change this round.**
+`supabase/functions/_shared/aiGateway.js` (canonical) no longer registers a local provider in ANY form:
+
+| Removed | Detail |
+|---|---|
+| Provider vocabulary | `comfyui`, `ollama`, `fooocus`, `a1111` removed from `AI_PROVIDERS`. `normalizeProvider('ollama')` now returns `null` — a retired name is not a provider, so it cannot be preferred, made available or excluded. |
+| Model registry | The `comfyui` (image/video/inpaint) and `ollama` (text) entries in `AI_MODELS`. |
+| Routing chains | Every occurrence in `DEFAULT_PROVIDER_BY_ACTION` — 12 text/CRM/Jake chains lost `ollama`; `image.poster`, `image.variation`, `image.product_presenter`, `image.product_lock`, `video.short_ad`, `video.product_demo` lost `comfyui`. |
+| Capability partition | `LOCAL_PROVIDERS` and the private `isLocalProvider` / `isApiProvider` helpers. `API_PROVIDERS` is now exactly the vocabulary minus the `none` sentinel. |
+| Provider SELECTION | The `localFirst` ordering option, and `metadata.localFirst` on every `buildAiRequest` result. `apiFirst` is retained as an accepted no-op (the partition is now the identity). |
+| Cost model | The local-provider zero-cost branch in `estimateCost`; only the explicit `none` sentinel is free. |
+
+**The cloud ACTION vocabulary is UNCHANGED** — all 20 action types survive, every one still resolves to a non-empty
+chain, and every provider in every chain is an API provider. No new provider was introduced and no business-facing
+behavior changed. `aiGatewayContract.js` had one stale comment naming `localFirst`; corrected.
+
+⚠️ **AN EDGE DEPLOYMENT WILL BE REQUIRED LATER — NOT PERFORMED IN THIS TASK.** The deployed `ai-gateway` function
+(v35) still carries the OLD shared table. Nothing was deployed, no secret or remote configuration was touched, and the
+running Production frontend is unaffected (it is still `247ef9ec`, built long before this branch).
+
+**Also deleted this round**
+- `scripts/local-review-prep.mjs` and `scripts/__tests__/local-review-prep.test.mjs` — the review-prep CLI called a
+  local Ollama for an advisory summary. It was disclosed last round as "tooling, not product"; that exception is now
+  withdrawn. The `scripts/` directory no longer exists.
+- `comfy_help.txt` (repo root) — a committed ComfyUI CLI help dump, i.e. local-engine setup reference material.
+- npm scripts `local:review-prep` (deleted tool) plus `dev:local` / `preview:local`, which pinned the dev/preview
+  servers to `127.0.0.1` with hardcoded ports. They were redundant with `dev` / `preview` and were the last
+  `127.0.0.1` strings in `package.json`.
+
+**Documentation corrected (current-state claims, not history)**
+- `ARTVALUE_ENGINEERING_METHOD.md` stated *"Local providers ... remain registered as dev/fallback providers — nothing
+  local is deleted or disabled by gateway work."* That is now the exact opposite of the rule; replaced with the
+  cloud-only invariant. The review step invoking the deleted script was removed and the checklist renumbered.
+- `Art-Value-Brief.md` carried a local-engine capability table (Ollama / ComfyUI / models) presented as the product's
+  engine. Replaced with the cloud reality, under an explicit **"היסטוריה בלבד — אינו נתמך יותר"** banner.
+- `AI_GATEWAY_DEPLOY.md` sample `providerChain` no longer shows `ollama`.
+- `DECISION_LOG.md` keeps its dated history and now carries an explicit **SUPERSEDED 2026-07-27** line.
+- `jakeos-doc/index.html` made three present-tense claims that Jake still runs locally on Ollama; corrected.
+
+**Repository-wide structural proof** (`src/lib/__tests__/localEngineRetirement.test.js`, extended)
+- **172 non-test executable files** scanned across `src/`, `supabase/`, the repo root and `scripts/` (asserted
+  non-vacuous): **no engine name and no local address in executable code** anywhere, comments stripped first.
+- No package script starts, probes or calls a local model; `scripts/` is asserted absent.
+- Gateway: no local name in `AI_PROVIDERS` / `API_PROVIDERS` / `AI_MODELS` / any chain / `normalizeProvider`;
+  `LOCAL_PROVIDERS` is `undefined`; `localFirst` cannot change any chain for any action and is absent from metadata;
+  all 20 actions keep a non-empty all-API chain.
+- **Canonical-copy synchronization proved structurally:** each `src/lib/aiGateway*.js` shim must be *nothing but*
+  `export * from '../../supabase/functions/_shared/…'`, so a second divergent provider table cannot exist.
+- Retained from round 10: the app import closure from `src/main.jsx` is clean; no retired route registered; catch-all
+  present; every Jake/Studio target is a LIVE cloud lane; Growth stays `BetaUnavailable`.
+
+**Verification.** Suite **110 files / 2,980 passed / 0 skipped / 0 failed**. One production build green
+(`index-CADF5y0K.js`, 608.02 kB). Artifact: the app bundle now has **0 hits for every one of** `localhost`,
+`127.0.0.1`, `comfy`, `ComfyUI`, `fooocus`, `ollama`, `a1111`, `automatic1111`, `:8188`, `:7860`, `:11434`,
+`safetensors`, `adstudio`, `localFirst`, `LOCAL_PROVIDERS` and `http://` — the provider-registry strings that survived
+round 10 are gone. No non-vendor chunk contains any of them.
+
+**Runtime smoke.** Hosted build (`dist/`): 5-route navigation + 3s idle → 8 requests, **0 local requests**, 0 console
+messages; the only non-origin request in either build is the Google Fonts stylesheet. Route table exercised on a
+scratch demo build (temp dir, deleted afterwards; `dist/` untouched): `/adstudio`, `/workflow`, `/fooocus` all resolve
+to `#/`; `/studio`, `/diagnose`, `/outreach`, `/assets`, `/growth` all render; Studio shows 4 presets and **0 file
+uploaders**; Jake opens with **no poster CTA**; **0 engine terms in the DOM, 0 local-engine requests, 0 console
+messages**.
+
+**Local terminology that REMAINS — all NON-EXECUTABLE history**
+| Where | Why it is not a path |
+|---|---|
+| `docs/DECISION_LOG.md`, `docs/PROJECT_TRACKER.md`, `docs/roadmaps/*`, `docs/Art-Value-Brief.md` | Dated release history and superseded decisions. Markdown; no setup instructions; the Brief's table is under an explicit "no longer supported" banner. |
+| Comments in `aiGateway.js`, `gemini.js`, `chatPersistence.js`, `betaCapabilities.js`, `jakeExecutionPlanner.js` and the test suites | They NAME the retired engines in order to record that they are gone. Every scan strips comments before asserting, and the test suites name them to assert absence. |
+| Preset id `local_ad_creative` | "Local" = a local *business*. |
+| `gemini.js` `fetchSiteText` / `analyzeBusiness` | Orphaned by AdStudio's deletion but not local paths (r.jina.ai + managed Gemini) and part of the FROZEN Creative Director V1 API. Flagged for a future approved dead-code slice. |
+
+**NOT PERFORMED — required later, in order:** Preview deploy + acceptance → **Edge `ai-gateway` redeploy** (the shared
+contract changed) → Production deploy. None was started; no remote mutation of any kind was made.
 
 **Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 

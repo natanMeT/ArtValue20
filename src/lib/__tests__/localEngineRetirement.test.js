@@ -141,28 +141,17 @@ describe('local-engine retirement · the app import closure is clean', () => {
     expect(offenders, `local addresses in reachable code: ${offenders.join(', ')}`).toEqual([]);
   });
 
-  // The closure reaches ONE file outside src/: the shared AI Gateway contract
-  // under supabase/, which the browser imports for its input limits. That file
-  // is part of the DEPLOYED Gateway and must not change in this slice — it
-  // registers 'comfyui' as a provider NAME in the server's own routing table.
-  // A provider name in a server registry is not a browser path: the browser
-  // never selects a provider, and the deployed Edge function is untouched. It
-  // is DISCLOSED here rather than silently excluded.
-  it('the only engine term left in the closure is the untouched server-side provider registry', () => {
+  // The closure reaches the shared AI Gateway contract under supabase/, which
+  // the browser imports for its input limits. It used to register the local
+  // providers as NAMES in the server routing table; that registration is now
+  // REMOVED, so the assertion covers the closure with no exclusion at all.
+  it('no reachable module names a workstation engine in executable code', () => {
     const offenders = [];
     for (const file of closure) {
-      if (file.startsWith('supabase')) continue; // deployed Gateway contract — unchanged
       const code = stripComments(fs.readFileSync(file, 'utf8'));
       if (/\b(comfy|comfyui|fooocus|ollama|automatic1111|a1111)\b/i.test(code)) offenders.push(file);
     }
     expect(offenders, `engine terms in reachable code: ${offenders.join(', ')}`).toEqual([]);
-  });
-
-  it('the disclosed server registry is a NAME table only — no URL, no probe, no fetch to it', () => {
-    const gateway = stripComments(fs.readFileSync('supabase/functions/_shared/aiGateway.js', 'utf8'));
-    expect(gateway.includes('comfyui')).toBe(true);           // the disclosed occurrence
-    expect(/localhost|127\.0\.0\.1/.test(gateway)).toBe(false); // but no local address
-    expect(/fetch\s*\([^)]*comfy/i.test(gateway)).toBe(false);  // and nothing calls one
   });
 });
 
@@ -263,6 +252,98 @@ describe('local-engine retirement · nothing advertises a local-only capability'
   });
 });
 
+describe('local-engine retirement · the AI Gateway registers no local provider', () => {
+  it('the canonical contract offers no local provider name in any vocabulary or chain', async () => {
+    const gw = await import('../../../supabase/functions/_shared/aiGateway.js');
+    const LOCAL = ['comfyui', 'ollama', 'fooocus', 'a1111', 'automatic1111'];
+    for (const p of LOCAL) {
+      expect(gw.AI_PROVIDERS.includes(p), `AI_PROVIDERS: ${p}`).toBe(false);
+      expect(gw.API_PROVIDERS.includes(p), `API_PROVIDERS: ${p}`).toBe(false);
+      expect(Object.keys(gw.AI_MODELS).includes(p), `AI_MODELS: ${p}`).toBe(false);
+      expect(gw.normalizeProvider(p), `normalizeProvider: ${p}`).toBe(null);
+      for (const [action, chain] of Object.entries(gw.DEFAULT_PROVIDER_BY_ACTION)) {
+        expect(chain.includes(p), `${action} -> ${p}`).toBe(false);
+      }
+    }
+  });
+
+  it('the LOCAL_PROVIDERS partition and the localFirst ordering option are gone', async () => {
+    const gw = await import('../../../supabase/functions/_shared/aiGateway.js');
+    expect(gw.LOCAL_PROVIDERS).toBeUndefined();
+    // localFirst is no longer an accepted ordering: it cannot change any chain
+    for (const action of gw.AI_ACTION_TYPES) {
+      expect(gw.selectProvider(action, { localFirst: true })).toEqual(gw.selectProvider(action));
+    }
+    expect(gw.buildAiRequest('text.copy', {}, { localFirst: true }).metadata).not.toHaveProperty('localFirst');
+  });
+
+  it('the cloud ACTION vocabulary is preserved and every action still has a cloud chain', async () => {
+    const gw = await import('../../../supabase/functions/_shared/aiGateway.js');
+    expect(gw.AI_ACTION_TYPES.length).toBe(20);
+    for (const action of gw.AI_ACTION_TYPES) {
+      const chain = gw.getProviderChain(action);
+      expect(chain.length, `${action} has no provider left`).toBeGreaterThan(0);
+      for (const p of chain) expect(gw.API_PROVIDERS.includes(p), `${action} -> ${p}`).toBe(true);
+    }
+  });
+
+  it('the canonical module and its src/lib shims stay synchronized (re-export only)', () => {
+    const PAIRS = [
+      ['src/lib/aiGateway.js', 'supabase/functions/_shared/aiGateway.js'],
+      ['src/lib/aiGatewayContract.js', 'supabase/functions/_shared/aiGatewayContract.js'],
+      ['src/lib/aiGatewayInput.js', 'supabase/functions/_shared/aiGatewayInput.js'],
+    ];
+    for (const [shim, canonical] of PAIRS) {
+      expect(fs.existsSync(canonical), canonical).toBe(true);
+      const code = stripComments(fs.readFileSync(shim, 'utf8')).trim();
+      // the shim must be nothing but a re-export of the canonical module — so it
+      // cannot hold a second, divergent copy of the provider table
+      expect(code).toBe(`export * from '../../${canonical}';`);
+    }
+  });
+});
+
+describe('local-engine retirement · repository-wide executable scan', () => {
+  // Every executable file in the repo, not just src/: source, Edge function,
+  // tooling. Build output, deps and documentation are excluded by design.
+  function repoExecutables() {
+    const roots = ['src', 'supabase'].filter((d) => fs.existsSync(d));
+    const out = roots.flatMap((d) => walk(d));
+    for (const f of fs.readdirSync('.', { withFileTypes: true })) {
+      if (f.isFile() && /\.(m?js|cjs|ts)$/.test(f.name)) out.push(path.normalize(f.name));
+    }
+    if (fs.existsSync('scripts')) out.push(...walk('scripts'));
+    return out.map((f) => path.normalize(f));
+  }
+
+  it('no executable file names a workstation engine outside a comment', () => {
+    const offenders = [];
+    for (const file of repoExecutables()) {
+      if (isTestPath(file)) continue; // tests name them to assert their absence
+      const code = stripComments(fs.readFileSync(file, 'utf8'));
+      if (/\b(comfy|comfyui|fooocus|ollama|automatic1111|a1111)\b/i.test(code)) offenders.push(file);
+    }
+    expect(offenders, `engine names in executable code: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  it('no executable file contains a local address outside a comment', () => {
+    const offenders = [];
+    for (const file of repoExecutables()) {
+      if (isTestPath(file)) continue;
+      const code = stripComments(fs.readFileSync(file, 'utf8'));
+      if (/localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|:8188|:7860|:11434/.test(code)) offenders.push(file);
+    }
+    expect(offenders, `local addresses in executable code: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  it('no package script starts, probes or calls a local model', () => {
+    const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+    for (const [name, cmd] of Object.entries(pkg.scripts || {})) {
+      expect(/ollama|comfy|fooocus|a1111|localhost|127\.0\.0\.1/i.test(cmd), `${name}: ${cmd}`).toBe(false);
+    }
+  });
+});
+
 describe('local-engine retirement · unchanged surfaces', () => {
   it('Growth stays BetaUnavailable behind the centralized gate', async () => {
     const app = fs.readFileSync('src/App.jsx', 'utf8');
@@ -271,11 +352,12 @@ describe('local-engine retirement · unchanged surfaces', () => {
     expect(BETA_HIDDEN_MODULES.has('growth')).toBe(true);
   });
 
-  it('the DISCLOSED exception is developer tooling only, never reachable from the app', () => {
-    const closure = appImportClosure();
-    for (const file of closure) expect(file.startsWith('scripts')).toBe(false);
-    // and the tooling itself is not under src/, so it is never bundled
-    expect(fs.existsSync('scripts/local-review-prep.mjs')).toBe(true);
-    expect(runtimeFiles().some((f) => f.includes('local-review-prep'))).toBe(false);
+  it('the developer tooling that called a local model is gone, script and all', () => {
+    expect(fs.existsSync('scripts/local-review-prep.mjs')).toBe(false);
+    expect(fs.existsSync('scripts')).toBe(false);
+    const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+    for (const [name, cmd] of Object.entries(pkg.scripts || {})) {
+      expect(/ollama|comfy|fooocus|a1111|localhost|127\.0\.0\.1/i.test(`${name} ${cmd}`), `${name}: ${cmd}`).toBe(false);
+    }
   });
 });

@@ -194,7 +194,7 @@ export function normalizeGatewayPayload(payload) {
 // ---- discard ALL caller-supplied routing options (server-owned routing) ----
 // Provider routing is server-owned: callers name action types, never
 // providers. An untrusted request may NOT carry routing authority, so every
-// routing option — preferredProvider, localFirst, apiFirst, excludeProviders,
+// routing option — preferredProvider, apiFirst, excludeProviders,
 // availableProviders, and any unknown key — is dropped here at the untrusted
 // boundary. The result is always {}, so buildAiRequest/selectProvider fall
 // back to the default server-owned chain and decision.request.options is empty.
