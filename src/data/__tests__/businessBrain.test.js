@@ -20,7 +20,7 @@ const ALL_BUILDER_OUTPUTS = () => [
   buildMonthlyContentPlanSeed(),
   buildServiceCampaignSeed('growth-os'),
   buildServiceCampaignSeed('unknown-service'),
-  buildStudioPromptSeed('product-lock', 'שעון יוקרה'),
+  buildStudioPromptSeed('fast-image', 'שעון יוקרה'),
   buildStudioPromptSeed('no-such-workflow', ''),
 ];
 
@@ -68,8 +68,13 @@ describe('BUSINESS_BRAIN · structure', () => {
 });
 
 describe('systemCapabilities · derived registry', () => {
+  // systemCapabilities now takes the AUTHORITATIVE set of Studio modes this
+  // configuration can open (injected by lib/jakeBusinessContext.js). Supplying
+  // every live mode reproduces the original "everything is available" contract.
+  const ALL_LIVE_MODES = liveWorkflows().map((w) => w.mode).filter(Boolean);
+
   it('includes every live workflow (safe fields only) and marks it studio-kind', () => {
-    const caps = systemCapabilities();
+    const caps = systemCapabilities(ALL_LIVE_MODES);
     for (const w of liveWorkflows()) {
       const cap = caps.find((c) => c.id === w.id);
       expect(cap, w.id).toBeTruthy();
@@ -80,6 +85,14 @@ describe('systemCapabilities · derived registry', () => {
     }
   });
 
+  it('FAILS CLOSED when the available-mode set is omitted', () => {
+    // A caller that forgets to inject availability must under-advertise rather
+    // than promise a creative mode the Studio would refuse to open.
+    const caps = systemCapabilities();
+    expect(caps.filter((c) => c.mode)).toEqual([]);
+    expect(caps.length).toBeGreaterThan(0); // non-studio surfaces still listed
+  });
+
   it('never includes soon/deferred workflow cards', () => {
     const capIds = systemCapabilities().map((c) => c.id);
     for (const w of soonWorkflows()) {
@@ -88,8 +101,11 @@ describe('systemCapabilities · derived registry', () => {
   });
 
   it('adds the static system surfaces without clobbering studio entries', () => {
-    const caps = systemCapabilities();
-    for (const id of ['image-studio', 'growth-os', 'gallery', 'creative-modes', 'product-lock-blend']) {
+    // Studio-related static surfaces carry an explicit availability requirement,
+    // so the availability snapshot is supplied here. There is no capability map
+    // or subfeature registry any more — both went with the local engine.
+    const caps = systemCapabilities({ modes: ALL_LIVE_MODES, modeLabels: [] });
+    for (const id of ['image-studio', 'growth-os', 'gallery', 'creative-modes']) {
       const cap = caps.find((c) => c.id === id);
       expect(cap, id).toBeTruthy();
       expect(cap.kind).toBe('system');
@@ -200,14 +216,14 @@ describe('buildServiceCampaignSeed', () => {
 
 describe('buildStudioPromptSeed', () => {
   it('grounds a known live workflow in its real title/mode/engine', () => {
-    const wf = liveWorkflows().find((w) => w.id === 'product-lock');
-    const seed = buildStudioPromptSeed('product-lock', 'שעון יוקרה');
+    const wf = liveWorkflows().find((w) => w.id === 'fast-image');
+    const seed = buildStudioPromptSeed('fast-image', 'שעון יוקרה');
     expect(seed).toContain(wf.title);
     expect(seed).toContain(`מצב סטודיו: ${wf.mode}`);
     expect(seed).toContain('שעון יוקרה');
     expect(seed).toContain('פרומפט יצירה באנגלית');
-    // product workflow → pixel-preservation note
-    expect(seed).toContain('1:1');
+    // PRODUCT DECISION (2026-07-27): the product-mode note went with Product Lock
+    expect(seed).not.toContain('1:1');
   });
 
   it('falls back to a generic Image Studio brief for unknown workflows (never throws)', () => {

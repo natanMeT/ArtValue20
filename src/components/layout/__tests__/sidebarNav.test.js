@@ -18,13 +18,14 @@ const isRegisteredRoute = (to) => appSrc.includes(`path="${to}"`);
 // duplicated by the regrouping). /settings is footer-only by design.
 const EXPECTED_MAIN_ROUTES = [
   '/', '/clients', '/outreach', '/projects', '/tasks', '/pipeline',
-  '/quotes', '/diagnose', '/adstudio', '/studio',
+  '/quotes', '/diagnose', '/studio',
   '/finance', '/activity', '/inventory', '/assets', '/templates',
 ];
 
-// R4.1 — retired local-engine studios: gone from the nav, legacy URLs
-// redirect to /studio, and the page modules are no longer imported.
-const RETIRED_ROUTES = ['/workflow', '/fooocus'];
+// Local-engine retirement (2026-07-27): every workstation-engine studio is gone
+// from the nav AND from the route table. There is no redirect left to inherit,
+// so a retired URL must fail SAFE through the catch-all instead.
+const RETIRED_ROUTES = ['/workflow', '/fooocus', '/adstudio'];
 const EXPECTED_GROWTH_ROUTES = ['/growth', '/growth/leads', '/growth/calendar', '/growth/content', '/calls'];
 
 const EXPECTED_SECTION_LABELS = ['ניהול העסק', 'צמיחה ולידים', 'סטודיו וכלים'];
@@ -102,16 +103,20 @@ describe('sidebarNav — retired studios (R4.1)', () => {
     }
   });
 
-  it('legacy /workflow and /fooocus URLs redirect calmly to /studio', () => {
+  it('no retired studio route is registered at all', () => {
     for (const route of RETIRED_ROUTES) {
-      const re = new RegExp(`path="${route}"\\s+element=\\{<Navigate to="/studio" replace />\\}`);
-      expect(re.test(appSrc), `missing redirect for ${route}`).toBe(true);
+      expect(isRegisteredRoute(route), `retired route still registered: ${route}`).toBe(false);
     }
   });
 
+  it('a catch-all makes every retired deep link fail safe instead of rendering nothing', () => {
+    expect(appSrc.includes('path="*" element={<Navigate to="/" replace />}')).toBe(true);
+  });
+
   it('retired page modules are no longer imported anywhere in App.jsx', () => {
-    expect(appSrc.includes('WorkflowStudio')).toBe(false);
-    expect(appSrc.includes("from './pages/Fooocus.jsx'")).toBe(false);
+    for (const gone of ['WorkflowStudio', 'AdStudio', "from './pages/Fooocus.jsx'"]) {
+      expect(appSrc.includes(gone), gone).toBe(false);
+    }
   });
 });
 
@@ -126,11 +131,11 @@ describe('sidebarNav — beta false-success containment (S0A)', () => {
     }
   });
 
-  it('only the S0A Memory-Only modules, the S0D-contained Growth routes and S0F.1 /adstudio are flagged betaHidden', () => {
+  it('only the S0A Memory-Only modules and the S0D-contained Growth routes are flagged betaHidden', () => {
     const flagged = SIDEBAR_ROUTE_ITEMS.filter((i) => i.betaHidden).map((i) => i.to).sort();
     // S0D: the entire Growth OS is beta-contained (GROWTH_NAV items betaHidden).
-    // S0F.1 (D4): /adstudio is contained for truthfulness (demo-stub creative output).
-    const expected = [...BETA_HIDDEN, ...GROWTH_NAV.map((g) => g.to), '/adstudio'].sort();
+    // /adstudio is NOT here any more — it was DELETED, not contained.
+    const expected = [...BETA_HIDDEN, ...GROWTH_NAV.map((g) => g.to)].sort();
     expect(flagged).toEqual(expected);
   });
 

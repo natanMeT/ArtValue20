@@ -8,7 +8,6 @@ import {
   COST_TIERS,
   COST_TIER_BY_ACTION,
   DEFAULT_PROVIDER_BY_ACTION,
-  LOCAL_PROVIDERS,
   API_PROVIDERS,
   buildAiRequest,
   selectProvider,
@@ -42,7 +41,7 @@ describe('exports', () => {
 
   it('vocabularies are frozen (deep for tables)', () => {
     for (const vocab of [AI_ACTION_TYPES, AI_PROVIDERS, AI_MODELS, COST_TIERS,
-      COST_TIER_BY_ACTION, DEFAULT_PROVIDER_BY_ACTION, LOCAL_PROVIDERS, API_PROVIDERS]) {
+      COST_TIER_BY_ACTION, DEFAULT_PROVIDER_BY_ACTION, API_PROVIDERS]) {
       expect(Object.isFrozen(vocab)).toBe(true);
     }
     for (const models of Object.values(AI_MODELS)) expect(Object.isFrozen(models)).toBe(true);
@@ -78,11 +77,23 @@ describe('table completeness', () => {
     }
   });
 
-  it('local/API partitions are disjoint subsets of AI_PROVIDERS', () => {
-    for (const p of [...LOCAL_PROVIDERS, ...API_PROVIDERS]) {
-      expect(AI_PROVIDERS.includes(p), p).toBe(true);
+  // CLOUD-ONLY (2026-07-27): there is no local partition. Every provider in the
+  // vocabulary except the 'none' sentinel is an API provider, and no local
+  // provider name may reappear anywhere in the contract.
+  it('API_PROVIDERS is exactly AI_PROVIDERS minus the none sentinel', () => {
+    expect([...API_PROVIDERS].sort()).toEqual(AI_PROVIDERS.filter((p) => p !== 'none').sort());
+  });
+
+  it('no local provider name exists in the vocabulary, the models or any chain', () => {
+    const LOCAL = ['comfyui', 'ollama', 'fooocus', 'a1111', 'automatic1111'];
+    for (const p of LOCAL) {
+      expect(AI_PROVIDERS.includes(p), p).toBe(false);
+      expect(Object.keys(AI_MODELS).includes(p), p).toBe(false);
+      for (const [action, chain] of Object.entries(DEFAULT_PROVIDER_BY_ACTION)) {
+        expect(chain.includes(p), `${action} -> ${p}`).toBe(false);
+      }
+      expect(normalizeProvider(p), p).toBe(null);
     }
-    for (const p of LOCAL_PROVIDERS) expect(API_PROVIDERS.includes(p), p).toBe(false);
   });
 
   it('every AI_MODELS key is a known provider with prefixed model ids', () => {
@@ -116,61 +127,64 @@ describe('normalizers', () => {
 
 describe('selectProvider', () => {
   it('returns the ordered default chain per action', () => {
-    expect(selectProvider('text.copy')).toEqual(['gemini', 'openai', 'openrouter', 'ollama']);
-    expect(selectProvider('image.poster')).toEqual(['openai', 'gemini', 'replicate', 'pollinations', 'comfyui']);
-    expect(selectProvider('video.short_ad')).toEqual(['runway', 'kling', 'luma', 'pika', 'comfyui']);
+    expect(selectProvider('text.copy')).toEqual(['gemini', 'openai', 'openrouter']);
+    expect(selectProvider('image.poster')).toEqual(['openai', 'gemini', 'replicate', 'pollinations']);
+    expect(selectProvider('video.short_ad')).toEqual(['runway', 'kling', 'luma', 'pika']);
   });
 
   it('filters to availableProviders', () => {
-    expect(selectProvider('text.copy', { availableProviders: ['ollama', 'openai'] }))
-      .toEqual(['openai', 'ollama']);
+    expect(selectProvider('text.copy', { availableProviders: ['openrouter', 'openai'] }))
+      .toEqual(['openai', 'openrouter']);
     expect(selectProvider('text.copy', { availableProviders: [] })).toEqual([]);
   });
 
   it('respects a valid preferredProvider (moved to front)', () => {
-    expect(selectProvider('text.copy', { preferredProvider: 'ollama' })[0]).toBe('ollama');
-    expect(selectProvider('text.copy', { preferredProvider: 'ollama' }))
-      .toEqual(['ollama', 'gemini', 'openai', 'openrouter']);
+    expect(selectProvider('text.copy', { preferredProvider: 'openrouter' })[0]).toBe('openrouter');
+    expect(selectProvider('text.copy', { preferredProvider: 'openrouter' }))
+      .toEqual(['openrouter', 'gemini', 'openai']);
   });
 
   it('ignores an invalid or unsupported preferredProvider', () => {
     // runway does not support text.copy
     expect(selectProvider('text.copy', { preferredProvider: 'runway' }))
-      .toEqual(['gemini', 'openai', 'openrouter', 'ollama']);
+      .toEqual(['gemini', 'openai', 'openrouter']);
     // unavailable preferred provider is not resurrected
-    expect(selectProvider('text.copy', { preferredProvider: 'gemini', availableProviders: ['ollama'] }))
-      .toEqual(['ollama']);
+    expect(selectProvider('text.copy', { preferredProvider: 'gemini', availableProviders: ['openrouter'] }))
+      .toEqual(['openrouter']);
     expect(selectProvider('text.copy', { preferredProvider: 'not-a-provider' }))
-      .toEqual(['gemini', 'openai', 'openrouter', 'ollama']);
+      .toEqual(['gemini', 'openai', 'openrouter']);
+    // a RETIRED local provider is not a provider at all — it cannot be preferred
+    expect(selectProvider('text.copy', { preferredProvider: 'ollama' }))
+      .toEqual(['gemini', 'openai', 'openrouter']);
   });
 
   it('respects excludeProviders (even when preferred)', () => {
-    expect(selectProvider('image.poster', { excludeProviders: ['openai', 'comfyui'] }))
+    expect(selectProvider('image.poster', { excludeProviders: ['openai'] }))
       .toEqual(['gemini', 'replicate', 'pollinations']);
     expect(selectProvider('image.poster', { excludeProviders: ['openai'], preferredProvider: 'openai' })[0])
       .toBe('gemini');
   });
 
-  it('localFirst moves valid local providers earlier, inserts nothing', () => {
-    const chain = selectProvider('image.poster', { localFirst: true });
-    expect(chain).toEqual(['comfyui', 'openai', 'gemini', 'replicate', 'pollinations']);
-    // text.strategy has ollama as its only local provider
-    expect(selectProvider('text.strategy', { localFirst: true })[0]).toBe('ollama');
-    // vision has no local provider → order unchanged, nothing invented
-    expect(selectProvider('vision.analyze_reference', { localFirst: true }))
-      .toEqual(['gemini', 'openai', 'anthropic']);
+  // The localFirst option is GONE with the providers it promoted. Passing it is
+  // now an unknown key: it must be ignored, never resurrect a retired provider,
+  // and never change the server-owned default order.
+  it('a stale localFirst option is inert (order unchanged, nothing resurrected)', () => {
+    for (const action of AI_ACTION_TYPES) {
+      expect(selectProvider(action, { localFirst: true })).toEqual(selectProvider(action));
+    }
   });
 
-  it('apiFirst keeps API providers first', () => {
-    const chain = selectProvider('video.short_ad', { apiFirst: true });
-    expect(chain).toEqual(['runway', 'kling', 'luma', 'pika', 'comfyui']);
-    const locals = chain.filter((p) => LOCAL_PROVIDERS.includes(p));
-    expect(chain.indexOf(locals[0])).toBe(chain.length - 1);
+  it('apiFirst is order-preserving now that every provider is an API provider', () => {
+    for (const action of AI_ACTION_TYPES) {
+      expect(selectProvider(action, { apiFirst: true })).toEqual(selectProvider(action));
+    }
+    expect(selectProvider('video.short_ad', { apiFirst: true }))
+      .toEqual(['runway', 'kling', 'luma', 'pika']);
   });
 
   it('never returns duplicates or providers outside AI_PROVIDERS', () => {
     for (const action of AI_ACTION_TYPES) {
-      for (const opts of [{}, { localFirst: true }, { apiFirst: true }, { preferredProvider: 'gemini' }]) {
+      for (const opts of [{}, { apiFirst: true }, { preferredProvider: 'gemini' }]) {
         const chain = selectProvider(action, opts);
         expect(new Set(chain).size).toBe(chain.length);
         for (const p of chain) expect(AI_PROVIDERS.includes(p)).toBe(true);
@@ -194,12 +208,12 @@ describe('buildAiRequest', () => {
     expect(req).toEqual({
       actionType: 'text.copy',
       payload: { prompt: 'שלום' },
-      providerChain: ['gemini', 'openai', 'openrouter', 'ollama'],
+      providerChain: ['gemini', 'openai', 'openrouter'],
       selectedProvider: 'gemini',
       costTier: 'low',
       requiresServer: true,
       requiresBudgetCheck: false,
-      metadata: { source: 'ai-gateway', preference: null, localFirst: false, apiFirst: false },
+      metadata: { source: 'ai-gateway', preference: null, apiFirst: false },
     });
   });
 
@@ -221,11 +235,12 @@ describe('buildAiRequest', () => {
     expect(buildAiRequest('studio.prompt_enhance').requiresBudgetCheck).toBe(false);
   });
 
-  it('API providers with secrets require server; local providers do not', () => {
+  it('API providers with secrets require server; the keyless one does not', () => {
     expect(buildAiRequest('text.copy').requiresServer).toBe(true); // gemini
-    const local = buildAiRequest('text.copy', {}, { availableProviders: ['ollama'] });
-    expect(local.selectedProvider).toBe('ollama');
-    expect(local.requiresServer).toBe(false);
+    // a retired local provider cannot be made available — it is not a provider
+    const retired = buildAiRequest('text.copy', {}, { availableProviders: ['ollama'] });
+    expect(retired.providerChain).toEqual([]);
+    expect(retired.selectedProvider).toBe(null);
     // pollinations is a keyless API provider — no server needed
     const keyless = buildAiRequest('image.poster', {}, { availableProviders: ['pollinations'] });
     expect(keyless.selectedProvider).toBe('pollinations');
@@ -234,8 +249,8 @@ describe('buildAiRequest', () => {
 
   it('metadata echoes preference flags; payload is copied, hostile inputs safe', () => {
     const payload = { p: 1 };
-    const req = buildAiRequest('text.copy', payload, { preferredProvider: 'OpenAI ', localFirst: true });
-    expect(req.metadata).toEqual({ source: 'ai-gateway', preference: 'openai', localFirst: true, apiFirst: false });
+    const req = buildAiRequest('text.copy', payload, { preferredProvider: 'OpenAI ', apiFirst: true });
+    expect(req.metadata).toEqual({ source: 'ai-gateway', preference: 'openai', apiFirst: true });
     expect(req.payload).toEqual(payload);
     expect(req.payload).not.toBe(payload);
     for (const input of HOSTILE_INPUTS) {
@@ -271,9 +286,10 @@ describe('estimateCost', () => {
     expect(est.isExact).toBe(false);
   });
 
-  it('local providers estimate 0 API cost; hostile inputs never throw', () => {
-    expect(estimateCost('image.poster', 'comfyui').estimatedCost).toBe(0);
-    expect(estimateCost('text.copy', 'ollama').estimatedCost).toBe(0);
+  it("only the 'none' sentinel estimates 0; hostile inputs never throw", () => {
+    expect(estimateCost('image.poster', 'none').estimatedCost).toBe(0);
+    // a retired local provider is unknown, so it gets the ordinary tier estimate
+    expect(estimateCost('image.poster', 'comfyui').estimatedCost).toBe(0.03);
     for (const input of HOSTILE_INPUTS) {
       expect(() => estimateCost(input, input, input)).not.toThrow();
     }
@@ -287,7 +303,7 @@ describe('providerSupportsAction / getProviderChain', () => {
   it('reflect the routing table and never throw', () => {
     expect(providerSupportsAction('gemini', 'text.copy')).toBe(true);
     expect(providerSupportsAction('runway', 'text.copy')).toBe(false);
-    expect(getProviderChain('text.copy')).toEqual(['gemini', 'openai', 'openrouter', 'ollama']);
+    expect(getProviderChain('text.copy')).toEqual(['gemini', 'openai', 'openrouter']);
     expect(getProviderChain('nope')).toEqual([]);
     for (const input of HOSTILE_INPUTS) {
       expect(() => providerSupportsAction(input, input)).not.toThrow();
@@ -298,15 +314,15 @@ describe('providerSupportsAction / getProviderChain', () => {
   it('getProviderChain returns a copy, not the frozen table', () => {
     const chain = getProviderChain('text.copy');
     chain.push('hacked');
-    expect(DEFAULT_PROVIDER_BY_ACTION['text.copy']).toEqual(['gemini', 'openai', 'openrouter', 'ollama']);
+    expect(DEFAULT_PROVIDER_BY_ACTION['text.copy']).toEqual(['gemini', 'openai', 'openrouter']);
   });
 });
 
 describe('determinism', () => {
   it('repeated calls deep-equal', () => {
     for (let i = 0; i < 3; i += 1) {
-      expect(selectProvider('image.poster', { localFirst: true }))
-        .toEqual(selectProvider('image.poster', { localFirst: true }));
+      expect(selectProvider('image.poster', { apiFirst: true }))
+        .toEqual(selectProvider('image.poster', { apiFirst: true }));
       expect(buildAiRequest('video.short_ad', { brief: 'x' }, { apiFirst: true }))
         .toEqual(buildAiRequest('video.short_ad', { brief: 'x' }, { apiFirst: true }));
       expect(estimateCost('image.product_lock', 'openai', { count: 2 }))

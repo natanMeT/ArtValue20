@@ -20,15 +20,9 @@ describe('S0F.1 · ImageStudio palette wiring (D5)', () => {
     expect(imageStudio).toContain('const p = withBrandPalette(prompt, data?.businessProfile, paletteOn);');
   });
 
-  it('every generation branch in run() uses the palette-composed prompt', () => {
-    const run = imageStudio.slice(imageStudio.indexOf('const run = async () => {'), imageStudio.indexOf('// Consistent-character pack'));
+  it('the generation call uses the palette-composed prompt', () => {
+    const run = imageStudio.slice(imageStudio.indexOf('const run = async () => {'), imageStudio.indexOf('const buildLockComposite'));
     expect(run).toContain('generateImage(p, {');
-    expect(run).toContain('editImage(file, p)');
-    expect(run).toContain('generateImg2Img(file, p, { strength })');
-    expect(run).toContain('qwenCompose(file, endFile, p,');
-    expect(run).toContain('inpaintImage(file, mask, p)');
-    expect(run).toContain('flfVideo(file, endFile, p,');
-    expect(run).toContain('ltxVideo(file, p,');
   });
 
   it('the toggle is per-generation UI state and never persisted', () => {
@@ -44,7 +38,7 @@ describe('S0F.1 · ImageStudio palette wiring (D5)', () => {
   });
 
   it('the Gateway image contract is unchanged (same action + same option keys)', () => {
-    expect(imageStudio).toContain('r = await generateImage(p, { arch: presetArch, width: asp.w, height: asp.h, hd, aspect });');
+    expect(imageStudio).toContain('const r = await generateImage(p, { aspect });');
     // prompt_enhance is a meta-prompt lane and must NOT carry palette guidance
     expect(imageStudio).toContain('buildStudioEnhancePrompt(prompt, kind)');
   });

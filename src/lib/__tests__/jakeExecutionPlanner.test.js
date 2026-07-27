@@ -112,20 +112,31 @@ describe('per-intent mappings', () => {
     expect(p.seed).toEqual({ builder: 'buildMonthlyContentPlanSeed', args: [{ focusService: TEXT_BY_INTENT.create_content_plan }] });
   });
 
-  it('product_visual → product_visual / studio / product-presenter workflow seed', () => {
+  // PRODUCT DECISION (2026-07-27): the presenter and Product Lock flows were
+  // REMOVED. Both intents still classify — a user may well ask for either — and
+  // both now land on the ONE hosted lane, keeping the useful part (their prompt)
+  // instead of planning a retired flow.
+  it('product_visual lands on the hosted studio plan, not a presenter flow', () => {
     const p = planOf('product_visual');
-    expect(p.planType).toBe('product_visual');
-    expect(p.steps.map((s) => s.id)).toEqual(['product-visual-brief', 'product-presenter', 'studio-workflow']);
+    expect(p.planType).toBe('studio_marketing_asset');
+    expect(p.steps.map((s) => s.id)).toEqual(['business-brain', 'studio-prompt', 'studio-workflow']);
     expect(p.seed.builder).toBe('buildStudioPromptSeed');
-    expect(p.seed.args[0]).toBe('product-presenter'); // decision.workflow
+    expect(p.seed.args[0]).toBe('fast-image');
   });
 
-  it('product_lock → product_lock_flow matching the real merged B1→B2 flow', () => {
+  it('product_lock lands on the same hosted studio plan', () => {
     const p = planOf('product_lock');
-    expect(p.planType).toBe('product_lock_flow');
-    expect(p.steps.map((s) => s.id)).toEqual(['product-lock', 'exact-composite', 'seam-shadow-blend']);
+    expect(p.planType).toBe('studio_marketing_asset');
+    expect(p.steps.map((s) => s.id)).toEqual(['business-brain', 'studio-prompt', 'studio-workflow']);
     expect(p.handoffTarget).toBe('studio');
-    expect(p.seed.args[0]).toBe('product-lock');
+    expect(p.seed.args[0]).toBe('fast-image');
+  });
+
+  it('no retired plan type or step id survives the vocabularies', () => {
+    for (const gone of ['product_visual', 'product_lock_flow']) expect(PLAN_TYPES, gone).not.toContain(gone);
+    for (const gone of ['product-visual-brief', 'product-presenter', 'product-lock', 'exact-composite', 'seam-shadow-blend']) {
+      expect(STEP_IDS, gone).not.toContain(gone);
+    }
   });
 
   it('studio_prompt → studio_marketing_asset with fast-image seed', () => {

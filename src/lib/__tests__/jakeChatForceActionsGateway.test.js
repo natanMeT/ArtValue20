@@ -310,9 +310,12 @@ describe('J2 lanes · source guards (gemini.js)', () => {
     expect(draft.includes("callAiGateway('jake.draft_message'")).toBe(true);
   });
 
-  it('the Assistant brain-badge exports the UI still imports remain intact', () => {
-    for (const kept of ['export function jakeBrainPref()', 'export function setJakeBrain(', 'export function jakeBrainLabel()']) {
-      expect(gemini.includes(kept), kept).toBe(true);
+  // Local-engine retirement (2026-07-27): the brain preference + cloud/local
+  // badge were the last provider-SELECTION surface in the frontend and named a
+  // workstation model. They had no production consumer and were REMOVED.
+  it('no brain-selection surface survives (one Gateway brain, nothing to choose)', () => {
+    for (const gone of ['jakeBrainPref', 'setJakeBrain', 'jakeBrainLabel', 'jakeBrainOrder', 'useLocalLLM', 'localChat']) {
+      expect(gemini.includes(gone), gone).toBe(false);
     }
   });
 });

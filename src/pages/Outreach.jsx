@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { userFacingError } from '../lib/userFacingError.js';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useStore } from '../store/store.jsx';
@@ -67,7 +68,7 @@ export default function Outreach() {
       toast(`נוספו ${ideas.length} רעיונות לידים`);
       setNiche('');
     } catch (e) {
-      setGenError(e.message || 'שגיאה ביצירת רעיונות');
+      setGenError(userFacingError(e, 'שגיאה ביצירת רעיונות'));
     } finally {
       setGenLoading(false);
     }

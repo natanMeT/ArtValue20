@@ -60,7 +60,7 @@ describe('jake.chat / jake.force_actions · canonical vocabulary + routing', () 
 
   it('both are gemini-first, gemini-executable, and decide to gemini', () => {
     for (const a of [CHAT, FORCE]) {
-      expect(DEFAULT_PROVIDER_BY_ACTION[a], a).toEqual(['gemini', 'openai', 'openrouter', 'ollama']);
+      expect(DEFAULT_PROVIDER_BY_ACTION[a], a).toEqual(['gemini', 'openai', 'openrouter']);
       expect(selectProvider(a)[0], a).toBe('gemini');
       expect(isGeminiExecutableAction(a), a).toBe(true);
       expect(GEMINI_EXECUTABLE_ACTION_TYPES.includes(a), a).toBe(true);

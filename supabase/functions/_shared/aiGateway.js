@@ -8,8 +8,13 @@
 // no imports from Studio/Jake/Gemini/ComfyUI code — node-testable
 // and deterministic (no timestamps, no ids, no randomness).
 //
-// Local providers (comfyui/ollama/fooocus/a1111) stay registered as
-// fallback/dev routes — nothing local is removed by this module.
+// PRODUCT BOUNDARY (2026-07-27, owner decision): ArtValue is a CLOUD-ONLY
+// product. The local providers (comfyui / ollama / fooocus / a1111) that this
+// table used to register as fallback/dev routes are REMOVED from the
+// vocabulary, from every model entry and from every routing chain. There is no
+// LOCAL_PROVIDERS partition and no localFirst ordering left: a local provider
+// is not selectable, orderable or nameable through this contract at all.
+// The cloud ACTION vocabulary is unchanged.
 // Cost figures are internal planning placeholders, never billing
 // truth (every estimate is marked isExact: false).
 // ===================================================================
@@ -72,17 +77,11 @@ export const AI_PROVIDERS = Object.freeze([
   'pika',
   'luma',
   'pollinations',
-  'comfyui',
-  'ollama',
-  'fooocus',
-  'a1111',
   'none',
 ]);
 
-// Providers that run on the user's machine (dev/fallback routes).
-export const LOCAL_PROVIDERS = Object.freeze(['comfyui', 'ollama', 'fooocus', 'a1111']);
-
-// Providers reached over an API.
+// Providers reached over an API. Every provider in the vocabulary except the
+// explicit 'none' sentinel is now an API provider — there is no other kind.
 export const API_PROVIDERS = Object.freeze([
   'openai', 'anthropic', 'gemini', 'openrouter', 'replicate',
   'runway', 'kling', 'pika', 'luma', 'pollinations',
@@ -135,14 +134,6 @@ export const AI_MODELS = Object.freeze({
   }),
   pollinations: Object.freeze({
     image: 'pollinations:image',
-  }),
-  comfyui: Object.freeze({
-    image: 'comfyui:image',
-    video: 'comfyui:video',
-    inpaint: 'comfyui:inpaint',
-  }),
-  ollama: Object.freeze({
-    text: 'ollama:text',
   }),
 });
 
@@ -200,28 +191,28 @@ const ACTION_UNIT_COST_USD = Object.freeze({
 
 // ---- table-driven default routing (recommendation map only) ----
 export const DEFAULT_PROVIDER_BY_ACTION = Object.freeze({
-  'text.copy': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
-  'text.crm_message': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
-  'text.multi_turn': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
-  'jake.draft_message': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
-  'jake.chat': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
-  'jake.force_actions': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
-  'studio.prompt_enhance': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
+  'text.copy': Object.freeze(['gemini', 'openai', 'openrouter']),
+  'text.crm_message': Object.freeze(['gemini', 'openai', 'openrouter']),
+  'text.multi_turn': Object.freeze(['gemini', 'openai', 'openrouter']),
+  'jake.draft_message': Object.freeze(['gemini', 'openai', 'openrouter']),
+  'jake.chat': Object.freeze(['gemini', 'openai', 'openrouter']),
+  'jake.force_actions': Object.freeze(['gemini', 'openai', 'openrouter']),
+  'studio.prompt_enhance': Object.freeze(['gemini', 'openai', 'openrouter']),
   // Single-provider chain by design (M2 J3C S4.1): the image lane makes exactly
   // one Gemini attempt — no second provider, no fallback, no retry.
   'studio.generate_image': Object.freeze(['gemini']),
-  'crm.suggest_next_action': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
-  'crm.lead_ideas': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
-  'crm.diagnose_quote': Object.freeze(['gemini', 'openai', 'openrouter', 'ollama']),
-  'text.strategy': Object.freeze(['anthropic', 'gemini', 'openai', 'openrouter', 'ollama']),
-  'text.campaign': Object.freeze(['anthropic', 'gemini', 'openai', 'openrouter', 'ollama']),
-  'image.poster': Object.freeze(['openai', 'gemini', 'replicate', 'pollinations', 'comfyui']),
-  'image.variation': Object.freeze(['openai', 'gemini', 'replicate', 'pollinations', 'comfyui']),
-  'image.product_presenter': Object.freeze(['gemini', 'replicate', 'comfyui']),
-  'image.product_lock': Object.freeze(['openai', 'gemini', 'replicate', 'comfyui']),
+  'crm.suggest_next_action': Object.freeze(['gemini', 'openai', 'openrouter']),
+  'crm.lead_ideas': Object.freeze(['gemini', 'openai', 'openrouter']),
+  'crm.diagnose_quote': Object.freeze(['gemini', 'openai', 'openrouter']),
+  'text.strategy': Object.freeze(['anthropic', 'gemini', 'openai', 'openrouter']),
+  'text.campaign': Object.freeze(['anthropic', 'gemini', 'openai', 'openrouter']),
+  'image.poster': Object.freeze(['openai', 'gemini', 'replicate', 'pollinations']),
+  'image.variation': Object.freeze(['openai', 'gemini', 'replicate', 'pollinations']),
+  'image.product_presenter': Object.freeze(['gemini', 'replicate']),
+  'image.product_lock': Object.freeze(['openai', 'gemini', 'replicate']),
   'vision.analyze_reference': Object.freeze(['gemini', 'openai', 'anthropic']),
-  'video.short_ad': Object.freeze(['runway', 'kling', 'luma', 'pika', 'comfyui']),
-  'video.product_demo': Object.freeze(['runway', 'kling', 'luma', 'pika', 'comfyui']),
+  'video.short_ad': Object.freeze(['runway', 'kling', 'luma', 'pika']),
+  'video.product_demo': Object.freeze(['runway', 'kling', 'luma', 'pika']),
 });
 
 // ---- normalizers (never throw; unknown → null) ----
@@ -263,14 +254,6 @@ function toProviderSet(value) {
   return set;
 }
 
-function isLocalProvider(provider) {
-  return LOCAL_PROVIDERS.includes(provider);
-}
-
-function isApiProvider(provider) {
-  return API_PROVIDERS.includes(provider);
-}
-
 // ---- provider selection (ordered fallback list, never throws) ----
 export function selectProvider(actionType, options = {}) {
   const action = normalizeActionType(actionType);
@@ -285,13 +268,10 @@ export function selectProvider(actionType, options = {}) {
   const available = toProviderSet(opts.availableProviders);
   if (available) chain = chain.filter((p) => available.has(p));
 
-  // Ordering preference: apiFirst wins over localFirst (API-first
-  // architecture); both are stable partitions of the default order.
-  if (opts.apiFirst === true) {
-    chain = [...chain.filter(isApiProvider), ...chain.filter((p) => !isApiProvider(p))];
-  } else if (opts.localFirst === true) {
-    chain = [...chain.filter(isLocalProvider), ...chain.filter((p) => !isLocalProvider(p))];
-  }
+  // Ordering preference: `apiFirst` is retained as an accepted no-op option so
+  // existing callers keep working. Every provider in the vocabulary is an API
+  // provider now, so the partition is the identity — and `localFirst` is gone
+  // with the providers it used to promote.
 
   // Preferred provider moves to the front only if it survived the
   // support/availability/exclusion filters above.
@@ -324,7 +304,6 @@ export function buildAiRequest(actionType, payload = {}, options = {}) {
     metadata: {
       source: 'ai-gateway',
       preference: normalizeProvider(opts.preferredProvider),
-      localFirst: opts.localFirst === true,
       apiFirst: opts.apiFirst === true,
     },
   };
@@ -341,11 +320,10 @@ export function estimateCost(actionType, provider, units = {}) {
 
   let estimatedCost = null;
   if (costTier !== 'unknown') {
-    // Local providers cost no API money (electricity is out of scope).
-    // A pinned per-action unit price (ACTION_UNIT_COST_USD) wins over the
-    // tier placeholder; every action without a pin keeps the exact tier
-    // arithmetic it always had.
-    const unitCost = (prov && (isLocalProvider(prov) || prov === 'none'))
+    // The 'none' sentinel costs nothing. A pinned per-action unit price
+    // (ACTION_UNIT_COST_USD) wins over the tier placeholder; every action
+    // without a pin keeps the exact tier arithmetic it always had.
+    const unitCost = (prov === 'none')
       ? 0
       : (Object.prototype.hasOwnProperty.call(ACTION_UNIT_COST_USD, action)
         ? ACTION_UNIT_COST_USD[action]

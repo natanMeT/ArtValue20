@@ -17,9 +17,6 @@ import { selectJakeChatHistory } from '../../lib/jakeChatHistory.js';
 import { studioHandoffFor } from '../../lib/assistantStudioHandoff.js';
 import { createArtValueCreative } from '../../creative/v2/createArtValueCreative.js';
 import { PRODUCTION_STAGES, PRODUCTION_STAGE_ORDER } from '../../creative/v2/productionProgress.js';
-import { generatePosterFromOffer } from '../../lib/comfyPoster.js';
-import { buildPosterOverlay } from './posterOverlay.js';
-import { exportPosterPng } from './posterExport.js';
 import { persistableChatMessages } from './chatPersistence.js';
 import { dashboardKpis, inventoryTotals, lowStockItems } from '../../lib/calc.js';
 import { formatCurrency } from '../../lib/format.js';
@@ -164,97 +161,6 @@ function buildOfferRequest(form) {
   };
 }
 
-// Calm Hebrew copy for a failed ComfyUI poster generation (local studio only). The
-// card it renders is TRANSIENT, so it never sticks around after a reload.
-function posterErrorText(err) {
-  const reason = err && err.reason;
-  if (reason === 'comfy_not_configured') return 'יצירת הפוסטר אינה זמינה כרגע 🙏';
-  if (reason === 'comfy_offline') return 'יצירת הפוסטר אינה זמינה כרגע 🙏 נסה/י שוב בעוד רגע.';
-  if (reason === 'prompt_failed') return 'לא הצלחתי לבנות פרומפט לפוסטר מהבריף הזה.';
-  return 'יצירת הפוסטר נכשלה כרגע 🙏 נסה/י שוב בעוד רגע.';
-}
-
-// PREVIEW-ONLY Hebrew advertising overlay composited over the (transient) ComfyUI
-// poster image. Pure presentation: RTL, a bottom gradient scrim for contrast on any
-// image, white text with a soft shadow, safe margins, and clamp/line-clamp so long
-// Hebrew copy never overflows. Font sizes use viewport-clamped values (no container
-// units — those would remove the image's intrinsic width and collapse the card). No
-// export/rasterization — this is a live preview layer.
-function PosterOverlay({ overlay }) {
-  const o = overlay || {};
-  if (!o.headline && !o.subheadline && !o.cta && !o.label) return null;
-  const clamp = (lines) => ({
-    display: '-webkit-box', WebkitLineClamp: lines, WebkitBoxOrient: 'vertical',
-    overflow: 'hidden', textOverflow: 'ellipsis',
-  });
-  return (
-    <div
-      dir="rtl"
-      aria-hidden="true"
-      style={{
-        position: 'absolute', inset: 0, borderRadius: 8, pointerEvents: 'none',
-        display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-        // bottom-anchored scrim so text stays readable over light OR dark images
-        background: 'linear-gradient(to top, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.45) 24%, rgba(0,0,0,0) 52%)',
-        color: '#fff', textAlign: 'right', fontFamily: 'inherit',
-        textShadow: '0 1px 4px rgba(0,0,0,0.65)', overflow: 'hidden',
-      }}
-    >
-      {o.label ? (
-        <div style={{
-          position: 'absolute', top: 10, insetInlineEnd: 12, maxWidth: '70%',
-          padding: '3px 10px', borderRadius: 999, background: 'rgba(0,0,0,0.42)',
-          fontSize: 'clamp(10px, 2.6vw, 13px)', fontWeight: 600, ...clamp(1),
-        }}>{o.label}</div>
-      ) : null}
-      <div style={{ padding: '14px 16px 16px', display: 'grid', gap: 7 }}>
-        {o.headline ? (
-          <div style={{ fontSize: 'clamp(17px, 4.6vw, 26px)', fontWeight: 800, lineHeight: 1.14, ...clamp(3) }}>{o.headline}</div>
-        ) : null}
-        {o.subheadline ? (
-          <div style={{ fontSize: 'clamp(12px, 3.3vw, 17px)', fontWeight: 500, opacity: 0.95, lineHeight: 1.3, ...clamp(2) }}>{o.subheadline}</div>
-        ) : null}
-        {o.cta ? (
-          <div style={{
-            justifySelf: 'start', marginTop: 2, padding: '6px 16px', borderRadius: 999,
-            background: '#fff', color: '#111', fontWeight: 700,
-            fontSize: 'clamp(12px, 3.2vw, 15px)', ...clamp(1),
-          }}>{o.cta}</div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-// Download the visible final poster (image + baked Hebrew overlay) as a PNG. Holds
-// its own transient export/error state — no parent state, no persistence. Renders
-// only when a poster image exists (never on progress/error cards).
-function PosterExportButton({ result }) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  if (!result || !result.src) return null;
-  const onClick = async () => {
-    setErr('');
-    setBusy(true);
-    let res;
-    try {
-      res = await exportPosterPng({ src: result.src, overlay: result.overlay, service: result.service });
-    } catch {
-      res = { ok: false };
-    }
-    setBusy(false);
-    if (!res || !res.ok) setErr('ייצוא ה-PNG נכשל כרגע 🙏 נסה/י שוב.');
-  };
-  return (
-    <div style={{ marginTop: 8 }}>
-      <button className="btn btn-sm ai-approve" onClick={onClick} disabled={busy} aria-busy={busy}>
-        {busy ? 'מייצא…' : '⬇️ הורד PNG'}
-      </button>
-      {err ? <div style={{ marginTop: 6, fontSize: 12, color: '#e0808a' }}>{err}</div> : null}
-    </div>
-  );
-}
-
 // Does the text contain an explicit action verb (add/update/delete/…)? If so the
 // model must run to emit the action block — we never fully swallow it. (\b word
 // boundaries don't work around Hebrew letters, so anchor on start/whitespace.)
@@ -281,12 +187,11 @@ function claimsActionText(text) {
 
 // A calm Hebrew fallback message — the client NEVER sees a raw technical error.
 function gentleError(e) {
-  const msg = String(e?.message || '');
-  // M2 J3C S1: the brain-selection button was removed, so this hint no longer
-  // points at it. Same trigger regex; calm retry copy only.
-  // The matcher still recognizes the legacy local-engine error TEXT, but the
-  // message shown names no engine and gives no start-it-yourself instruction.
-  if (/Ollama|מקומי|המנוע|עולה אחרי/i.test(msg)) return '⚠️ השירות עדיין מתאתחל. נסה/י שוב בעוד כ-30 שניות.';
+  // Local-engine retirement (2026-07-27): the special case that recognised the
+  // legacy workstation-engine error TEXT is gone with the engine that raised it.
+  // Every failure now resolves to ONE calm business-facing line — the error
+  // object is never read, so no technical detail can leak through it.
+  void e;
   return 'מצטער, לא הצלחתי לעבד את זה כרגע 🙏 נסה/י שוב בעוד רגע, או לנסח קצת אחרת.';
 }
 
@@ -431,7 +336,6 @@ export default function Assistant() {
   const timers = useRef([]);
   const dismissRef = useRef(null);
   const recognitionRef = useRef(null);
-  const posterSeqRef = useRef(0); // unique id per poster generation (match progress→result/error)
 
   const supportsSTT = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
   const supportsTTS = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -657,33 +561,6 @@ export default function Assistant() {
         : mm)));
     }
   };
-
-  // ---- ComfyUI poster: render a LOCAL key-visual image from the (transient) offer
-  // brief. Fail-closed via the adapter (ComfyUI only — never Pollinations/Gemini, never
-  // throws). The progress, result AND error cards are ALL transient (excluded from chat
-  // persistence) — no image, prompt, store, gallery, or localStorage write happens here.
-  const generatePoster = async (offerBrief) => {
-    const service = (offerBrief && offerBrief.offer && offerBrief.offer.service) || '';
-    // Derive the Hebrew overlay text up front from the (already-available) offer brief.
-    // Pure + deterministic; the image itself is generated text-free by ComfyUI.
-    const overlay = buildPosterOverlay(offerBrief);
-    posterSeqRef.current += 1;
-    const pid = `poster_${posterSeqRef.current}`;
-    setMessages((m) => [...m, { role: 'assistant', posterProgress: { service, pid } }]);
-    let res;
-    try {
-      res = await generatePosterFromOffer(offerBrief); // never throws; { ok, src?, reason? }
-    } catch {
-      res = { ok: false, reason: 'unexpected' };
-    }
-    setMessages((m) => m.map((mm) => {
-      if (!mm.posterProgress || mm.posterProgress.pid !== pid) return mm;
-      return res && res.ok && res.src
-        ? { role: 'assistant', posterResult: { src: res.src, service, engine: res.engine, overlay } }
-        : { role: 'assistant', posterError: { reason: (res && res.reason) || 'unknown', service } };
-    }));
-  };
-
   // Periodic speech bubble (only while resting in the corner).
   useEffect(() => {
     if (phase !== 'sit') { setBubble(null); return undefined; }
@@ -1460,39 +1337,9 @@ export default function Assistant() {
                               ))}
                             </div>
                           ) : null}
-
-                          <div className="ai-camp-card" style={{ textAlign: 'center' }}>
-                            <button className="btn btn-sm ai-approve" onClick={() => generatePoster(b)}>🎨 צור פוסטר לקמפיין</button>
-                          </div>
                         </div>
                       );
                     })()
-                  ) : m.posterProgress ? (
-                    <div key={i} className="ai-msg assistant ai-campaign">
-                      <div className="ai-camp-strategy">
-                        <div className="ai-camp-key">🎨 מייצר פוסטר לקמפיין…</div>
-                        {m.posterProgress.service ? <div className="ai-camp-dir">{m.posterProgress.service}</div> : null}
-                      </div>
-                      <div className="ai-camp-card">
-                        <div className="ai-camp-row"><span className="ai-typing"><i /><i /><i /></span> זה עשוי לקחת מספר עשרות שניות.</div>
-                      </div>
-                    </div>
-                  ) : m.posterResult ? (
-                    <div key={i} className="ai-msg assistant ai-campaign">
-                      <div className="ai-camp-strategy">
-                        <div className="ai-camp-key">🖼️ פוסטר{m.posterResult.service ? ` — ${m.posterResult.service}` : ''}</div>
-                        <div className="ai-camp-dir">פוסטר קמפיין</div>
-                      </div>
-                      <div className="ai-camp-card">
-                        <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden' }}>
-                          <img src={m.posterResult.src} alt="פוסטר שנוצר" style={{ width: '100%', borderRadius: 8, display: 'block' }} />
-                          <PosterOverlay overlay={m.posterResult.overlay} />
-                        </div>
-                        <PosterExportButton result={m.posterResult} />
-                      </div>
-                    </div>
-                  ) : m.posterError ? (
-                    <div key={i} className="ai-msg assistant ai-action">{posterErrorText(m.posterError)}</div>
                   ) : (
                     <div key={i} className={`ai-msg ${m.role} ${m.error ? 'err' : ''} ${m.system ? 'ai-action' : ''}`}>{m.text}</div>
                   )

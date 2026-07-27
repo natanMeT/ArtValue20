@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { userFacingError } from '../lib/userFacingError.js';
 import { useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useStore } from '../store/store.jsx';
@@ -43,7 +44,7 @@ export default function Diagnose() {
       const r = await diagnoseQuote(form);
       setResult(r);
     } catch (e) {
-      setError(e.message || 'שגיאה בהפקת האבחון');
+      setError(userFacingError(e, 'שגיאה בהפקת האבחון'));
     } finally {
       setLoading(false);
     }

@@ -42,7 +42,7 @@ describe('jake.draft_message · canonical vocabulary + routing', () => {
   });
 
   it('is gemini-first and gemini-executable', () => {
-    expect(DEFAULT_PROVIDER_BY_ACTION[ACTION]).toEqual(['gemini', 'openai', 'openrouter', 'ollama']);
+    expect(DEFAULT_PROVIDER_BY_ACTION[ACTION]).toEqual(['gemini', 'openai', 'openrouter']);
     expect(selectProvider(ACTION)[0]).toBe('gemini');
     expect(isGeminiExecutableAction(ACTION)).toBe(true);
     expect(buildAiGatewayDecision({ actionType: ACTION }).routing.selectedProvider).toBe('gemini');

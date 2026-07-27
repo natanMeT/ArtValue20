@@ -6,8 +6,9 @@
 // file out (dataset.test.js re-runs this and deep-equals the committed JSON).
 //
 // Imports only pure modules (schema validators + fixture data) → runnable under
-// plain node. The REAL-run path (runCriticEval.js, real mode) bypasses this and
-// records a separate candidate artifact; it never overwrites the committed file.
+// plain node. There is no other producer: the REAL-run path that used to write a
+// separate candidate artifact was removed with the local engine (2026-07-27), so
+// this builder is now the ONLY source of the committed snapshot.
 // ===================================================================
 import { validateCreativeCampaignRequest, validateCreativeCampaignResult } from '../schema.js';
 import { BRIEFS } from './briefs.js';
@@ -19,7 +20,7 @@ export const BASELINE_META = Object.freeze({
   mode: 'fixture',
   model: null,
   sampleCount: 1,
-  warning: 'SYNTHETIC DETERMINISTIC FIXTURE — NOT a real-model quality baseline. Hand-authored concepts to exercise the harness; the fixture PASS is directional only. Authoritative quality requires a human-labeled real local-model run (see artifacts/critic-eval/). Do NOT treat this as evidence the critic is validated, and do NOT promote it to a real baseline.',
+  warning: 'SYNTHETIC DETERMINISTIC FIXTURE — NOT a real-model quality baseline. Hand-authored concepts to exercise the harness; the fixture PASS is directional only. The real-model validation this warning used to point at required a local engine and is NO LONGER AVAILABLE in this repository (removed 2026-07-27); the supported measurement is this deterministic fixture run, which cannot establish quality. Do NOT treat this as evidence the critic is validated, and do NOT promote it to a real baseline.',
   note: 'Goldens are pinned to these samples. A real candidate has different concepts and must be promoted + re-labeled before its golden metrics apply.',
 });
 

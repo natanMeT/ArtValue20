@@ -95,7 +95,7 @@ Invoke-RestMethod -Method Post `
   "actionType": "text.copy",
   "request": { "actionType": "text.copy", "payload": { "prompt": "בדיקה" }, "options": {} },
   "routing": {
-    "providerChain": ["gemini", "openai", "openrouter", "ollama"],
+    "providerChain": ["gemini", "openai", "openrouter"],
     "selectedProvider": "gemini",
     "costTier": "low",
     "requiresServer": true,

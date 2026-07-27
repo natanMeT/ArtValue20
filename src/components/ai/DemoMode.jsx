@@ -33,7 +33,7 @@ const STEPS = [
   {
     icon: 'spark',
     title: 'ברוכים הבאים ל-Art Value',
-    body: 'זו מערכת ההפעלה של הסטודיו — שלוש מערכות בבית אחד:\n• CRM מלא (לקוחות, לידים, פייפליין, פרויקטים, הצעות מחיר, פיננסים, מלאי).\n• סטודיו יצירה (מנוע קריאייטיב שמייצר מודעות ותמונות).\n• ג׳יק — עוזר חכם שמבין עברית ומבצע פעולות אמיתיות.\n\nהסיור קצר — נעבור על הכל ביחד.',
+    body: 'זו מערכת ההפעלה של הסטודיו — שלוש מערכות בבית אחד:\n• CRM מלא (לקוחות, לידים, פייפליין, פרויקטים, הצעות מחיר, פיננסים, מלאי).\n• סטודיו תמונות (תיאור בעברית → תמונה עסקית, בענן).\n• ג׳יק — עוזר חכם שמבין עברית ומבצע פעולות אמיתיות.\n\nהסיור קצר — נעבור על הכל ביחד.',
   },
   {
     icon: 'dashboard',
@@ -65,9 +65,14 @@ const STEPS = [
   },
   {
     icon: 'image',
-    title: 'סטודיו היצירה',
-    body: 'מנוע הקריאייטיב חושב כמו סוכנות פרסום: מנתח את העסק, בונה אסטרטגיה, מייצר עשרות רעיונות, פוסל את הבטוחים, ורק אז מרנדר מודעה. כאן נוצרים הלוגואים, הבאנרים והקמפיינים.',
-    to: '/adstudio',
+    title: 'סטודיו התמונות',
+    // TRUTHFULNESS: this tour auto-opens ONLY in local/demo (shouldAutoOpenDemo
+    // returns false in cloud mode), i.e. exactly where there is NO account and,
+    // without an image lane configured, no generation either. The copy therefore
+    // describes the SURFACE and its always-available browser-side tools, and
+    // promises no account, no cloud and no successful generation.
+    body: 'מסך אחד ליצירת ויזואלים לעסק: כותבים תיאור בעברית — לוגו, מוצר, באנר או תמונת נושא — ומקבלים מתכוני פרומפט מוכנים, עורך פוסטר ומרכיב מוקאפים. יצירת התמונה עצמה זמינה כשהחשבון מחובר לשירות היצירה.',
+    to: '/studio',
     look: 'צפה בסטודיו',
   },
   {

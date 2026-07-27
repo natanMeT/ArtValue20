@@ -25,8 +25,7 @@ describe('studioHandoffFor · studio-positive texts → payload', () => {
 
   it('product presenter / product lock / studio prompt phrasings → studio payloads', () => {
     for (const [text, wf] of [
-      ['תכין לי ויזואל למוצר עם פרזנטור', 'product-presenter'],
-      ['אני רוצה להחליף רקע למוצר', 'product-lock'],
+      ['אני רוצה להחליף רקע למוצר', 'fast-image'],
       ['תכין לי פרומפט לסטודיו', 'fast-image'],
     ]) {
       const p = studioHandoffFor(text);
@@ -126,7 +125,7 @@ describe('Assistant integration · source-level pins', () => {
   it('the handoff handler contains no generation/execution tokens', () => {
     const handlerStart = assistant.indexOf('const handleOpenStudioHandoff');
     const handler = assistant.slice(handlerStart, assistant.indexOf('};', handlerStart));
-    for (const gen of ['run(', 'onCta(', 'buildLockComposite(', 'runLockBlend(', 'buildAlbum(', 'buildCharacterPack(', 'executeActions', 'askJake']) {
+    for (const gen of ['run(', 'onCta(', 'buildLockComposite(', 'executeActions', 'askJake']) {
       expect(handler.includes(gen), gen).toBe(false);
     }
   });
