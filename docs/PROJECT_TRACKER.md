@@ -211,7 +211,7 @@ Still open:
 - ✅ **Non-atomic quote persistence** — RESOLVED and LIVE: migration `20260726120000` applied, `public.save_quote_atomic` live, failure-injection acceptance 13/13, Production `476830a2`.
 
 ## Open follow-ups (non-blocking)
-- 🔧 **Jake advertises creative capabilities that the cloud path cannot run — BEING FIXED in the Studio Hosted Mode Containment Correction (in flight, not deployed).** It turned out to be more than a wording issue: it was the **entry point** into the hidden-mode hand-off defect. Original entry retained below for history.
+- 🔧 **Jake advertises creative capabilities that the cloud path cannot run — FIXED in the Studio Hosted Mode Containment Correction — **MERGED into `main` 2026-07-27 as PR #118, NOT deployed**.** It turned out to be more than a wording issue: it was the **entry point** into the hidden-mode hand-off defect. Original entry retained below for history.
 - ⚠️ **(historical) Jake advertises creative capabilities that the cloud path cannot run — truthfulness follow-up, NOT a regression.** Observed during both the Preview and Production authenticated smokes: asked what he can do, Jake lists `סדרת דמות`, `אלבום דוגמנית` and `פרזנטור מוצר`, which are **hidden in the cloud UI** because they require a local engine. Cause: `systemCapabilities()` in `businessBrain.js` enumerates every *live* workflow from the catalog regardless of engine availability. **This predates the Studio containment slice** — that slice only removed the engine NAMES from the same text — so it is not a regression and did not block release. Worth a future slice that filters the advertised capability list by what the current runtime can actually execute. **Not selected; do not begin without Nathan's approval.**
 - ✅ **Quote cloud-save source label truthfulness — RESOLVED / LIVE.** `src/pages/Quotes.jsx` previously toasted "נשמר מקומית" in authenticated cloud mode even though the quote was durably persisted (wording/source-label only — never data loss). PR #108 routes both quote toasts through the source-aware `saveLabel(mode)` helper (`'נשמר במערכת'` in `supabase` mode); confirmed on Preview with the byte-identical artifact ("הצעת מחיר נוצרה · נשמר במערכת" / "ההצעה עודכנה · נשמר במערכת") and **shipped to Production in deployment `476830a2`**.
 
@@ -1273,8 +1273,9 @@ product defect, an invalid release claim, or another hypothetical proof-complete
 Nathan's merge decision. **MERGED 2026-07-27 / NOT RELEASED** — nothing deployed. P1 remains CLOSED / LIVE. PR #117
 remains paused and untouched.
 
-**No product behavior changed. The removed network-policy work is not reopened.** **MERGED / NOT RELEASED** — not
-merged, not deployed. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.
+**No product behavior changed. The removed network-policy work is not reopened.** **Nothing was deployed at this
+round**; the slice was merged later, on 2026-07-27, as PR #118, and is still not released. P1 remains CLOSED / LIVE.
+PR #117 remains paused and untouched.
 
 ## PR #118 Release Readiness — **MERGED / NOT RELEASED** (preflight only, 2026-07-27)
 
@@ -1614,6 +1615,10 @@ Every stage below is **done**; nothing here is an outstanding instruction.
 ## Next action
 **No slice is in flight.** S0A + S0B + S0C + S0D + S0E + S0F.1 + P1 Atomic Quote Persistence + **Studio / Local-Engine
 UI Containment are all CLOSED / LIVE.**
+
+> ⚠️ **But `main` carries merged, undeployed work.** The **complete local-engine retirement** (PR
+> [#118](https://github.com/natanMeT/ArtValue20/pull/118), merged 2026-07-27 as `9ecb8eb`) is on `main` and is
+> **running nowhere** — see the PR #118 box in the Baseline and the Release Readiness section. **Merged is not live.**
 
 Production is **`247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js`** (source `03c23c2`), promoted from the
 accepted Preview artifact without rebuilding, with **12/12 byte-identical served files** and an **authenticated
