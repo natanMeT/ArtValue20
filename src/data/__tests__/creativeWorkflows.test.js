@@ -80,19 +80,14 @@ describe('creativeWorkflows · specific cards', () => {
 
   it('the retired local-engine cards are GONE from the catalog', () => {
     const ids = CREATIVE_WORKFLOWS.map((w) => w.id);
-    for (const retired of ['product-presenter', 'smart-edit', 'area-edit', 'image-to-video', 'before-after', 'character-series', 'model-album']) {
+    for (const retired of ['product-presenter', 'smart-edit', 'area-edit', 'image-to-video', 'before-after', 'character-series', 'model-album', 'product-lock']) {
       expect(ids, retired).not.toContain(retired);
     }
   });
 
-  it('Product Lock is LIVE, browser-engine, with the lock mode (no route)', () => {
-    const pl = byId('product-lock');
-    expect(pl).toBeTruthy();
-    expect(pl.status).toBe('live');
-    expect(pl.mode).toBe('lock');
-    expect(pl.route).toBeNull();
-    expect(pl.engine).toBe('browser');
-    expect(pl.consent).toBe(true);
+  it('Product Lock was REMOVED from the catalog with the feature', () => {
+    expect(byId('product-lock')).toBeUndefined();
+    expect(CREATIVE_WORKFLOWS.filter((w) => w.status === 'live').map((w) => w.id)).toEqual(['fast-image']);
   });
 
   it('Jewelry / Outfit / Identity Pack remain soon', () => {

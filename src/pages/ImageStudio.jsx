@@ -8,7 +8,7 @@ import Icon from '../components/ui/Icon.jsx';
 // ONLY. Both remote operations it performs — prompt enhancement and image
 // creation — go through the protected server-owned AI Gateway. There is no
 // local-engine import here at all: no engine URL, no capability flag, no job
-// watcher, no model constant. Product Lock composes in the browser on canvas.
+// watcher, no model constant.
 import { callAiGateway } from '../lib/aiGatewayClient.js';
 import { generateImage, downloadImage, isImageAiConfigured } from '../lib/hostedImage.js';
 import { createGalleryStore, srcToBlob, GALLERY_MAX, filterGalleryItems } from '../lib/galleryStore.js';
@@ -18,7 +18,6 @@ import { CREATIVE_PRESETS, isTextImagePreset } from '../data/creativePresets.js'
 import { availablePresets } from '../lib/presetAvailability.js';
 import PosterEditor from '../components/studio/PosterEditor.jsx';
 import MockupStudio from '../components/studio/MockupStudio.jsx';
-import ProductPlacer from '../components/studio/ProductPlacer.jsx';
 import { readStudioHandoff } from '../lib/studioHandoff.js';
 import { isStudioModeAvailable, resolveStudioMode } from '../lib/studioModes.js';
 import { userFacingError, userError } from '../lib/userFacingError.js';
@@ -143,7 +142,6 @@ const IDEA_POOL = [
 // the retired local-engine modes were removed from both, not hidden in one.
 const MODES = [
   { id: 'text', label: 'טקסט → תמונה', sub: 'תיאור הופך לתמונה', icon: 'wand' },
-  { id: 'lock', label: 'מוצר מדויק', sub: 'Product Lock · קומפוזיט', icon: 'edit' },
 ];
 
 // Aspect-ratio presets.
@@ -254,8 +252,6 @@ export default function ImageStudio() {
   const [handoffNotice, setHandoffNotice] = useState(''); // small "prompt came from Jake" hint
   const [mode, setMode] = useState('text');
   const [prompt, setPrompt] = useState('');
-  const [lockBusy, setLockBusy] = useState(false); // Product Lock composite export in progress
-  const placerRef = useRef(null);                  // ProductPlacer imperative handle
   const [aspect, setAspect] = useState('square');
   const [enhancing, setEnhancing] = useState(false);
   const [ideaSeed, setIdeaSeed] = useState(0);
@@ -271,17 +267,11 @@ export default function ImageStudio() {
   }, []);
   const visibleIdeas = Array.from({ length: 4 }, (_, i) => shuffledIdeas[(ideaOffset + i) % shuffledIdeas.length]);
   const shuffleIdeas = () => { setIdeaSeed((s) => s + 1); setIdeaOffset(0); };
-  const [file, setFile] = useState(null);
-  const [filePreview, setFilePreview] = useState('');
-  const [endFile, setEndFile] = useState(null);       // "after" frame for before/after mode
-  const [endPreview, setEndPreview] = useState('');
-  const endRef = useRef(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [imgReady, setImgReady] = useState(false);
   const [imgAttempt, setImgAttempt] = useState(0);
   const [error, setError] = useState('');
-  const fileRef = useRef(null);
   const [gallery, setGallery] = useState([]);
   const [galleryTab, setGalleryTab] = useState('all'); // all | image | video
   const [galleryBusy, setGalleryBusy] = useState(false);
@@ -345,12 +335,13 @@ export default function ImageStudio() {
     // A hand-off is an INDIRECT entry path: it must be validated against the
     // authoritative available-mode set, or it can select a hidden local-only
     // mode and render its panel in a hosted build (proven in the DOM).
-    let contained = false;
-    if (prefill.mode) {
-      const resolved = resolveStudioMode(prefill.mode);
-      contained = resolved.contained;
-      setMode(resolved.mode); setResult(null); setError('');
-    }
+    // EVERY accepted hand-off resolves — including one whose workflow is retired
+    // and therefore carries `mode: null`. Skipping resolution left the ALREADY
+    // MOUNTED Studio on whatever mode it happened to be in, so a retired request
+    // could keep a retired panel on screen with the new prompt hidden behind it.
+    const resolved = resolveStudioMode(prefill.mode);
+    const contained = resolved.contained && Boolean(prefill.mode);
+    setMode(resolved.mode); setResult(null); setError('');
     setHandoffNotice(contained
       ? 'הפרומפט הגיע מג׳ייק. סוג היצירה שביקשת אינו זמין כאן, אז פתחנו יצירת תמונה — אפשר ליצור עם הפרומפט הזה.'
       : 'הפרומפט הגיע מג׳ייק — לחץ Generate כדי ליצור.');
@@ -391,33 +382,11 @@ export default function ImageStudio() {
     } catch { /* clipboard unavailable — non-fatal */ }
   };
 
-  const pickFile = (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    if (filePreview) URL.revokeObjectURL(filePreview);
-    setFile(f);
-    const url = URL.createObjectURL(f);
-    setFilePreview(url);
-    setError('');
-      const img = new Image();
-    img.src = url;
-  };
 
 
-  const pickEndFile = (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    if (endPreview) URL.revokeObjectURL(endPreview);
-    setEndFile(f);
-    setEndPreview(URL.createObjectURL(f));
-    setError('');
-  };
 
   // Map a studio mode to a render-history source label (simple, best-effort).
-  const SOURCE_BY_MODE = {
-    text: 'text-to-image', img2img: 'smart-edit', inpaint: 'area-edit',
-    video: 'image-to-video', flf: 'before-after', presenter: 'product-presenter',
-  };
+  const SOURCE_BY_MODE = { text: 'text-to-image' };
 
   // Build the small metadata bag saved alongside a gallery asset. kind comes
   // from the result's isVideo flag; meta strings are sanitized in galleryStore.
@@ -478,30 +447,7 @@ export default function ImageStudio() {
 
 
 
-  // Product Lock (B1): exact browser composite — the product pixels are pasted,
-  // never regenerated. Canvas only — no request at all; the PNG goes to the gallery.
-  const buildLockComposite = async () => {
-    if (!file) { setError('העלה תמונת בסיס / פרזנטור'); return; }
-    if (!endFile) { setError('העלה גם תמונת מוצר'); return; }
-    if (!placerRef.current?.isReady()) { setError('סביבת המיקום עדיין נטענת — נסה שוב בעוד רגע'); return; }
-    setLockBusy(true); setError('');
-    try {
-      const blob = await placerRef.current.exportComposite();
-      if (!blob) throw new Error('יצירת הקומפוזיט נכשלה');
-      await galleryStore.add(blob, { kind: 'image', source: 'product-lock', engine: 'composite' });
-      await refreshGallery();
-      toast('הקומפוזיט המדויק נשמר בגלריה ✓');
-    } catch (e) {
-      setError(userFacingError(e, 'שגיאה ביצירת הקומפוזיט'));
-    } finally {
-      setLockBusy(false);
-    }
-  };
 
-  // Product Lock (B2): AI seam/shadow blend. The browser exports the exact
-  // composite + a pixel-aligned seam-ring mask; SDXL inpaints ONLY the ring and
-  // the graph pastes the original composite back everywhere else. Fixed prompt —
-  // product protection comes from mask geometry + paste-back, never wording.
   const LOCK_BLEND_PROMPT = 'Natural soft contact shadow, seamless edge blending, matched ambient lighting, realistic product contact with the surface or skin, photorealistic integration. Preserve the product exactly.';
 
   // Presenter Consistency Bridge: load a gallery image (e.g. a Character Series /
@@ -510,7 +456,6 @@ export default function ImageStudio() {
 
   const removeGalleryItem = async (id) => {
     await galleryStore.remove(id);
-    setSelectedIds((s) => s.filter((x) => x !== id));
     refreshGallery();
   };
 
@@ -540,12 +485,11 @@ export default function ImageStudio() {
   };
 
 
-  const needsImage = mode !== 'text';
-  const isLock = mode === 'lock';
-  const ctaLabel = isLock ? 'צור קומפוזיט מדויק' : 'צור תמונה עם AI';
-  const loadingLabel = isLock ? 'יוצר קומפוזיט…' : 'מחולל…';
-  const ctaBusy = isLock ? lockBusy : loading;
-  const onCta = isLock ? buildLockComposite : run;
+
+  const ctaLabel = 'צור תמונה עם AI';
+  const loadingLabel = 'מחולל…';
+  const ctaBusy = loading;
+  const onCta = run;
 
   return (
     <div className="studio-hf">
@@ -582,35 +526,7 @@ export default function ImageStudio() {
         <div className="card panel">
           <div className="panel-title row gap-2" style={{ marginBottom: 16 }}><Icon name="wand" size={18} style={{ color: 'var(--lime-deep)' }} /> {mode === 'video' ? 'הגדרות אנימציה' : 'הנחיית עיצוב'}</div>
 
-          {/* Dual uploader — flf frames, presenter+product, or lock base+product */}
-          {(mode === 'flf' || mode === 'presenter' || mode === 'lock') && (
-            <div className="field">
-              <label>{mode === 'lock' ? 'תמונת בסיס / פרזנטור + תמונת מוצר' : mode === 'presenter' ? 'תמונת פרזנטור + תמונת מוצר' : 'שתי תמונות — המעבר ביניהן יהפוך לסרטון'}</label>
-              <div className="flf-slots">
-                <div className="flf-slot">
-                  <span className="flf-slot-tag">{mode === 'lock' ? 'בסיס' : mode === 'presenter' ? 'פרזנטור' : 'לפני'}</span>
-                  <input ref={fileRef} type="file" accept="image/*" onChange={pickFile} style={{ display: 'none' }} />
-                  <button type="button" className="upload-zone flf-zone" onClick={() => fileRef.current?.click()}>
-                    {filePreview ? <img src={filePreview} alt={mode === 'lock' ? 'בסיס' : mode === 'presenter' ? 'פרזנטור' : 'לפני'} className="upload-preview" /> : (
-                      <div className="upload-placeholder"><Icon name="image" size={22} /><span>{mode === 'lock' ? 'תמונת בסיס' : mode === 'presenter' ? 'תמונת פרזנטור' : 'תמונת התחלה'}</span></div>
-                    )}
-                  </button>
-                </div>
-                <div className="flf-arrow"><Icon name="chevronL" size={20} style={{ color: 'var(--lime-deep)' }} /></div>
-                <div className="flf-slot">
-                  <span className="flf-slot-tag">{(mode === 'presenter' || mode === 'lock') ? 'מוצר' : 'אחרי'}</span>
-                  <input ref={endRef} type="file" accept="image/*" onChange={pickEndFile} style={{ display: 'none' }} />
-                  <button type="button" className="upload-zone flf-zone" onClick={() => endRef.current?.click()}>
-                    {endPreview ? <img src={endPreview} alt={(mode === 'presenter' || mode === 'lock') ? 'מוצר' : 'אחרי'} className="upload-preview" /> : (
-                      <div className="upload-placeholder"><Icon name="image" size={22} /><span>{mode === 'lock' ? 'תמונת מוצר (PNG שקוף מומלץ)' : mode === 'presenter' ? 'תמונת מוצר' : 'תמונת סיום'}</span></div>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
-          {/* Image uploader (single-image modes) */}
 
           {/* Business preset recipes (Text-to-Image only) — fills the prompt/aspect/model
               below on click; never generates. */}
@@ -653,10 +569,10 @@ export default function ImageStudio() {
           )}
 
           {/* Prompt */}
-          {!isLock && (
-            <div className="field" style={needsImage ? { marginTop: 14 } : undefined}>
+          {(
+            <div className="field">
               <label>תיאור התמונה (עברית או אנגלית)</label>
-              <textarea className="textarea" style={{ minHeight: needsImage ? 80 : 130 }} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="כתוב בעברית פשוטה — למשל: לוגו מודרני לעסק דיגיטלי" />
+              <textarea className="textarea" style={{ minHeight: 130 }} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="כתוב בעברית פשוטה — למשל: לוגו מודרני לעסק דיגיטלי" />
               <button type="button" className="btn btn-ghost btn-sm enhance-btn" onClick={enhance} disabled={enhancing} style={{ marginTop: 8 }}>
                 {enhancing ? <><span className="loader-ring" style={{ width: 14, height: 14, borderWidth: 2 }} /> משדרג…</> : <><Icon name="spark" size={14} style={{ color: 'var(--lime-deep)' }} /> שדרג לפרומפט מקצועי (עברית → AI)</>}
               </button>
@@ -723,19 +639,6 @@ export default function ImageStudio() {
 
 
 
-          {mode === 'lock' && (
-            <>
-              <p className="muted" style={{ fontSize: '0.82rem', lineHeight: 1.6, marginTop: 6 }}>
-                <Icon name="edit" size={13} style={{ color: 'var(--lime-deep)' }} /> <b>מוצר מדויק — Product Lock.</b> מצב זה שומר על פיקסלי המוצר המקורי וממקם אותו על גבי תמונת הפרזנטור. מתאים למוצרים עם לוגו, טקסט, שעון, אריזה או סימני מותג שצריכים להישאר מדויקים.
-              </p>
-              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>המערכת שומרת על המוצר עצמו, ואתה יכול לדייק את המיקום, הגודל והזווית לפני יצירת הקומפוזיט.</p>
-              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>מומלץ להשתמש בתמונת מוצר PNG שקופה או בתמונת מוצר על רקע נקי.</p>
-              {/* The sentence that TELLS the user to use the gated enhancement is
-                  part of the enhancement, so it hangs off the SAME decision as
-                  the button below — not off `mode === 'lock'`. */}
-              <p className="dim" style={{ fontSize: '0.74rem', lineHeight: 1.5, marginTop: 2 }}>לשימוש בתמונות שיש לך הרשאה להשתמש בהן בלבד.</p>
-            </>
-          )}
 
 
 
@@ -755,7 +658,6 @@ export default function ImageStudio() {
             {ctaBusy ? <><span className="loader-ring" style={{ width: 18, height: 18, borderWidth: 2 }} /> {loadingLabel}</> : <><Icon name="spark" size={18} /> {ctaLabel}</>}
           </button>
 
-          {/* Product Lock B2 — secondary action: AI blends ONLY the seam/shadow ring */}
 
           {/* Quick ideas (text mode only) */}
           {mode === 'text' && (
@@ -782,38 +684,24 @@ export default function ImageStudio() {
 
         {/* Result */}
         <div className="card panel diag-result">
-          {/* Product Lock — the workspace IS the result area: exact composite preview */}
-          {isLock && (filePreview && endPreview ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div className="panel-title row gap-2"><Icon name="edit" size={16} style={{ color: 'var(--lime-deep)' }} /> סביבת מיקום — מוצר מדויק</div>
-              <ProductPlacer ref={placerRef} baseUrl={filePreview} productUrl={endPreview} />
-            </div>
-          ) : (
-            <div className="diag-empty">
-              <div className="diag-empty-ico"><Icon name="edit" size={30} /></div>
-              <h3>מוצר מדויק · Product Lock</h3>
-              <p className="muted">העלה תמונת בסיס/פרזנטור ותמונת מוצר משמאל — המוצר יופיע כאן למיקום מדויק, ללא שינוי בפיקסלים שלו.</p>
-            </div>
-          ))}
 
-          {/* Pack (character / album) — streaming grid of consistent variations */}
 
-          {!isLock && !result && !loading && (
+          {!result && !loading && (
             <div className="diag-empty">
               <div className="diag-empty-ico"><Icon name="image" size={30} /></div>
               <h3>מוכן ליצירת תמונה</h3>
-              <p className="muted">{mode === 'flf' ? 'העלה תמונת «לפני» ו«אחרי» משמאל ולחץ על הכפתור.' : needsImage ? 'העלה תמונה משמאל ולחץ על הכפתור.' : 'הזן תיאור משמאל ולחץ «צור תמונה עם AI».'}</p>
+              <p className="muted">הזן תיאור משמאל ולחץ «צור תמונה עם AI».</p>
             </div>
           )}
 
-          {!isLock && loading && (
+          {loading && (
             <div className="diag-empty">
               <span className="loader-ring" style={{ width: 40, height: 40 }} />
               <h3 style={{ marginTop: 14 }}>מחולל את התמונה…</h3>
             </div>
           )}
 
-          {!isLock && result && !loading && (
+          {result && !loading && (
             <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4 }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div className="studio-image">
                 {!imgReady && (

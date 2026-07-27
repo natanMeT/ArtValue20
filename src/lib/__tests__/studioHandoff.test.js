@@ -26,16 +26,15 @@ describe('exports', () => {
 });
 
 describe('workflowIdToMode', () => {
-  it('maps the live studio workflows to their modes', () => {
+  it('maps the live studio workflow to its mode', () => {
     expect(workflowIdToMode('fast-image')).toBe('text');
-    expect(workflowIdToMode('product-lock')).toBe('lock');
   });
 
   it('a RETIRED local workflow maps to no mode at all', () => {
     // PRODUCT BOUNDARY (2026-07-27): these cards left the catalog with their
     // engines, so a hand-off naming one carries no mode. The prompt still
     // prefills; the Studio stays on a mode that exists.
-    for (const retired of ['product-presenter', 'smart-edit', 'area-edit', 'image-to-video', 'before-after', 'character-series', 'model-album']) {
+    for (const retired of ['product-presenter', 'smart-edit', 'area-edit', 'image-to-video', 'before-after', 'character-series', 'model-album', 'product-lock']) {
       expect(workflowIdToMode(retired), retired).toBeNull();
     }
   });
@@ -67,8 +66,8 @@ describe('readStudioHandoff · valid payloads', () => {
     expect(r.mode).toBeNull();
   });
 
-  it('product-lock handoff → mode lock', () => {
-    expect(readStudioHandoff(validState({ workflow: 'product-lock' })).mode).toBe('lock');
+  it('a product-lock handoff (now retired) carries no mode', () => {
+    expect(readStudioHandoff(validState({ workflow: 'product-lock' })).mode).toBeNull();
   });
 
   it('unknown/missing workflow → prompt kept, mode null (safe partial)', () => {
@@ -109,7 +108,7 @@ describe('readStudioHandoff · rejected payloads → null', () => {
 describe('determinism', () => {
   it('repeated calls deep-equal', () => {
     expect(readStudioHandoff(validState())).toEqual(readStudioHandoff(validState()));
-    expect(workflowIdToMode('product-lock')).toBe(workflowIdToMode('product-lock'));
+    expect(workflowIdToMode('fast-image')).toBe(workflowIdToMode('fast-image'));
   });
 });
 

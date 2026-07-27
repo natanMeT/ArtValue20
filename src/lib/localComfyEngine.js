@@ -140,6 +140,22 @@ async function comfyUI(text, useFlux = false, w = 1024, h = 1024, hd = false, mo
   return { src, engine: 'local', demo: false };
 }
 
+// Realism prompt wrappers used by maxRealismGraph. These were left behind when
+// the module was split out of geminiImage.js, which made every configured
+// AdStudio render throw a ReferenceError before submitting a job.
+const FACE_WILD = 'extreme skin detail, visible pores on cheeks nose and forehead, peach fuzz vellus hair, individual eyebrow hairs, baby hairs along the hairline, long eyelashes, catchlight in the eyes, detailed iris, natural lip texture, subtle dewy skin highlights, raw unretouched skin, no heavy makeup';
+
+function wrapRealism(prompt) {
+  const trigger = FLUX_LORA ? 'Super Realism, ' : '';
+  return `${trigger}raw photo, professional beauty editorial, ${prompt}, ${REAL_HAIR}, ${REAL_MICRO}, ${REAL_SKIN}`;
+}
+
+const NATURAL_WILD = 'bare skin no makeup, visible pores, real natural skin texture, subtle natural imperfections, no smoothing, no retouch';
+
+function wrapNatural(prompt) {
+  return `raw natural photograph, candid, ${prompt}, ${NATURAL_SKIN}`;
+}
+
 function maxRealismGraph(prompt, seed, opts = {}) {
   const w = opts.width ?? 1024;
   const h = opts.height ?? 1280;

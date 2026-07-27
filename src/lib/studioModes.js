@@ -9,9 +9,10 @@
 // to describe them. There is no LTX, SVD, Qwen, PuLID, Kontext, ComfyUI or
 // Fooocus path in the Studio any more, and none is kept dormant "for later".
 //
-// What remains is what genuinely works without a local engine:
+// PRODUCT DECISION (2026-07-27, second override): Product Lock is removed too.
+// It was the last non-text mode, so the Studio now has exactly ONE creative
+// mode:
 //   text — description → image, served by the account's protected AI Gateway
-//   lock — Product Lock, an EXACT in-browser composite (canvas only, no engine)
 //
 // WHY THIS MODULE STILL EXISTS
 // Availability is not the same as what is rendered. The original defect was a
@@ -30,12 +31,10 @@
 //   - PURE. No imports, no probing, no window/storage/clock.
 // ===================================================================
 
-// Every mode the Studio can open. `null` = no requirement; both remaining modes
-// are unconditionally available because neither needs anything but the browser
-// and the account's own Gateway.
+// Every mode the Studio can open. `null` = no requirement: the one remaining
+// mode needs nothing but the account's own Gateway.
 export const STUDIO_MODE_REQUIREMENTS = Object.freeze({
   text: null,
-  lock: null,
 });
 
 // Mode ids that EXISTED and were retired with the local engine. Kept ONLY so an
@@ -43,7 +42,7 @@ export const STUDIO_MODE_REQUIREMENTS = Object.freeze({
 // falling through an `undefined` lookup — never to describe, offer or restore
 // them. Nothing renders from this list.
 export const RETIRED_STUDIO_MODES = Object.freeze([
-  'img2img', 'inpaint', 'video', 'flf', 'presenter', 'character', 'album',
+  'img2img', 'inpaint', 'video', 'flf', 'presenter', 'character', 'album', 'lock',
 ]);
 
 // The mode every unavailable request falls back into. Always available.
@@ -81,7 +80,6 @@ export function resolveStudioMode(requested, fallback = STUDIO_FALLBACK_MODE) {
 // the requirements, so an added mode cannot be described without one.
 export const STUDIO_MODE_LABELS = Object.freeze({
   text: 'יצירת תמונה מתיאור',
-  lock: 'מוצר מדויק (שימור פרטי המוצר)',
 });
 
 // Labels of exactly the modes the Studio can open.

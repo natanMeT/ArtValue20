@@ -25,7 +25,7 @@ describe('studioHandoffFor · studio-positive texts → payload', () => {
 
   it('product presenter / product lock / studio prompt phrasings → studio payloads', () => {
     for (const [text, wf] of [
-      ['אני רוצה להחליף רקע למוצר', 'product-lock'],
+      ['אני רוצה להחליף רקע למוצר', 'fast-image'],
       ['תכין לי פרומפט לסטודיו', 'fast-image'],
     ]) {
       const p = studioHandoffFor(text);

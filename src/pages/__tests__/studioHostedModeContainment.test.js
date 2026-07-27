@@ -152,11 +152,15 @@ describe('the Studio is cloud/Gateway only', () => {
     }
   });
 
-  it('Product Lock composes in the BROWSER — no request at all', () => {
-    expect(IMAGE_STUDIO).toContain('placerRef.current.exportComposite()');
-    const fn = IMAGE_STUDIO.slice(IMAGE_STUDIO.indexOf('const buildLockComposite'), IMAGE_STUDIO.indexOf('const useGalleryItem') + 1);
-    for (const forbidden of ['fetch(', 'callAiGateway', 'generateImage']) {
-      expect(fn.includes(forbidden), forbidden).toBe(false);
+  it('PRODUCT LOCK IS GONE — no mode, control, wording or implementation survives', () => {
+    for (const gone of ['ProductPlacer', 'placerRef', 'buildLockComposite', 'isLock', 'lockBusy',
+      'Product Lock', 'מוצר מדויק', 'קומפוזיט']) {
+      expect(IMAGE_STUDIO.includes(gone), gone).toBe(false);
+    }
+    // the orphaned implementation went with it
+    const names = GRAPH.map(relative);
+    for (const deleted of ['src/components/studio/ProductPlacer.jsx', 'src/lib/productLock.js']) {
+      expect(names, deleted).not.toContain(deleted);
     }
   });
 });
@@ -166,9 +170,9 @@ describe('the Studio is cloud/Gateway only', () => {
 // ===================================================================
 describe('retired local modes cannot be reached', () => {
   it('the product offers exactly the two hosted modes', () => {
-    expect(availableStudioModeIds().sort()).toEqual(['lock', 'text']);
-    expect(Object.keys(STUDIO_MODE_REQUIREMENTS).sort()).toEqual(['lock', 'text']);
-    expect(availableStudioModeLabels().length).toBe(2);
+    expect(availableStudioModeIds()).toEqual(['text']);
+    expect(Object.keys(STUDIO_MODE_REQUIREMENTS)).toEqual(['text']);
+    expect(availableStudioModeLabels().length).toBe(1);
   });
 
   it('every retired mode id is unavailable and recognised as retired', () => {
@@ -176,7 +180,7 @@ describe('retired local modes cannot be reached', () => {
       expect(isStudioModeAvailable(m), m).toBe(false);
       expect(isRetiredStudioMode(m), m).toBe(true);
     }
-    expect([...RETIRED_STUDIO_MODES]).toEqual(['img2img', 'inpaint', 'video', 'flf', 'presenter', 'character', 'album']);
+    expect([...RETIRED_STUDIO_MODES]).toEqual(['img2img', 'inpaint', 'video', 'flf', 'presenter', 'character', 'album', 'lock']);
   });
 
   it('FAILS CLOSED on unknown, empty and hostile ids', () => {
@@ -198,7 +202,6 @@ describe('retired local modes cannot be reached', () => {
 
   it('a VALID request is preserved, not contained', () => {
     expect(resolveStudioMode('text')).toEqual({ mode: 'text', contained: false, retired: false });
-    expect(resolveStudioMode('lock')).toEqual({ mode: 'lock', contained: false, retired: false });
   });
 
   it('THE REAL SEAM: a retired workflow hand-off carries no mode, and keeps the prompt', () => {
@@ -206,13 +209,32 @@ describe('retired local modes cannot be reached', () => {
       jakeHandoff: { source: 'jake', target: 'studio', prompt: 'פרומפט', workflow },
     });
     for (const retired of ['product-presenter', 'smart-edit', 'area-edit', 'image-to-video',
-      'before-after', 'character-series', 'model-album']) {
+      'before-after', 'character-series', 'model-album', 'product-lock']) {
       expect(workflowIdToMode(retired), retired).toBeNull();
       expect(handoff(retired).mode, retired).toBeNull();
       expect(handoff(retired).prompt).toBe('פרומפט');
     }
     expect(handoff('fast-image').mode).toBe('text');
-    expect(handoff('product-lock').mode).toBe('lock');
+    expect(handoff('product-lock').mode).toBeNull();   // retired in the same decision
+  });
+
+  it('EVERY accepted hand-off resolves — including one carrying no mode', () => {
+    // Codex finding on 7f9daf8: a retired workflow yields `mode: null`, and the
+    // effect skipped resolution entirely, so an ALREADY MOUNTED Studio kept
+    // whatever mode it was in while the new prompt sat hidden behind it.
+    expect(IMAGE_STUDIO).toMatch(/const resolved = resolveStudioMode\(prefill\.mode\);/);
+    expect(IMAGE_STUDIO).not.toMatch(/if \(prefill\.mode\) \{/);
+    // and the authority resolves a null/absent mode to the fallback, not to nothing
+    for (const none of [null, undefined, '']) {
+      expect(resolveStudioMode(none).mode).toBe(STUDIO_FALLBACK_MODE);
+    }
+  });
+
+  it('the gallery delete path does not touch removed state', () => {
+    // Codex finding on 7f9daf8: `setSelectedIds` survived the selection removal
+    // and threw a ReferenceError that aborted refreshGallery().
+    expect(IMAGE_STUDIO.includes('setSelectedIds')).toBe(false);
+    expect(IMAGE_STUDIO.includes('selectedIds')).toBe(false);
   });
 
   it('every live catalog workflow resolves to a mode that exists', () => {
@@ -224,7 +246,7 @@ describe('retired local modes cannot be reached', () => {
   it('THE CONSUMER: the Studio renders the same two modes and resolves every entry path', () => {
     const block = IMAGE_STUDIO.slice(IMAGE_STUDIO.indexOf('const MODES = ['));
     const ids = [...block.slice(0, block.indexOf('\n];')).matchAll(/\{\s*id:\s*'([a-z0-9]+)'/gi)].map((m) => m[1]);
-    expect(ids.sort()).toEqual(['lock', 'text']);
+    expect(ids).toEqual(['text']);
     expect(IMAGE_STUDIO).toMatch(/MODES\.filter\(\(m\) => isStudioModeAvailable\(m\.id\)\)/);
     expect(IMAGE_STUDIO).toMatch(/resolveStudioMode\(prefill\.mode\)/);
     expect(IMAGE_STUDIO).toMatch(/if \(!isStudioModeAvailable\(mode\)\)/);
@@ -240,14 +262,14 @@ describe('Jake advertises only what the hosted product has', () => {
   it('no retired creative workflow or gated subfeature is advertised', () => {
     const ids = caps().map((c) => c.id);
     for (const retired of ['product-presenter', 'smart-edit', 'area-edit', 'image-to-video',
-      'before-after', 'character-series', 'model-album', 'product-lock-blend']) {
+      'before-after', 'character-series', 'model-album', 'product-lock-blend', 'product-lock']) {
       expect(ids, retired).not.toContain(retired);
     }
   });
 
   it('the genuinely available lanes ARE advertised', () => {
     const ids = caps().map((c) => c.id);
-    for (const kept of ['fast-image', 'product-lock', 'image-studio', 'growth-os', 'gallery', 'creative-modes']) {
+    for (const kept of ['fast-image', 'image-studio', 'growth-os', 'gallery', 'creative-modes']) {
       expect(ids, kept).toContain(kept);
     }
     for (const c of caps()) if (c.mode) expect(isStudioModeAvailable(c.mode), c.id).toBe(true);
@@ -269,10 +291,9 @@ describe('Jake advertises only what the hosted product has', () => {
 
   it('THE REAL CONSUMER: the Jake prompt promises no retired capability', () => {
     const prompt = buildAccountBusinessContext(null, { maxCapabilities: 24, availableModes: studioAvailability() });
-    for (const gone of ['פרזנטור', 'אלבום דוגמנית', 'ערכת דמות', 'Product Lock B2', 'צללים', 'ComfyUI', 'Fooocus']) {
+    for (const gone of ['פרזנטור', 'אלבום דוגמנית', 'ערכת דמות', 'Product Lock', 'צללים', 'ComfyUI', 'Fooocus', 'מוצר מדויק']) {
       expect(prompt, gone).not.toContain(gone);
     }
-    expect(prompt).toContain('מוצר מדויק');
     expect(prompt.length).toBeGreaterThan(0);
   });
 
@@ -427,7 +448,7 @@ describe('CLASS A · no caught technical value can render (derived from the pars
     expect(moduleGraph([...CREATIVE_ROUTE_ROOTS].reverse())).toEqual(GRAPH);  // order-independent
     const names = GRAPH.map(relative);
     for (const child of ['src/components/studio/PosterEditor.jsx', 'src/components/studio/MockupStudio.jsx',
-      'src/components/studio/ProductPlacer.jsx', 'src/store/store.jsx']) {
+      'src/store/store.jsx']) {
       expect(names, child).toContain(child);
     }
     for (const f of GRAPH) expect(relative(f)).toMatch(/^(src|supabase)\//);  // bounded by the project

@@ -20,7 +20,7 @@ const ALL_BUILDER_OUTPUTS = () => [
   buildMonthlyContentPlanSeed(),
   buildServiceCampaignSeed('growth-os'),
   buildServiceCampaignSeed('unknown-service'),
-  buildStudioPromptSeed('product-lock', 'שעון יוקרה'),
+  buildStudioPromptSeed('fast-image', 'שעון יוקרה'),
   buildStudioPromptSeed('no-such-workflow', ''),
 ];
 
@@ -216,14 +216,14 @@ describe('buildServiceCampaignSeed', () => {
 
 describe('buildStudioPromptSeed', () => {
   it('grounds a known live workflow in its real title/mode/engine', () => {
-    const wf = liveWorkflows().find((w) => w.id === 'product-lock');
-    const seed = buildStudioPromptSeed('product-lock', 'שעון יוקרה');
+    const wf = liveWorkflows().find((w) => w.id === 'fast-image');
+    const seed = buildStudioPromptSeed('fast-image', 'שעון יוקרה');
     expect(seed).toContain(wf.title);
     expect(seed).toContain(`מצב סטודיו: ${wf.mode}`);
     expect(seed).toContain('שעון יוקרה');
     expect(seed).toContain('פרומפט יצירה באנגלית');
-    // product workflow → pixel-preservation note
-    expect(seed).toContain('1:1');
+    // PRODUCT DECISION (2026-07-27): the product-mode note went with Product Lock
+    expect(seed).not.toContain('1:1');
   });
 
   it('falls back to a generic Image Studio brief for unknown workflows (never throws)', () => {

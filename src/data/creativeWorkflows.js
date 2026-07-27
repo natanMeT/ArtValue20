@@ -9,14 +9,15 @@
 // PRODUCT BOUNDARY (2026-07-27): the Studio is cloud/Gateway only. Every card
 // that targeted a local-engine mode (smart edit, area edit, image→video,
 // before/after, product presenter, character series, model album) was REMOVED
-// with that mode, and the `comfyui` / `fooocus` engine labels went with them —
+// with that mode — and Product Lock followed in the same decision. The `comfyui` /
+// `fooocus` engine labels went with them —
 // `engine` now names only lanes the product actually has. Jake reads this field,
 // so a retired engine name here would advertise a retired capability.
 //
 // engine: 'gateway' (the account's protected AI Gateway) | 'browser' (canvas only)
 // status: 'live' | 'soon'
-// `mode` values match ImageStudio MODES ids (text / lock). `route` values are
-// existing hash routes only.
+// `mode` values match ImageStudio MODES ids (text). `route` values are existing
+// hash routes only.
 // ===================================================================
 
 // Consent-safe note surfaced on reference-image workflows.
@@ -45,20 +46,6 @@ export const CREATIVE_WORKFLOWS = [
     route: null,
     cta: 'פתח',
     tags: ['טקסט לתמונה', 'קונספט', 'מהיר'],
-  },
-  {
-    id: 'product-lock',
-    title: 'מוצר מדויק',
-    subtitle: 'Product Lock · קומפוזיט',
-    description: 'הרכבת תמונת מוצר על רקע או סצנה חדשה, כשפיקסלי המוצר נשמרים 1:1 — לוגו, טקסט ופרטי מוצר אינם נוצרים מחדש.',
-    engine: 'browser',
-    status: 'live',
-    category: 'commerce',
-    mode: 'lock',
-    route: null,
-    cta: 'פתח',
-    tags: ['מוצר', 'דיוק', 'קומפוזיט'],
-    consent: true,
   },
   // ---- Coming soon (no runtime target) ----
   {

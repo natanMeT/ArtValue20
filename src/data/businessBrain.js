@@ -122,7 +122,7 @@ export const BUSINESS_BRAIN = deepFreeze({
     productVisuals: {
       id: 'product-visuals',
       name: 'ויזואלים למוצר',
-      pitch: 'תמונות מוצר ופרזנטורים ברמת קמפיין — כולל שימור מוצר מדויק (לוגו וטקסט נשמרים 1:1).',
+      pitch: 'תמונות מוצר ברמת קמפיין — ויזואל שיווקי עקבי למוצר.',
       pains: ['צילומי מוצר יקרים', 'הלוגו והפרטים משתבשים בעריכות', 'אין ויזואל שיווקי עקבי למוצר'],
       cta: 'לשליחת תמונת מוצר אחת ולקבלת דוגמה',
     },
@@ -170,8 +170,8 @@ const STATIC_CAPABILITIES = deepFreeze([
       ? `מצבי היצירה הזמינים בחשבון זה בסטודיו התמונות: ${a.modeLabels.join(', ')}.`
       : 'מצבי היצירה הזמינים בסטודיו התמונות.'),
   },
-  // PRODUCT BOUNDARY (2026-07-27): the gated "Product Lock B2" AI seam/shadow
-  // enhancement was REMOVED with the local engine, so there is no gated
+  // PRODUCT DECISION (2026-07-27): the gated "Product Lock B2" enhancement went
+  // with the local engine, and Product Lock itself followed. There is no gated
   // subfeature left to advertise and no subfeature plumbing here at all.
 ]);
 
@@ -504,9 +504,9 @@ export function buildStudioPromptSeed(workflowId, topic, options = {}) {
     ]
     : ['ה-Workflow המבוקש לא נמצא בין היכולות החיות — הכן בריף כללי ל-Image Studio (טקסט → תמונה).'];
 
-  const productNote = wf && (wf.mode === 'lock' || wf.mode === 'presenter')
-    ? 'שים לב: זה workflow של מוצר — ציין שב"מוצר מדויק" (Product Lock) פיקסלי המוצר נשמרים 1:1, ובפרזנטור התוצאה מבוססת AI ועשויה להיות מקורבת.'
-    : '';
+  // PRODUCT DECISION (2026-07-27): the product-specific workflows were removed,
+  // so there is no product-mode note left to add.
+  const productNote = '';
 
   return [
     `ג׳יק, הכן לי בריף מוכן ל-Studio בנושא: ${subject}.`,
