@@ -1185,7 +1185,49 @@ non-vacuity check confirms the scan reads real source (>100 files) and that the 
 the artifact remains the already-verified `index-C4frcMDi.js`. Focused proof suites: **2 files / 171 passed / 0 failed**
 (`localEngineRetirement.test.js` **119**, up from 115; `studioHostedModeContainment.test.js` 52). The full suite was not
 re-run this round. No product behavior changed; the removed network-policy work is not reopened. Not merged, not
-deployed. PR #117 remains paused and untouched.
+deployed. PR #117 remains paused and untouched. *(Counts superseded by Round 15 below.)*
+
+### Round 15 — TERMINAL walk fix + PROOF SCOPE FROZEN (1 Codex P2 on `d417d00`)
+
+**The finding, and why it was the third of its kind.** The "repository-wide" collector still enumerated a FIXED set of
+roots (`src`, `supabase`, `scripts`, plus root-level files), so an executable module placed in `public/` — or in any
+future top-level directory — was silently omitted. This is the same class Codex raised on `1361a84` (root-level
+`.mjs`/`.cjs`) and `1c6987b` (the `supabase/` tree). Each previous fix widened an **allowlist**, which is exactly why
+the question kept returning.
+
+**Independent review before acting.** Fable reviewed the actual diff, the Codex history and the real repository layout
+read-only and found: the product implementation is complete, **no product-code blocker**, the P2 is technically valid
+but protects only **hypothetical future file placement** (`docs/`, `posts/`, `public/`, `jakeos-doc/` contain **zero**
+executable modules today, and a root-recursive walk therefore adds nothing to the present scan), and repository-root
+recursion is the correct **terminal** fix for the class. Recorded honestly: this round is a **future-placement guard,
+not the discovery of a live gap**.
+
+**Fix — the allowlist is gone, not widened.** `repoExecutables()` is now `collectModules('.')`: recursion from the
+repository root using the existing collector. **No new walker, no new scanner.** Exclusions live in one place
+(`SKIP_DIRS` in `support/sourceScan.js`) and are limited to three kinds — dependencies (`node_modules`), build/generated
+output (`dist`, `dist-profile`, `coverage`, `artifacts`, `.vite`) and operational state (`.git`, `.wrangler`, `.claude`).
+**Ordinary content directories are deliberately NOT excluded**: `docs/`, `posts/`, `public/` and `jakeos-doc/` hold no
+module today, and skipping them would rebuild the same allowlist inverted. Test exclusion stays centralized in
+`productionExecutables()`.
+
+**Controls, including the required demonstration.** A real `.mjs` module is **planted in `docs/`** — a directory no list
+ever named — and proved to be (a) collected by the production set, (b) **absent** from the pre-fix fixed-root set, and
+(c) caught by the retired-variable assertion (`VITE_COMFYUI_PULID`); it is removed again in a `finally`, with cleanup
+asserted. Further controls prove the set reaches `src/`, `supabase/functions/` and the root `vite.config.js`; that tests
+remain excluded (including this file and the manifest) **while the raw walk still sees them**, so the exclusion is
+centralized rather than accidental; that `node_modules`, `dist`, `dist-profile`, `coverage`, `artifacts`, `.git`,
+`.wrangler`, `.claude` and `.vite` are all absent from the walk **and** that the walk is not over-excluded (>200
+modules); and non-vacuity of the scan itself.
+
+**Verification.** **Test-only change — no production source touched, so no build and no browser smoke were run**; the
+artifact remains the already-verified `index-C4frcMDi.js`. Focused proof: **2 files / 172 passed / 0 failed**
+(`localEngineRetirement.test.js` **120**). **Full suite re-run once to replace the stale count: 110 files / 3,074 passed
+/ 0 skipped / 0 failed** — this supersedes the Round 12 figure (110 / 3,057) that predated the manifest work.
+
+**PROOF SCOPE IS NOW FROZEN.** Any further Codex finding is to be **classified, not auto-patched**: an actual current
+product defect, an invalid release claim, or another hypothetical proof-completeness improvement — and reported for
+Nathan's merge decision. Still IN FLIGHT / NOT RELEASED, not merged, not deployed. P1 remains CLOSED / LIVE. PR #117
+remains paused and untouched.
 
 **No product behavior changed. The removed network-policy work is not reopened.** Still IN FLIGHT / NOT RELEASED, not
 merged, not deployed. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.

@@ -50,8 +50,20 @@ export const MODULE_EXTENSIONS = Object.freeze(['.js', '.jsx', '.mjs', '.cjs', '
 
 export const isModuleFile = (name) => MODULE_EXTENSIONS.some((e) => name.endsWith(e));
 
-// Directories that are never product/tooling source.
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'dist-profile', 'coverage', 'artifacts', '.vite']);
+// Directories that are never product or tooling SOURCE, and are therefore the
+// only things a repository-root walk may skip. Three kinds, and nothing else:
+//   • dependencies        node_modules
+//   • build / generated   dist, dist-profile, coverage, artifacts, .vite
+//   • operational state   .git, .wrangler, .claude
+// Ordinary CONTENT directories (docs/, posts/, public/, jakeos-doc/) are NOT
+// listed. They hold no executable module today, and that is precisely why they
+// must stay in scope: skipping them would rebuild the fixed allowlist inverted,
+// and a module dropped into one of them later would again escape the scan.
+const SKIP_DIRS = new Set([
+  'node_modules',
+  'dist', 'dist-profile', 'coverage', 'artifacts', '.vite',
+  '.git', '.wrangler', '.claude',
+]);
 
 /** Recursively collect every executable module below `dir`. */
 export function collectModules(dir) {

@@ -65,16 +65,20 @@ const walk = collectModules;
 
 // EVERY executable file in the repository, not just src/: application source,
 // the Supabase Edge function and its shared modules, tooling, and any module at
-// the repository root. Build output, dependencies and documentation are excluded
-// by design. Every root is walked RECURSIVELY with the same full extension set,
-// so a nested `supabase/functions/tool.mjs` or a tooling `.cjs` cannot sit
-// outside the scan (Codex P2 on `1361a84`).
+// the repository root — collected by RECURSING FROM THE REPOSITORY ROOT, not
+// from a fixed list of roots.
+//
+// This closes the last variant of a finding class that recurred three times:
+// root-level `.mjs`/`.cjs` (Codex P2 on `1361a84`), then the `supabase/` tree
+// (P2 on `1c6987b`), then any unlisted top-level directory (P2 on `d417d00`).
+// Each round widened an ALLOWLIST, which is why the question kept coming back.
+// There is no allowlist any more: everything is in scope unless it is a
+// dependency, build output or operational state, and that exclusion set is
+// owned by `collectModules`/`SKIP_DIRS` in support/sourceScan.js. Content
+// directories that hold no module today (`docs/`, `posts/`, `public/`) stay IN
+// scope deliberately, so a module placed in one later is caught.
 function repoExecutables() {
-  const out = ['src', 'supabase', 'scripts'].flatMap((d) => collectModules(d));
-  for (const f of fs.readdirSync('.', { withFileTypes: true })) {
-    if (f.isFile() && isModuleFile(f.name)) out.push(path.normalize(f.name));
-  }
-  return out;
+  return collectModules('.');
 }
 
 // The production surface the retirement invariants apply to: the repository-wide
@@ -919,46 +923,84 @@ describe('negative control · the PRE-FIX lists would have let a retirement regr
 });
 
 describe('negative control · the retirement invariants cover the WHOLE repository', () => {
-  // THE BYPASS (Codex P2 on `1c6987b`): the retired-environment assertion walked
-  // `src/` only. The Supabase Edge function and its shared modules are
-  // production code that ships and executes, so a retired variable read in
-  // `supabase/functions/` was never inspected.
+  // THE BYPASS, in three rounds, all the same class:
+  //   `1361a84` — root-level `.mjs`/`.cjs` sat outside the scan
+  //   `1c6987b` — `src/`-only walk never inspected the Supabase Edge function
+  //   `d417d00` — a FIXED root allowlist (src, supabase, scripts) omitted every
+  //               other top-level directory, so a shipped `public/foo.js`
+  //               reading a retired variable would pass
+  // Each fix widened an allowlist, which is why the question kept returning.
+  // The collection now RECURSES FROM THE REPOSITORY ROOT and there is no
+  // allowlist left to be incomplete.
   const SRC_ONLY = () => collectModules('src').filter((f) => !isTestPath(f));
+  const FIXED_ROOTS = () => ['src', 'supabase', 'scripts']
+    .flatMap((d) => collectModules(d))
+    .filter((f) => !isTestPath(f))
+    .map((f) => path.normalize(f));
 
-  it('the production set reaches the Edge function, tooling roots and the repo root', () => {
-    const set = productionExecutables().map((f) => path.normalize(f));
-    const hasUnder = (dir) => set.some((f) => f.startsWith(path.normalize(dir) + path.sep));
-    expect(hasUnder('supabase/functions'), 'Edge function not covered').toBe(true);
-    expect(hasUnder('src'), 'src/ not covered').toBe(true);
+  const norm = (list) => list.map((f) => path.normalize(f));
+  const under = (set, dir) => set.some((f) => f.startsWith(path.normalize(dir) + path.sep));
+
+  it('the production set reaches src/, the Edge function and the repository root', () => {
+    const set = norm(productionExecutables());
+    expect(under(set, 'src'), 'src/ not covered').toBe(true);
+    expect(under(set, 'supabase/functions'), 'Edge function not covered').toBe(true);
+    expect(set, 'the root vite config is not covered').toContain(path.normalize('vite.config.js'));
     expect(set.length).toBeGreaterThan(SRC_ONLY().length);
   });
 
-  it('the production set still excludes tests (a test may NAME what it asserts is gone)', () => {
+  // THE REQUIRED PROOF: a module placed in a directory NO list ever named is
+  // collected. `docs/` holds no executable today — that is exactly why it must
+  // be in scope — so one is planted, collected, and removed again.
+  it('an executable module in a previously unlisted top-level directory IS included', () => {
+    const planted = path.normalize('docs/__retirement_walk_probe__.mjs');
+    expect(fs.existsSync(planted), 'probe path must not already exist').toBe(false);
+    fs.writeFileSync(planted, "export const probe = import.meta.env.VITE_COMFYUI_PULID;\n", 'utf8');
+    try {
+      const set = norm(productionExecutables());
+      expect(set, 'a module under docs/ escaped the production scan').toContain(planted);
+
+      // and the fixed-root scope this round replaced does NOT contain it —
+      // the bypass reproduced, not merely described
+      expect(FIXED_ROOTS(), 'the pre-fix allowlist should have missed it').not.toContain(planted);
+
+      // the retirement assertion applied to it would have FIRED
+      const code = executableSourceOf(planted);
+      expect(RETIRED_ENV_VARS.filter((v) => code.includes(v))).toEqual(['VITE_COMFYUI_PULID']);
+    } finally {
+      fs.rmSync(planted, { force: true });
+    }
+    expect(fs.existsSync(planted), 'the probe must be cleaned up').toBe(false);
+  });
+
+  it('tests remain excluded (a test may NAME what it asserts is gone)', () => {
     const leaked = productionExecutables().filter((f) => isTestPath(f));
     expect(leaked, `tests leaked into the production set: ${leaked.join(', ')}`).toEqual([]);
-    // …and this very file, which names every retired variable, is one of them
-    expect(productionExecutables().map((f) => path.normalize(f)))
-      .not.toContain(path.normalize('src/lib/__tests__/localEngineRetirement.test.js'));
+    // …including this file, which names every retired module and variable
+    const set = norm(productionExecutables());
+    expect(set).not.toContain(path.normalize('src/lib/__tests__/localEngineRetirement.test.js'));
+    expect(set).not.toContain(path.normalize('src/lib/__tests__/support/retirementManifest.js'));
+    // the raw walk DOES see them — exclusion is centralized, not accidental
+    expect(norm(repoExecutables()))
+      .toContain(path.normalize('src/lib/__tests__/localEngineRetirement.test.js'));
   });
 
-  it('the src/-only scope would have missed a retired read in the Edge function', () => {
-    const edgeFile = productionExecutables()
-      .map((f) => path.normalize(f))
-      .find((f) => f.startsWith(path.normalize('supabase/functions') + path.sep));
-    expect(edgeFile, 'no Edge module found to demonstrate against').toBeTruthy();
-
-    // The pre-fix scope simply does not contain it, so no assertion applied.
-    expect(SRC_ONLY().map((f) => path.normalize(f))).not.toContain(edgeFile);
-    expect(productionExecutables().map((f) => path.normalize(f))).toContain(edgeFile);
+  it('dependencies, build output and operational state remain excluded', () => {
+    const set = norm(repoExecutables());
+    for (const dir of ['node_modules', 'dist', 'dist-profile', 'coverage', 'artifacts',
+      '.git', '.wrangler', '.claude', '.vite']) {
+      expect(under(set, dir), `${dir} leaked into the scan`).toBe(false);
+    }
+    // …and the walk is not accidentally empty because of over-exclusion
+    expect(set.length).toBeGreaterThan(200);
   });
 
-  it('every production executable is actually inspected for every manifest variable', () => {
-    // Non-vacuity: the scan reads real source and the predicate fires on a
-    // planted read, so the clean repository result is a measurement, not a skip.
+  it('the scan is a measurement, not a skip (non-vacuity)', () => {
     const files = productionExecutables();
     expect(files.length).toBeGreaterThan(100);
     for (const f of files.slice(0, 5)) expect(typeof executableSourceOf(f)).toBe('string');
-    const planted = "const u = import.meta.env.VITE_COMFYUI_QWEN_UNET;";
-    expect(RETIRED_ENV_VARS.filter((v) => planted.includes(v))).toEqual(['VITE_COMFYUI_QWEN_UNET']);
+    const plantedSource = 'const u = import.meta.env.VITE_COMFYUI_QWEN_UNET;';
+    expect(RETIRED_ENV_VARS.filter((v) => plantedSource.includes(v)))
+      .toEqual(['VITE_COMFYUI_QWEN_UNET']);
   });
 });
