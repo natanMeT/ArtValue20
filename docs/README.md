@@ -59,7 +59,7 @@ Verification for a documentation-only change is limited to:
 
 ## Release anchor vs repository HEAD
 
-- **Product/runtime status is anchored to the application commit and the deployment ID** (currently the Studio / Local-Engine UI Containment release source `03c23c23568905cb42e7f154014dd2ddc32bb58f` / Production `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / bundle `index-BZ3B-0yd.js`), never to whatever the repository HEAD happens to be. The single current rollback target is `476830a2-f8ea-45dc-b0ce-a71876bc48dd` / `index-BrR14XIC.js`; older deployments are historical fallbacks only.
+- **Product/runtime status is anchored to the application commit and the deployment ID** (currently the Complete Local-Engine Retirement release source `2c8b1dff2f35d3f7ff7fc6c3d43df01eb8c0189d` / Production `b3708cc2-ab2e-44ee-a557-8cc2ae688635` / bundle `index-C4frcMDi.js`, with Edge `ai-gateway` v36), never to whatever the repository HEAD happens to be. The single current rollback target is `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js` (Studio containment); `476830a2` and older deployments are historical fallbacks only.
 - **Repository main may advance through documentation-only commits** (like this canonical-docs work). Such commits change the repo HEAD but not the deployed application.
 - **Every future task resolves the current repository HEAD live** (e.g. `git rev-parse origin/main`) at its own preflight, rather than trusting a SHA written into a committed file.
 - **A docs-only advance of main does not require a build, Preview, or Production deployment, and must not be reported as application/deployment drift.**

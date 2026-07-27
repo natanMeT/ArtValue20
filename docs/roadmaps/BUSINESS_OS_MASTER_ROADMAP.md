@@ -40,7 +40,7 @@ ArtValue Business OS היא מערכת הפעלה עסקית סגורת־לול�
 
 ## נקודת העבודה הנוכחית — 26 ביולי 2026
 
-S0A — False-Success Containment, S0B — Cloud Persistence, S0C — Identity & User-Isolation Trust Hardening, S0D — Business Context, S0E — Guided Business Onboarding ו־S0F.1 — Creative Trust, Account Isolation & Brand-Palette Consumption נשארים סגורים ומאומתים בפרודקשן. **מאז נסגרו ונפרסו שני סלייסים נוספים: P1 — Atomic Quote Persistence ו־Studio / Local-Engine UI Containment.** עוגן קוד ההשקה הפעיל הוא כעת `03c23c23568905cb42e7f154014dd2ddc32bb58f` (Production `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b`, bundle `index-BZ3B-0yd.js`), ויעד ה־rollback הנוכחי היחיד הוא `476830a2` / `index-BrR14XIC.js` (P1). מסלולי Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED.
+S0A — False-Success Containment, S0B — Cloud Persistence, S0C — Identity & User-Isolation Trust Hardening, S0D — Business Context, S0E — Guided Business Onboarding ו־S0F.1 — Creative Trust, Account Isolation & Brand-Palette Consumption נשארים סגורים ומאומתים בפרודקשן. **מאז נסגרו ונפרסו שני סלייסים נוספים: P1 — Atomic Quote Persistence ו־Studio / Local-Engine UI Containment.** **מאז נסגרה ונפרסה גם גריעת המנועים המקומיים במלואה.** עוגן קוד ההשקה הפעיל הוא כעת `2c8b1dff2f35d3f7ff7fc6c3d43df01eb8c0189d` (Production `b3708cc2-ab2e-44ee-a557-8cc2ae688635`, bundle `index-C4frcMDi.js`, Edge v36), ויעד ה־rollback הנוכחי היחיד הוא `247ef9ec` / `index-BZ3B-0yd.js` (Studio Containment); `476830a2` ומוקדמים ממנו הם נפילה־אחורה היסטורית בלבד. מסלולי Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED.
 
 **P1 הפך את שמירת הצעות המחיר לאטומית:** הצעה והשורות שלה נשמרות **בטרנזקציה אחת** (`public.save_quote_atomic`), כך שכשל באמצע אינו יכול להשאיר הצעת מחיר חלקית או שורות יתומות. מבחינה עסקית זו הפעם הראשונה שבה מסמך מסחרי רב־חלקים נשמר במלואו או בכלל לא. באותו שחרור נסגרה גם תווית מקור השמירה של הצעות המחיר בענן.
 
@@ -52,7 +52,7 @@ S0D הוסיף הקשר עסקי עמיד ומבודד לכל חשבון: פרו
 
 S0E הפך את ההקשר העמיד הזה למסלול הקמה מונחה: אשף חמישה שלבים בעברית RTL שמביא חשבון לא מוגדר מהגדרת זהות העסק ועד שמירה עמידה ואישור — **אינו onboarding גנרי של אתר, אלא הגדרת ה־Business Context העמיד לכל חשבון** שמשמש את ה־Business OS ואת Jake.
 
-מצב תשתית AI: LIVE — VERIFIED. **ai-gateway v35 פעיל עם `verify_jwt=true`.** S0D ו־S0E לא שינו את ה־Edge כלל; ב־S0F.1 השינוי היחיד ב־Edge היה קבוע טקסט הפרסונה של ג׳יק (והערה נלווית לו); **P1 ו־Studio Containment לא שינו את ה־Gateway או את ה־Edge כלל ולא פרסו אותם מחדש** — router, actionTypes, חוזים, payloads, provider routing, ולידציה, תקציב/usage וכל הפרופילים לא השתנו. `save_quote_atomic` של P1 הוא **RPC של בסיס הנתונים** הנקרא ישירות דרך Supabase, ואינו משטח Gateway. ההקשר העסקי ובלוק פלטת המותג ממשיכים להיות מורכבים ומוזרקים על ידי ה־frontend לפני קריאת ה־Gateway הקיימת. פירוט מלא: AI Gateway Master Roadmap v5.6.
+מצב תשתית AI: LIVE — VERIFIED. **ai-gateway v36 פעיל עם `verify_jwt=true`** (נפרס מחדש ב־2026-07-27 עם גריעת המנועים המקומיים). S0D ו־S0E לא שינו את ה־Edge כלל; ב־S0F.1 השינוי היחיד ב־Edge היה קבוע טקסט הפרסונה של ג׳יק (והערה נלווית לו); **P1 ו־Studio Containment לא שינו את ה־Gateway או את ה־Edge כלל ולא פרסו אותם מחדש** — router, actionTypes, חוזים, payloads, provider routing, ולידציה, תקציב/usage וכל הפרופילים לא השתנו. `save_quote_atomic` של P1 הוא **RPC של בסיס הנתונים** הנקרא ישירות דרך Supabase, ואינו משטח Gateway. ההקשר העסקי ובלוק פלטת המותג ממשיכים להיות מורכבים ומוזרקים על ידי ה־frontend לפני קריאת ה־Gateway הקיימת. פירוט מלא: AI Gateway Master Roadmap v5.6.
 
 מצב S0A: CLOSED — LIVE VERIFIED בפרודקשן; מניעת False Success נשמרה.
 
@@ -684,7 +684,7 @@ Jake OS הוא שכבת התיאום האנושית של המערכת. הוא מ
 
 | יכולת | סטטוס | הערת מוצר |
 | --- | --- | --- |
-| AI Gateway | LIVE — VERIFIED | תשתית מאובטחת, פעולות שרת, שמירת שימוש ללא תוכן ומסלולים חיים שנבדקו. **ai-gateway v35, JWT ON** (S0F.1 שינה בו טקסט פרסונה בלבד). |
+| AI Gateway | LIVE — VERIFIED | תשתית מאובטחת, פעולות שרת, שמירת שימוש ללא תוכן ומסלולים חיים שנבדקו. **ai-gateway v36, JWT ON** (נפרס מחדש ב־2026-07-27 עם גריעת המנועים המקומיים; v35 של S0F.1 שינה טקסט פרסונה בלבד). |
 | Jake — שיחה ופעולה מאושרת | LIVE — VERIFIED | Jake משתמש בזהות החשבון הפעיל, בהיסטוריה מקומית מופרדת לפי user.id וב־Business Context של החשבון (S0D). **S0F.1: ArtValue היא שם המוצר/המערכת בלבד; ג׳יק פועל אך ורק לפי ההקשר המאושר של החשבון הפעיל, אומר בכנות כשההקשר חסר, ואינו משייך לחשבון שירותים או עסק שאינם בהקשר שלו.** פעולות עמידות נשארו במסלול הצעה→אישור→ביצוע; פעולות Memory-Only או לא מסווגות נחסמות Fail Closed. |
 | Jake — מסלול קמפיין קריאייטיבי (ענן מאומת) | CONTAINED — S0F.1 VERIFIED | מוכל באמת: אין קונספט הדגמה המוצג כתוצר, **0 קריאות Gateway ליצירת קמפיין**, ואין כתיבת רשומת קמפיין/חבילה. מקומי/דמו ללא שינוי. |
 | AdStudio | BETA UNAVAILABLE — S0F.1 VERIFIED | מוסתר מהניווט בענן; נתיב ישיר → BetaUnavailable **לפני** סריקה, ניתוח או יצירת תמונה. המימוש ופרומפטי המנוע הקפוא לא נמחקו ולא נערכו. מקומי/דמו ללא שינוי. |
