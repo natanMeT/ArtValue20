@@ -4,7 +4,7 @@
 
 מקור האמת המתעדכן של תשתית ה־AI עבור ArtValue Business OS.
 
-> **מקור אמת קנוני:** הגרסה החיה של מסמך זה היא `docs/roadmaps/AI_GATEWAY_MASTER_ROADMAP.md` במאגר `natanMeT/ArtValue20`. קובץ ה־Word תחת `docs/releases/` הוא ייצוא־גרסה בלבד ואינו מקור עריכה מתחרה.
+> **מקור אמת קנוני:** הגרסה החיה של מסמך זה היא `docs/roadmaps/AI_GATEWAY_MASTER_ROADMAP.md` במאגר `natanMeT/ArtValue20`. ייצוא Word נוצר לפי דרישה מה־Markdown הזה ואינו נשמר ב־git — קובץ Word אינו מקור עריכה מתחרה. **מצב השחרור החי — ראה `docs/PROJECT_TRACKER.md`;** מסמך זה הוא מסמך אסטרטגיה ותשתית ואינו מחזיק מזהי שחרור.
 
 | שדה | ערך |
 | --- | --- |
@@ -12,9 +12,9 @@
 | מנהל ארכיטקטורה ומסמך | ChatGPT |
 | סוכן יישום | Claude / Fable לפי משימה מאושרת |
 | Repository | natanMeT/ArtValue20 |
-| עוגן קוד ההשקה הפעיל (Studio Containment) — מקור הפרודקשן | 03c23c23568905cb42e7f154014dd2ddc32bb58f (repository main HEAD נפתר חי בכל preflight; עשוי לכלול commits מאוחרים של תיעוד בלבד) |
+| מצב השחרור החי | **מצב השחרור החי — ראה `docs/PROJECT_TRACKER.md`.** מקור ההשקה הפעיל, מזהה הפריסה, ה־bundle, גרסת ה־Edge ויעד ה־rollback מתועדים שם בלבד; מסמך זה אינו חוזר עליהם. את HEAD של repository main יש לפתור חי בכל preflight. |
 | גרסה | 5.6 — עודכן בתאריך 26.07.2026 |
-| סטטוס נוכחי | Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED. **P1 — Atomic Quote Persistence ו־Studio / Local-Engine UI Containment נסגרו LIVE בפרודקשן, שניהם ללא שינוי Gateway/Edge כלשהו. ai-gateway כיום **v36 ACTIVE** עם verify_jwt=true — נפרס מחדש ב־2026-07-27 עם גריעת המנועים המקומיים (הספקים המקומיים הוסרו מהחוזה המשותף). P1 ו־Studio Containment עצמם לא שינו את ה־Edge.** router, actionTypes, contracts, payloads, provider routing, ולידציה, תקציב/usage וכל הפרופילים — ללא שינוי. ה־Business Context של החשבון ובלוק פלטת המותג ממשיכים להיות מורכבים ומוזרקים על ידי ה־frontend לפני קריאת ה־Gateway הקיימת. הסלייס הבא ממתין להחלטת Nathan. |
+| סטטוס נוכחי | Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED. **P1 — Atomic Quote Persistence ו־Studio / Local-Engine UI Containment נסגרו LIVE בפרודקשן, שניהם ללא שינוי Gateway/Edge כלשהו; אחריהם נסגרה ונפרסה גריעת המנועים המקומיים, שבה הספקים המקומיים הוסרו מהחוזה המשותף ו־ה־Edge נפרס מחדש עם verify_jwt=true.** router, actionTypes, contracts, payloads, provider routing, ולידציה, תקציב/usage וכל הפרופילים — ללא שינוי. ה־Business Context של החשבון ובלוק פלטת המותג ממשיכים להיות מורכבים ומוזרקים על ידי ה־frontend לפני קריאת ה־Gateway הקיימת. הסלייס הבא ממתין להחלטת Nathan. גרסת ה־Edge החיה ומזהי הפריסה — ראה `docs/PROJECT_TRACKER.md`. |
 
 | C1 + C2 | CLOSED / LIVE GREEN — מאומת בפרודקשן |
 | --- | --- |
@@ -119,7 +119,7 @@
 | רכיב | סטטוס | ראיה / משמעות |
 | --- | --- | --- |
 | Router vocabulary | קיים | טבלת actionType, cost tier ושרשרת ספקים. |
-| Edge Function | LIVE GREEN | ai-gateway ב־Supabase עם JWT verification ON. **גרסה v36** (הנוכחית — נפרסה ב־2026-07-27 עם גריעת המנועים המקומיים; v35 נפרסה ב־S0F.1 עם טקסט פרסונה בלבד; **P1 ו־Studio Containment לא שינו ולא פרסו אותה מחדש**). |
+| Edge Function | LIVE GREEN | ai-gateway ב־Supabase עם JWT verification ON. **הגרסה החיה — ראה `docs/PROJECT_TRACKER.md`.** היסטוריה: הפריסה האחרונה בוצעה עם גריעת המנועים המקומיים; לפניה נפרסה גרסת S0F.1 עם טקסט פרסונה בלבד; **P1 ו־Studio Containment לא שינו את ה־Edge ולא פרסו אותו מחדש**. |
 | Authentication | LIVE GREEN | משתמש Supabase אמיתי נדרש לפני validation. |
 | C1 — strict input | LIVE GREEN | חוזי קלט מדויקים; rejection לפני budget/provider. |
 | C2 — multi-turn | LIVE GREEN | user/assistant messages + context.summary; normalization ל־Gemini. |
@@ -149,34 +149,35 @@
 - jake.chat / jake.force_actions / jake.draft_message
 - crm.lead_ideas / crm.diagnose_quote
 
-| Release gate | **Studio / Local-Engine UI Containment CLOSED / LIVE VERIFIED** בפרודקשן. **עוגן קוד ההשקה הפעיל כיום הוא 2c8b1dff2f35d3f7ff7fc6c3d43df01eb8c0189d** (גריעת המנועים המקומיים, פריסה b3708cc2-ab2e-44ee-a557-8cc2ae688635 / index-C4frcMDi.js). לפניו: Studio Containment על 03c23c2 (כיום יעד הגלגול לאחור), P1 על 7e30199, S0F.1 על 983f4899, S0E על 272fc14. **שני הסלייסים האחרונים לא שינו את ה־Edge כלל — ai-gateway נשאר v35, ACTIVE עם verify_jwt=true, ולא נפרס מחדש.** router / actionTypes / חוזים / payloads / provider routing / ולידציה / תקציב ו־usage / כל הפרופילים — ללא שינוי. כל מסלולי ה־Gateway שכבר נסגרו נשארים LIVE — VERIFIED; אין לפתוח אותם מחדש ללא ראיה חדשה. |
+| Release gate | **Studio / Local-Engine UI Containment CLOSED / LIVE VERIFIED** בפרודקשן, ואחריו גריעת המנועים המקומיים. **מצב השחרור החי — ראה `docs/PROJECT_TRACKER.md`** (מקור, פריסה, bundle, גרסת Edge ויעד rollback). **P1 ו־Studio Containment לא שינו את ה־Edge כלל ולא פרסו אותו מחדש**; router / actionTypes / חוזים / payloads / provider routing / ולידציה / תקציב ו־usage / כל הפרופילים — ללא שינוי. כל מסלולי ה־Gateway שכבר נסגרו נשארים LIVE — VERIFIED; אין לפתוח אותם מחדש ללא ראיה חדשה. |
 | --- | --- |
 
 ## איפה אנחנו עדיין מקובעים ל־Gemini
 
 הראוטר כבר מכיר שרשראות עתידיות ל־OpenAI, Anthropic, OpenRouter ו־Ollama, אבל נתיב הביצוע ב־Edge Function עדיין מפעיל רק runGeminiText. לכן הוספת API key של ספק אחר אינה מספיקה: צריך Provider Adapter, Execution Registry, מיפוי הודעות, error normalization, עלויות ובדיקות.
 
-## מצב Git הנוכחי
+## היסטוריית Git — PR-ים ומיגרציות
+
+> **מצב השחרור החי — ראה `docs/PROJECT_TRACKER.md`.** הטבלה שלהלן היא רשומת היסטוריה של PR-ים, מיגרציות וראיות בדיקה לכל סלייס. היא **אינה** מצהירה מה חי כרגע: מקור ההשקה הפעיל, מזהה הפריסה, ה־bundle, גרסת ה־Edge ויעד ה־rollback נמצאים בטראקר בלבד.
 
 | שדה | מצב |
 | --- | --- |
 | Gateway PR (Slice B) | #72 — MERGED / DEPLOYED |
-| Studio Containment PR | #114 — Studio / Local-Engine UI Containment (merge 29cccddda52e1c546b4ae46be052285ec24d2116); docs PR #115 → 03c23c23568905cb42e7f154014dd2ddc32bb58f = **מקור הפרודקשן הנוכחי** |
+| Studio Containment PR | #114 — Studio / Local-Engine UI Containment (merge 29cccddda52e1c546b4ae46be052285ec24d2116); docs PR #115 → 03c23c23568905cb42e7f154014dd2ddc32bb58f |
 | P1 PRs | #108 → #109 → #110 → #111 → docs #112 (merge 7e301993f21a8a56ab1a4dd2d9b7cec6c9793df6) — Atomic Quote Persistence |
 | S0F.1 PR (היסטורי) | #106 — Creative Trust, Account Isolation & Brand-Palette Consumption (merge 983f4899a7c9736669d97b49ed1575129f820653) |
 | S0E PRs (היסטורי) | #103 — Guided Business Onboarding (merge c10ac55); #104 — תיקון שני סיורי ההתחלה (merge 272fc14) |
-| Frontend production | Cloudflare Pages — 03c23c23568905cb42e7f154014dd2ddc32bb58f — https://artvalue-product.pages.dev (deploy 247ef9ec-ad3a-4c15-8b16-25afa1c47f2b; bundle index-BZ3B-0yd.js). נפרס בשימוש חוזר ב־`dist/` שהתקבל ב־Preview **ללא build מחדש** (wrangler: "Uploaded 0 files (12 already uploaded)"), **12/12 קבצים מוגשים זהים בייט־לבייט**. |
-| Preview מאומת (Studio Containment) | ec239e3b-2748-4d87-9122-11e11de2a3a1 (branch studio-containment-preview-03c23c2; bundle index-BZ3B-0yd.js; בדיקת קבלה מחוברת עם חשבון QA PASS) — **זהו הארטיפקט שקודם לפרודקשן ללא שינוי**. קודמים היסטוריים: Preview P1 c999988e (source 7e30199), Preview S0F.1 0760f00e, Preview S0E ea0dcc02. |
-| Frontend rollback — יעד נוכחי יחיד | **476830a2-f8ea-45dc-b0ce-a71876bc48dd** (source 7e30199; bundle index-BrR14XIC.js; P1) — הפריסה הקודמת בפועל, נשמרה ואומתה תקינה (HTTP 200) לאחר הפריסה. |
-| Frontend rollback — נפילה־אחורה היסטורית בלבד | e63198b7 (S0F.1), 4b86993d (S0E), 69f8a175 (S0D), cec116b9 (S0C), 31cb521d (S0B), 4cb17aee (S0A). **אינם היעד הנוכחי**; חזרה ל־e63198b7 הייתה מבטלת גם את P1. |
+| Frontend production | **מצב השחרור החי — ראה `docs/PROJECT_TRACKER.md`** (מקור, מזהה פריסה ו־bundle). |
+| Preview היסטורי (Studio Containment) | ec239e3b-2748-4d87-9122-11e11de2a3a1 (branch studio-containment-preview-03c23c2; בדיקת קבלה מחוברת עם חשבון QA PASS) — הארטיפקט שקודם לפרודקשן בסלייס ההוא ללא שינוי. קודמים היסטוריים: Preview P1 c999988e (source 7e30199), Preview S0F.1 0760f00e, Preview S0E ea0dcc02. |
+| Frontend rollback | **יעד ה־rollback הנוכחי מתועד ב־`docs/PROJECT_TRACKER.md` בלבד** — הוא משתנה בכל פריסה, ומסמך זה לא יחזור עליו. פריסות היסטוריות שאינן היעד הנוכחי: e63198b7 (S0F.1), 4b86993d (S0E), 69f8a175 (S0D), cec116b9 (S0C), 31cb521d (S0B), 4cb17aee (S0A). |
 | Git rollback tag | pre-studio-local-engine-containment → 4f4180b; pre-atomic-quote-persistence → 716da1b; pre-atomic-quote-live-compatibility → f7ff9fad; pre-atomic-quote-pk-catalog-cast → 2e1b137; pre-s0f-creative-trust-brand-palette → 5efbeb9103710875fc3dad882ae78aca4b2938bc |
 | Local-engine gate | #75 — MERGED / DEPLOYED (קודם ל־S0C) |
 | CRM migrations | #73 + #74 — EXECUTED / VERIFIED |
 | CRM hotfix | #76 + #77 — MERGED / SQL EXECUTED / VERIFIED / CRUD PERSISTED |
-| Migrations | **שש מיגרציות הוחלו, אין ממתינה.** מיגרציית P1 `20260726120000_atomic_quote_persistence.sql` — APPLIED / VERIFIED (`public.save_quote_atomic`; SECURITY INVOKER, `search_path` ריק, `authenticated` הוא תפקיד ה־EXECUTE היחיד הפונה ללקוח). **ל־Studio Containment אין migration כלל**, וכך גם ל־S0F.1 (לא נוספה סכימת Products/Inventory/Campaigns/Asset Library). מיגרציית S0D 20260724120000_s0d_business_profile.sql — APPLIED / VERIFIED (public.business_profile). |
+| Migrations | **מספר המיגרציות שהוחלו וסטטוס local==remote — ראה `docs/PROJECT_TRACKER.md`.** מיגרציית P1 `20260726120000_atomic_quote_persistence.sql` — APPLIED / VERIFIED (`public.save_quote_atomic`; SECURITY INVOKER, `search_path` ריק, `authenticated` הוא תפקיד ה־EXECUTE היחיד הפונה ללקוח). **ל־Studio Containment אין migration כלל**, וכך גם ל־S0F.1 (לא נוספה סכימת Products/Inventory/Campaigns/Asset Library). מיגרציית S0D 20260724120000_s0d_business_profile.sql — APPLIED / VERIFIED (public.business_profile). |
 | Tests — יש לקרוא את ההיקף המדויק | **הרצה מלאה על ראש המימוש המוקדם של Studio Containment:** 121 קבצים / 3,098 עברו / 1 skip קיים מראש / 0 נכשלו. **על הקוד המתוקן הסופי שנבנה ונפרס הורצה חבילת המשטח המושפע הממוקדת:** 27 קבצים / 1,608 עברו / 0 נכשלו — **החבילה המלאה לא הורצה מחדש על הראש הסופי במכוון**, ונימוקה מתועד ב־PROJECT_TRACKER. **production build ירוק על `03c23c2`** (ה־build היחיד שהפיק את הארטיפקט הפרוס). כיסוי הראש הסופי מקצה־לקצה מגיע מבדיקות הקבלה המחוברות ב־Preview ובפרודקשן. (P1 בזמנו: 120 קבצים / 3,065 עברו; S0F.1: 118 / 2,978.) |
-| עוגן קוד ההשקה הפעיל (Studio Containment) — מקור הפרודקשן | 03c23c23568905cb42e7f154014dd2ddc32bb58f — זהו מקור האפליקציה הפרוסה בפועל, **ולא** טענה קבועה על HEAD של repository main; את ה־HEAD יש לפתור חי בכל preflight עתידי (main עשוי לכלול commits מאוחרים של תיעוד בלבד ללא drift אפליקטיבי). |
-| Release state | Production online. **P1 ו־Studio / Local-Engine UI Containment — CLOSED / LIVE VERIFIED**; ai-gateway **v36 ACTIVE/JWT-on — נפרס מחדש ב־2026-07-27 עם גריעת המנועים המקומיים**. Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED. יעד ה־rollback הנוכחי היחיד הוא 476830a2. |
+| עוגן קוד ההשקה הפעיל | **ראה `docs/PROJECT_TRACKER.md`.** עוגן ההשקה הוא מקור האפליקציה הפרוסה בפועל, **ולא** טענה קבועה על HEAD של repository main; את ה־HEAD יש לפתור חי בכל preflight עתידי (main עשוי לכלול commits מאוחרים של תיעוד בלבד ללא drift אפליקטיבי). |
+| Release state | Production online. **P1 ו־Studio / Local-Engine UI Containment — CLOSED / LIVE VERIFIED**, ואחריהם גריעת המנועים המקומיים. Jake, Outreach, Diagnose ו־ImageStudio נשארים LIVE — VERIFIED. **גרסת Edge, מזהי פריסה ויעד rollback — ראה `docs/PROJECT_TRACKER.md`.** |
 
 # 3. ארכיטקטורת היעד
 
@@ -491,23 +492,21 @@ Fallback ייכנס רק אחרי שני adapters עובדים. הוא דורש 
 | Milestone פעיל | אין Milestone Gateway פעיל. **P1 — Atomic Quote Persistence ו־Studio / Local-Engine UI Containment נסגרו LIVE, שניהם ללא שינוי Gateway/Edge כלשהו**; בחירת הסלייס הבא ממתינה להחלטת Nathan. |
 | --- | --- |
 
-| שער נוכחי | ai-gateway **v36** ACTIVE עם verify_jwt=true — **נפרס מחדש ב־2026-07-27; הספקים המקומיים הוסרו מ־AI_PROVIDERS, מ־AI_MODELS ומכל שרשרת ניתוב, יחד עם מחיצת LOCAL_PROVIDERS ואפשרות localFirst**. Jake, Outreach, Diagnose ו־ImageStudio LIVE — VERIFIED ומוקפאים. אין שינוי נוסף ללא ראיה והיקף מאושר. |
+| שער נוכחי | ai-gateway ACTIVE עם verify_jwt=true; **הספקים המקומיים הוסרו מ־AI_PROVIDERS, מ־AI_MODELS ומכל שרשרת ניתוב, יחד עם מחיצת LOCAL_PROVIDERS ואפשרות localFirst**. Jake, Outreach, Diagnose ו־ImageStudio LIVE — VERIFIED ומוקפאים. אין שינוי נוסף ללא ראיה והיקף מאושר. **גרסת ה־Edge החיה — ראה `docs/PROJECT_TRACKER.md`.** |
 | --- | --- |
 
-| שדה | מצב נוכחי |
+| שדה | מצב |
 | --- | --- |
-| עוגן קוד ההשקה הפעיל (Studio Containment) — מקור הפרודקשן | 03c23c23568905cb42e7f154014dd2ddc32bb58f (repository main HEAD נפתר חי בכל preflight) |
-| Production frontend | Cloudflare Pages production — deploy 247ef9ec-ad3a-4c15-8b16-25afa1c47f2b; source 03c23c23568905cb42e7f154014dd2ddc32bb58f; https://artvalue-product.pages.dev; HTTPS 200; bundle index-BZ3B-0yd.js; **12/12 קבצים מוגשים זהים בייט־לבייט לארטיפקט שהתקבל ב־Preview**. |
-| Frontend rollback | **יעד נוכחי יחיד: 476830a2** (source 7e30199; bundle index-BrR14XIC.js) — נשמר ואומת תקין לאחר הפריסה. e63198b7 ומוקדמים ממנו הם **נפילה־אחורה היסטורית בלבד**, ולא היעד הנוכחי. |
-| Pull Request | #114 — MERGED; Studio / Local-Engine UI Containment; merge-commit 29cccddda52e1c546b4ae46be052285ec24d2116; docs PR #115 → 03c23c2. (היסטורי: #108–#112 — P1; #106 — S0F.1; #103 + #104 — S0E.) |
+| מצב השחרור החי | **ראה `docs/PROJECT_TRACKER.md`** — עוגן קוד ההשקה הפעיל, מזהה פריסת הפרודקשן, ה־bundle המוגש, גרסת ה־Edge ויעד ה־rollback הנוכחי. מסמך זה אינו מחזיק העתק שלהם; העתק שני הוא בדיוק האופן שבו המצב נעשה מיושן. |
+| Pull Request (היסטורי) | #114 — MERGED; Studio / Local-Engine UI Containment; merge-commit 29cccddda52e1c546b4ae46be052285ec24d2116; docs PR #115 → 03c23c2. (קודמים: #108–#112 — P1; #106 — S0F.1; #103 + #104 — S0E.) |
 | Current blocker | None for P1 or Studio Containment. Both are closed and LIVE VERIFIED. Remaining product blockers (durable Asset Library, durable Campaigns, module durability, organization boundaries, credits/cost controls, packaging/support) are **outside** the Gateway. |
-| Security state | ai-gateway **v36 ACTIVE**; verify_jwt=true (preserved across the 2026-07-27 redeploy). Strict contracts, content-free usage logging and Gateway-only provider access retained. **Neither P1 nor Studio Containment changed the Edge at all — no router, contract, payload, routing, validation, budget, usage or profile change, and no secret/configuration change.** P1's `save_quote_atomic` is a database RPC reached directly through Supabase with `authenticated` as the only client-facing EXECUTE role (`anon` denied — proven `42501` / HTTP 401 over real HTTP); it is **not** a Gateway surface. |
+| Security state | ai-gateway ACTIVE with verify_jwt=true, preserved across the local-engine-retirement redeploy (**live Edge version — see `docs/PROJECT_TRACKER.md`**). Strict contracts, content-free usage logging and Gateway-only provider access retained. **Neither P1 nor Studio Containment changed the Edge at all — no router, contract, payload, routing, validation, budget, usage or profile change, and no secret/configuration change.** P1's `save_quote_atomic` is a database RPC reached directly through Supabase with `authenticated` as the only client-facing EXECUTE role (`anon` denied — proven `42501` / HTTP 401 over real HTTP); it is **not** a Gateway surface. |
 | Public UI finding | The authenticated-cloud creative lanes remain truthfully contained (Jake campaign lane: honest unavailable message, **zero Gateway calls, zero writes**; AdStudio BetaUnavailable). **Studio Containment additionally removed every user-facing local-engine, provider and model control**: the local-GPU status/setup panel and its 15-second poll, the engine-badged workflow map, the checkpoint picker, the engine toggle and the job-card engine readout are gone, and no engine name is rendered anywhere — **including the workflow-catalog text that reaches Jake's system prompt** (verified live: a 1,174-character Jake reply enumerating the creative capabilities with **0 engine names**). The authenticated Production smoke measured **0 requests on opening the Studio, 0 during a 17-second idle, 0 local-address requests, 0 engine terms and 0 console errors**. Growth OS remains contained (5 routes BetaUnavailable); Outreach remains LIVE. Projects/Inventory/Templates/Activity remain unavailable; Local engine URLs remain gated off in hosted production. |
 | Architecture decisions | The account Business Context is assembled and injected by the frontend chat/draft seam before the existing Gateway call. **The ImageStudio brand-palette block is likewise composed frontend-side into the existing `studio.generate_image` prompt field and validated against the existing canonical 2,000-character input limit — no new actionType, payload field or contract.** No routing, validation, usage or non-persona profile change. |
 | Do not do yet | Do not reopen LIVE — VERIFIED lanes or change router/contracts/payloads/profiles without new evidence and an approved bounded scope. **No Gateway work may be inferred or scheduled for reopening Growth from S0F.1** — the Growth prerequisites (durable Campaigns, durable Asset Library, account-aware Growth data model) are product-layer items. A Website Scanner would require a separately designed, separately approved secure server-side extraction path; **its Gateway contract is NOT designed or scheduled here.** |
 | Next evidence expected | Product next slice remains PENDING NATHAN DECISION; no Gateway implementation is authorized. **One optional, non-blocking Production-UI validation is outstanding for P1** — the authenticated Production smoke proved Quotes/Finance render and authenticated reads are healthy, but Account A held no quote or transaction rows and no Production create/edit was authorized, so quote-row visibility and a Production-UI RPC re-exercise were not observed. **This is a validation gap, not an open release item, and it is not a Gateway item.** |
 | Next owner action | Use Business OS Roadmap **v0.10** for product priority and this **v5.6** roadmap for AI infrastructure. Require separate approvals for every future merge and deploy. |
-| Closure target | ACHIEVED — P1 and Studio / Local-Engine UI Containment released and verified in Production **with the Edge untouched**; ai-gateway is now **v36/JWT-on**, redeployed on 2026-07-27 for the local-engine retirement; all previously released AI lanes remain LIVE — VERIFIED with unchanged contracts. |
+| Closure target | ACHIEVED — P1 and Studio / Local-Engine UI Containment released and verified in Production **with the Edge untouched**; the Edge was subsequently redeployed with JWT verification ON for the local-engine retirement (**live version — see `docs/PROJECT_TRACKER.md`**); all previously released AI lanes remain LIVE — VERIFIED with unchanged contracts. |
 
 ## Change Log
 
@@ -650,11 +649,11 @@ PENDING NATHAN DECISION. אין במסמך זה אישור לשינוי Gateway 
 
 **P1 — Atomic Quote Persistence.** PRs #108 → #109 → #110 → #111 → docs #112, merge `7e30199`; מיגרציה `20260726120000_atomic_quote_persistence.sql` הוחלה ואומתה. `public.save_quote_atomic` כותב הצעת מחיר ואת שורותיה **בטרנזקציה אחת**, כך שכשל אינו יכול להשאיר הצעה חלקית. זהו **RPC של בסיס הנתונים הנקרא ישירות דרך Supabase — ולא actionType של ה־Gateway** (D-037). ראיות: קבלה בהזרקת כשל **13/13** (הכשל הוזרק *אחרי* הכנסת רשומת האב → אפס הצעה חלקית; החלפה כושלת השאירה את השורות המקוריות ואת האב שלמים; עדכון של בעלים זר → `P0002` והרשומה בלתי־נראית תחת RLS); הרשאה מול HTTP אמיתי — anon → **`42501` / HTTP 401**; Preview `c999988e` עם בדיקת UI שהראתה **קריאת RPC אחת בדיוק (204) לכל שמירה**; Production `476830a2` / `index-BrR14XIC.js` עם 12/12 קבצים זהים בייט־לבייט. Tests 120 / 3,065.
 
-**Studio / Local-Engine UI Containment.** PR #114 → `29cccdd` → docs PR #115 → **`03c23c2`** — מקור הפרודקשן **דאז**; כיום זהו מקור יעד ה־rollback. **build יחיד**, שקודם לפרודקשן ללא build מחדש (wrangler "Uploaded 0 files (12 already uploaded)", **12/12 קבצים מוגשים זהים בייט־לבייט**); Preview `ec239e3b` עם בדיקת קבלה מחוברת (חשבון QA) PASS; **Production `247ef9ec` / `index-BZ3B-0yd.js`** + בדיקת פרודקשן מחוברת ולא־משנה על Account A PASS. הסלייס **הסיר** את פאנל מצב/הקמת ה־GPU המקומי ואת ה־poll בן 15 השניות, את מפת ה־Workflows מתויגת־המנועים, את בורר ה־checkpoint, את מתג המנוע, את קריאת צומת הגרף בכרטיס העבודה, **ושלוש בקשות גילוי מנוע מקומי בעליית הדף** — שהוחלפו בדגלי יכולת נגזרי־קונפיגורציה **שנכשלים סגור** (D-038). כל שם מנוע גלוי־למשתמש הוסר, **כולל טקסט קטלוג ה־Workflows המגיע לפרומפט המערכת של ג׳יק** — אומת חי: תשובת ג׳יק באורך 1,174 תווים המונה את יכולות הקריאייטיב עם **0 שמות מנוע**. נמדד בפרודקשן: **0 בקשות בפתיחת הסטודיו, 0 בהמתנת 17 שניות, 0 בקשות לכתובת מקומית, 0 מונחי מנוע, 0 שגיאות console, 0 בקשות משנות.** **ללא migration.**
+**Studio / Local-Engine UI Containment.** PR #114 → `29cccdd` → docs PR #115 → **`03c23c2`** — מקור הפרודקשן **דאז**. **build יחיד**, שקודם לפרודקשן ללא build מחדש (wrangler "Uploaded 0 files (12 already uploaded)", **12/12 קבצים מוגשים זהים בייט־לבייט**); Preview `ec239e3b` עם בדיקת קבלה מחוברת (חשבון QA) PASS; **Production `247ef9ec` / `index-BZ3B-0yd.js`** + בדיקת פרודקשן מחוברת ולא־משנה על Account A PASS. הסלייס **הסיר** את פאנל מצב/הקמת ה־GPU המקומי ואת ה־poll בן 15 השניות, את מפת ה־Workflows מתויגת־המנועים, את בורר ה־checkpoint, את מתג המנוע, את קריאת צומת הגרף בכרטיס העבודה, **ושלוש בקשות גילוי מנוע מקומי בעליית הדף** — שהוחלפו בדגלי יכולת נגזרי־קונפיגורציה **שנכשלים סגור** (D-038). כל שם מנוע גלוי־למשתמש הוסר, **כולל טקסט קטלוג ה־Workflows המגיע לפרומפט המערכת של ג׳יק** — אומת חי: תשובת ג׳יק באורך 1,174 תווים המונה את יכולות הקריאייטיב עם **0 שמות מנוע**. נמדד בפרודקשן: **0 בקשות בפתיחת הסטודיו, 0 בהמתנת 17 שניות, 0 בקשות לכתובת מקומית, 0 מונחי מנוע, 0 שגיאות console, 0 בקשות משנות.** **ללא migration.**
 
 **היקף הבדיקות — יש לקרוא אותו מדויק.** ההרצה המלאה (121 קבצים / 3,098 עברו / 1 skip / 0 נכשלו) הייתה ירוקה על **ראש המימוש המוקדם**; לאחר תיקון ה־fail-closed הורצה **חבילת המשטח המושפע הממוקדת** על **הקוד המתוקן הסופי** (27 קבצים / 1,608 עברו / 0 נכשלו), וה־build לפרודקשן ירוק על `03c23c2`. **החבילה המלאה לא הורצה מחדש על הראש הסופי במכוון**; כיסוי הראש הסופי מקצה־לקצה מגיע מבדיקות הקבלה המחוברות ב־Preview ובפרודקשן.
 
-**היררכיית rollback — יעד נוכחי יחיד.** `247ef9ec` / `index-BZ3B-0yd.js` (Studio Containment, מקור `03c23c2`) הוא **יעד ה־rollback הנוכחי** מאז פריסת גריעת המנועים המקומיים ב־2026-07-27. `476830a2` (P1), `e63198b7` (S0F.1) ומוקדמים מהם הם **נפילה־אחורה היסטורית בלבד**; חזרה אליהם הייתה מבטלת גם את Studio Containment.
+**היררכיית rollback.** יעד ה־rollback הוא תמיד הפריסה שקדמה לפריסה החיה, והוא משתנה בכל שחרור — לכן הוא מתועד ב־`docs/PROJECT_TRACKER.md` בלבד ואינו משוכפל לכאן. הכלל הקבוע: פריסה שקדמה לסלייס שנסגר אינה יעד חוקי, מפני שחזרה אליה מבטלת גם את הסלייס הזה.
 
 **פער ולידציה פתוח — אינו פריט שחרור פתוח ואינו פריט Gateway.** בבדיקת הפרודקשן המחוברת הוכח ש־Quotes ו־Finance נטענים ושהקריאות המאומתות תקינות, אך לחשבון A אין רשומות הצעות מחיר או תנועות ולא אושרה יצירה/עריכה בפרודקשן — ולכן נראות שורות הצעה קיימות והפעלה חוזרת של ה־RPC דרך ממשק הפרודקשן לא נצפו. **האטומיות של P1 כבר בוססה** על קבלת הזרקת הכשל 13/13, ראיות ההרשאה/RLS, קבלת ה־UI ב־Preview וקידום הארטיפקט המדויק.
 
