@@ -66,8 +66,8 @@ describe('computeGuardrails — mechanical detection', () => {
   it('flags Growth OS, Studio/ComfyUI, Creative V2 + offer imports', () => {
     expect(computeGuardrails(['src/pages/growth/Calls.jsx']).growthOs).toBe(true);
     expect(computeGuardrails(['src/data/growthCalls.js']).growthOs).toBe(true);
-    expect(computeGuardrails(['src/lib/geminiImage.js']).studioComfy).toBe(true);
-    expect(computeGuardrails(['src/pages/ImageStudio.jsx']).studioComfy).toBe(true);
+    expect(computeGuardrails(['src/lib/hostedImage.js']).studioCreative).toBe(true);
+    expect(computeGuardrails(['src/pages/ImageStudio.jsx']).studioCreative).toBe(true);
     expect(computeGuardrails(['src/creative/v2/campaignStore.js']).creativeV2).toBe(true);
     expect(computeGuardrails(['src/creative/v2/offer/offerActions.js']).offerImport).toBe(true);
   });
@@ -81,7 +81,7 @@ describe('computeGuardrails — mechanical detection', () => {
     expect(computeGuardrails(['scripts/__tests__/x.test.mjs']).tests).toBe(true);
     const g = computeGuardrails(['scripts/local-review-prep.mjs']);
     expect(g.appJsx || g.routes || g.sidebar || g.assistantJake || g.growthOs
-      || g.studioComfy || g.creativeV2 || g.envFile || g.distProfile || g.deps).toBe(false);
+      || g.studioCreative || g.creativeV2 || g.envFile || g.distProfile || g.deps).toBe(false);
   });
 });
 

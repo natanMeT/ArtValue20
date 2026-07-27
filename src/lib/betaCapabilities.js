@@ -245,9 +245,8 @@ export function betaBlockedMessage(blocked, clients = []) {
 // every Growth route renders BetaUnavailable (centralized gate in App.jsx) and
 // its GROWTH_NAV items are betaHidden. Deferred: "Account-aware Growth & Creative
 // Context". (Local/demo is unchanged.)
-// S0F.1 (D4): `adstudio` joins the set — the ad-studio lane is ArtValue-seeded
-// and, with no text engine in a hosted build, its analyzer/director stages return
-// demo stubs; a signed-in account must not see placeholder creative presented as
-// real output (nor spend real image generation on it). The route stays registered
-// and renders the existing BetaUnavailable state. (Local/demo is unchanged.)
-export const BETA_HIDDEN_MODULES = new Set(['projects', 'inventory', 'templates', 'activity', 'growth', 'adstudio']);
+// Local-engine retirement (2026-07-27): `adstudio` LEFT this set because the
+// module itself no longer exists. Its only output was a workstation-rendered
+// poster, so it was REMOVED — page, route and nav entry — rather than contained.
+// Containment is for modules the product still has; a deleted module needs none.
+export const BETA_HIDDEN_MODULES = new Set(['projects', 'inventory', 'templates', 'activity', 'growth']);

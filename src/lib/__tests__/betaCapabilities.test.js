@@ -228,8 +228,17 @@ describe('beta messages + modules', () => {
     expect(msg).toMatch(/בטא/);
   });
 
-  it('hidden modules are exactly the S0A Memory-Only set + growth (S0D) + adstudio (S0F.1)', () => {
-    expect([...BETA_HIDDEN_MODULES].sort()).toEqual(['activity', 'adstudio', 'growth', 'inventory', 'projects', 'templates']);
+  // Local-engine retirement (2026-07-27): `adstudio` LEFT this set because the
+  // module was DELETED, not contained. A deleted module must not appear here —
+  // listing it would imply a route still exists behind a beta gate.
+  it('hidden modules are exactly the S0A Memory-Only set + growth (S0D)', () => {
+    expect([...BETA_HIDDEN_MODULES].sort()).toEqual(['activity', 'growth', 'inventory', 'projects', 'templates']);
+  });
+
+  it('no retired local-engine module is classified as merely beta-hidden', () => {
+    for (const gone of ['adstudio', 'workflow', 'fooocus', 'studio-lock']) {
+      expect(BETA_HIDDEN_MODULES.has(gone), gone).toBe(false);
+    }
   });
 
   it('S0B: the tasks/follow-ups beta note is gone (both are durable); module copy remains', () => {

@@ -34,7 +34,7 @@ export const CREATIVE_PRESETS = [
     recommendedParams: { guidance: 3.2, steps: 28 },
     qualityNotes: 'תאר את הסצנה במשפט אחד ברור. שמור על פלטת שחור-נייבי עם אקסנט ליים אחד.',
     pitfalls: 'אל תסמוך על טקסט שנוצר בתוך התמונה — הוסף כותרות ולוגו בעיצוב אחרי היצירה.',
-    localReady: true,
+    recipeReady: true,
     requiresApi: false,
     futureProvider: null,
   },
@@ -51,7 +51,7 @@ export const CREATIVE_PRESETS = [
     recommendedParams: { guidance: 3.5, steps: 28 },
     qualityNotes: 'שימוש כוויזואל אווירה / קונספט — לא כמסך מדויק. הרקע והתחושה הם המטרה.',
     pitfalls: 'טקסט עברית בתוך ממשק לא ייווצר קריא — אל תצפה למסך אמיתי. השתמש בזה כוויזואל אווירה בלבד.',
-    localReady: true,
+    recipeReady: true,
     requiresApi: false,
     futureProvider: 'gpt-image-2',
   },
@@ -67,8 +67,8 @@ export const CREATIVE_PRESETS = [
     negativePrompt: 'lowres, blurry, watermark, text, deformed, extra objects, hands, people, cluttered background',
     recommendedParams: { cfg: 5, steps: 30, hd: true },
     qualityNotes: 'רקע נקי ותאורה רכה נותנים את התוצאה הכי מסחרית. השתמש ב־Negative כדי להרחיק אלמנטים מיותרים.',
-    pitfalls: 'טקסט על אריזות עלול להתעוות — תכנן חיתוך או מעבר של «עריכה חכמה» לניקוי תוויות.',
-    localReady: true,
+    pitfalls: 'טקסט על אריזות עלול להתעוות — נסח את התיאור כך שהאריזה תופיע ללא כיתוב, או תכנן חיתוך.',
+    recipeReady: true,
     requiresApi: false,
     futureProvider: null,
   },
@@ -85,7 +85,7 @@ export const CREATIVE_PRESETS = [
     recommendedParams: { guidance: 3.0, steps: 26 },
     qualityNotes: 'השאר שטח נקי לכותרת — הטקסט נוסף בעיצוב אחרי היצירה.',
     pitfalls: 'הוסף את הטקסט של המודעה בעיצוב אחרי היצירה — אל תבקש מהיצירה לכתוב את הסלוגן.',
-    localReady: true,
+    recipeReady: true,
     requiresApi: false,
     futureProvider: null,
   },
@@ -97,6 +97,6 @@ export const PRESET_SUBJECT_TOKEN = '{נושא}';
 // Presets that fill the Text-to-Image controls directly (prompt + aspect).
 // The model dimension is gone: the hosted Gateway lane owns provider and model,
 // so a preset contributes a prompt recipe and nothing technical.
-export const isTextImagePreset = (p) => Boolean(p) && p.targetTab === 'text' && p.localReady === true;
+export const isTextImagePreset = (p) => Boolean(p) && p.targetTab === 'text' && p.recipeReady === true;
 
 export const presetById = (id) => CREATIVE_PRESETS.find((p) => p.id === id) || null;

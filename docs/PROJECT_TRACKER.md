@@ -6,7 +6,7 @@
 **Purpose:** single source of truth for state, so work continues across sessions with no loss.
 Nathan passes this to ChatGPT so it can review/advise **without re-deriving or guessing** state.
 **ChatGPT does NOT edit this document.** Only Claude updates it.
-**Last updated:** 2026-07-27 — session: **Studio → CLOUD/GATEWAY ONLY, ONE MODE — IN FLIGHT / NOT RELEASED (ROUND 9).** Second product override: **Product Lock is removed entirely** (round 8 had preserved its browser composite; that is no longer approved), so the Studio has exactly ONE creative mode — `text`, served by the account's Gateway. `ProductPlacer.jsx` and `lib/productLock.js` were traced as orphaned and DELETED; the workflow card, Jake plan type/steps/descriptions, the two-image uploader and all upload state went with them. Codex's review of `7f9daf8` raised **4 findings, all real and all fixed here** — including **two regressions I introduced in round 8**: `maxRealismGraph` lost its helpers in the module split (every configured AdStudio render would have thrown), and gallery delete still called a removed state setter. Suite **117 files / 3,040 passed / 1 skip / 0 failed**, build green, bundle −12 kB, hosted smoke: 1 tile, 0 uploaders, 0 Product Lock wording, 0 local requests. No Gateway/Edge/schema/Auth change. Prior round summaries follow. **(Round 8)** Nathan's final product decision supersedes the containment work: the Studio is cloud/Gateway only. 7 of 9 modes, `geminiImage.js`, `comfyProgress.js`, the whole capability vocabulary, the provider registry + executor routing, the gated Product Lock B2 subfeature, 7 workflow cards, 3 presets and the Studio-only env declarations were **REMOVED, not disabled**. The LTX Codex finding is resolved by removal. What survives: the Gateway text-to-image lane, the browser-only Product Lock composite, the gallery, and a new `localComfyEngine.js` holding only what AdStudio + the Jake poster adapter (its two proven consumers) still call. The second Codex P2 (AST condition bypass) is also fixed. Suite **118 files / 3,058 passed / 1 skip / 0 failed**, build green, bundle −65 kB, hosted DOM smoke clean with **0 local-address requests**. No Gateway/Edge/schema/Auth/Production change. Prior round summaries follow. **(Round 7)** Round 7 closed the two remaining Codex P2s on `11cf66b`: the result-card animation action was still gated on the SVD flag alone, so an LTX-only rig had a working executor but no way to use it — visibility and execution now share one resolution and were verified across all four video configurations; and the AST condition exemption was positional only, so `if (setError(e.message))` was classified safe — inspection now also requires the sub-expression to be side-effect free. Full suite **123 files / 3,243 passed / 1 skip / 0 failed**, build green, minimal LTX-only + SVD-only smoke. One adjacent exemption (`setError(e.toString())`) is recorded as observed-but-unpatched, out of this round's scope. Prior round summaries follow. **(Round 6)** Round 6 closed the four Codex findings on `f4fcf89`: provider **execution** authority (a declared provider now decides the execution path and is never substituted — `photo_restoration` is consequently unavailable everywhere, because Qwen-Edit has no single-image path), argument-position-aware boundary semantics plus destructured `catch` bindings in the AST rule, a genuinely closed subfeature registry (raw definitions no longer exported), `@babel/parser` declared as a direct devDependency with the lockfile updated, and **all five optional stacks now positively declared** — which closed the round-5 recorded limit and let the LTX case be reproduced in the real DOM. Full suite **123 files / 3,233 passed / 1 skip / 0 failed**, build green, three browser configurations. Prior round summaries follow. **(Round 5)** Round 5 acted on an independent read-only architecture review after Codex found three more findings inside the round-4 invariants: the ENFORCEMENT layer was the defect, not the runtime code. Delivered: capability-closed subfeature access (unavailable ⇒ empty text, so a consumer cannot render what it cannot obtain), a provider registry whose declared `needs` resolve through the one shared capability predicate (enforced exactly where the provider executes — owner decision), a CLASS-A rule read from the PARSE TREE with default-deny on catch bindings (no new dependency), and an explicit recorded scope decision with asserted out-of-scope debt. Full suite **123 files / 3,214 passed / 1 skip / 0 failed**, build green, three browser configurations incl. a PARTIAL local rig. Prior round-4 summary follows. **(Round 4)** A hosted Jake→Studio hand-off could bypass the filtered tile list, select the hidden `presenter` mode, render its panel and surface a raw engine string (**proven in the DOM**). **Round 4** corrected three further Codex-reported siblings (`PosterEditor` alerting a caught error; hosted Product Lock guidance still instructing users to click the gated «שפר חיבור וצללים»; the API-only `hebrew_ui_mockup` preset surviving a `targetTab`-only filter) and — the substantive change — **replaced the hand-maintained inventory with mechanically derived boundaries**: a transitive import-closure render-surface graph, one authority per gated subfeature owning its requirement AND its wording, and a complete preset requirement evaluator with a schema-coverage invariant. The derived graph then found **two more violations nobody had reported** (`store.jsx` and `geminiImage.js`). Full suite on the final head **123 files / 3,196 passed / 1 skip / 0 failed**, build green, both browser smokes re-run. **Studio Containment stays LIVE in Production** (`247ef9ec` / `index-BZ3B-0yd.js`) **with this corrective gap in flight**; **no rollback is indicated** — it is a truthfulness/containment defect, not data loss or security exposure. A previously recorded claim that all residual `Qwen` artifact hits were non-rendered internals was **FALSE** and is corrected. PR #117 is **paused**. Prior: **Studio / Local-Engine UI Containment — released to Production.** PR [#114](https://github.com/natanMeT/ArtValue20/pull/114) merged (`29cccdd…`) → docs PR [#115](https://github.com/natanMeT/ArtValue20/pull/115) merged (`03c23c2…`) → one build from `03c23c2` → Preview **`ec239e3b`** + authenticated QA acceptance PASS → **Production `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js`** deployed by reusing the accepted artifact (wrangler "Uploaded 0 files (12 already uploaded)", **12/12 served files byte-match**) + **authenticated non-mutating Account A Production smoke PASS**. **Current rollback target: `476830a2` / `index-BrR14XIC.js`** — retained and verified healthy (the older `e63198b7` is a **historical fallback only**). **No migration; Edge `ai-gateway` v35 unchanged and not redeployed.** **P1 Atomic Quote Persistence remains CLOSED / LIVE** — the same session's authenticated Production smoke confirmed Quotes/Finance render and authenticated reads are healthy; Account A held no quote or transaction rows and no Production create/edit was authorized, so quote-row visibility and a Production-UI RPC re-exercise remain an **optional additional validation, not an open release item** — see its section.  Prior closed session: **P1 Atomic Quote Persistence — CLOSED / LIVE VERIFIED in Production.** PRs [#108](https://github.com/natanMeT/ArtValue20/pull/108) → [#109](https://github.com/natanMeT/ArtValue20/pull/109) → [#110](https://github.com/natanMeT/ArtValue20/pull/110) → [#111](https://github.com/natanMeT/ArtValue20/pull/111) → docs [#112](https://github.com/natanMeT/ArtValue20/pull/112) merged to `main` (`7e30199`); migration `20260726120000_atomic_quote_persistence.sql` **APPLIED & verified**; `public.save_quote_atomic` **live**; failure-injection acceptance **13/13** and Preview UI acceptance PASSED; **Production `476830a2-f8ea-45dc-b0ce-a71876bc48dd` / `index-BrR14XIC.js`** deployed by reusing the accepted artifact (12/12 served files byte-match). Its then-rollback `e63198b7` is retained (now a historical fallback only). An authenticated Production smoke has since confirmed Quotes/Finance render and authenticated reads are healthy; only an **optional additional Production-UI validation** remains — see the section below. Prior closed session: **S0F.1 Creative Trust, Account Isolation & Brand-Palette Consumption — CLOSED / LIVE VERIFIED in Production** (PR [#106](https://github.com/natanMeT/ArtValue20/pull/106) → main `983f489` → Edge `ai-gateway` **v34→v35** (Jake persona text only) → Preview `0760f00e` + three-account (A/B/D) acceptance PASS → **Production `e63198b7` / `index-lvfFFwEn.js`** + authenticated non-mutating Account A smoke PASS). Truthful cloud containment of the creative/campaign lanes, account-aware Outreach and quote issuer, per-account device-local creative/gallery isolation, and account brand-palette consumption in ImageStudio are now live; **no migration**. Prior: S0E Guided Business Onboarding CLOSED / LIVE VERIFIED (Production `4b86993d`, retained as the S0F.1 frontend rollback).
+**Last updated:** 2026-07-27 — session: **COMPLETE LOCAL-ENGINE REMOVAL — the whole application is CLOUD-ONLY (ROUND 10) — IN FLIGHT / NOT RELEASED.** Nathan's final product decision supersedes the boundary that retained local engines for AdStudio and the Jake poster adapter. **7 runtime modules + 6 test files DELETED** (`localComfyEngine.js`, `localEngines.js`, `comfyPoster.js`, `comfyPosterPrompt.js`, `posterOverlay.js`, `posterExport.js`, `AdStudio.jsx`), the `/adstudio` `/workflow` `/fooocus` routes removed behind a fail-safe catch-all, Jake's poster generation and the brain-selection surface retired, and the local text lane (Ollama + the ComfyUI VRAM self-heal) stripped out of `gemini.js`. The Codex findings inside `localComfyEngine.js` are **structurally obsolete** — the module is gone. Both truthfulness fixes landed as instructed (Studio header copy; the Smart-Edit preset instruction). Inventory came from the **real import graph**; a new proof suite walks the closure from `main.jsx` and asserts that no retired module, no local address, no workstation-engine term and no local env read is reachable. Suite **111 files / 3,000 passed / 0 skipped / 0 failed**, build green, bundle 648 → **608.60 kB**. Runtime: retired routes fail safe to `#/`, Studio shows 1 mode / 4 presets / 0 uploaders, 0 engine terms, 0 local requests, 0 console messages. **`supabase/` has zero diff.** Disclosed exceptions: the server-side provider-NAME registry inside the deployed Gateway contract, and the developer review-prep CLI. Prior round summaries follow. **(Round 9)** 
 
 ---
 
@@ -661,6 +661,96 @@ attempt renders `יצירת התמונה אינה זמינה כרגע.`.
 
 ⚠️ **Codex's review of `7f9daf8` is NOT merge-clearance for that head** — it raised 4 findings, all fixed here, and the
 head itself has been superseded. No authenticated end-to-end generation was run (no credentials this session).
+
+**Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+
+### Round 10 — FINAL PRODUCT DECISION: **the whole application is CLOUD-ONLY** (2026-07-27)
+
+**Owner decision (supersedes the round-8/9 boundary):** ArtValue is a cloud-only product. The boundary that retained
+local-engine support for **AdStudio** and the **Jake poster adapter** is withdrawn. Every remaining EXECUTABLE
+local-engine path across the entire application is **REMOVED, not repaired and not disabled**. The Codex findings about
+missing helpers and the parser inside `localComfyEngine.js` are therefore **structurally obsolete**: the module and all
+of its consumers are gone.
+
+**Inventory was derived from the real import graph**, not a keyword list — see the new proof suite
+`src/lib/__tests__/localEngineRetirement.test.js`, which walks the transitive closure from `src/main.jsx`.
+
+**Deleted modules (7 runtime + 6 test files)**
+
+| Deleted | Why it could not stay |
+|---|---|
+| `src/lib/localComfyEngine.js` | The ComfyUI bridge itself (submit / poll / `/view` / `system_stats` / FaceDetailer / upscale probes). |
+| `src/lib/localEngines.js` | The production gate. With no local engine left to gate, the gate is itself the last local-engine surface. |
+| `src/lib/comfyPoster.js` | Jake's workstation poster adapter — the only consumer of the bridge outside AdStudio. |
+| `src/creative/v2/poster/comfyPosterPrompt.js` | Its only consumer was `comfyPoster.js`; orphaned by that deletion. |
+| `src/components/ai/posterOverlay.js`, `src/components/ai/posterExport.js` | Overlay + PNG export for the workstation poster image; orphaned with the poster card. |
+| `src/pages/AdStudio.jsx` | Its ONLY output was a workstation render (`generateMaxRealism`). With no cloud implementation, the page had nothing left to do. **Deleted, not contained** — containment is for modules the product still has. |
+
+**Retired features (removed from every discoverable surface)**
+- **AdStudio** — page, `/adstudio` route, sidebar entry, `BETA_HIDDEN_MODULES` membership, and its DemoMode tour step
+  (retargeted to the hosted Studio with truthful copy). It is no longer "beta-hidden"; it does not exist.
+- **`/workflow` and `/fooocus`** — the legacy redirect routes were removed too; a route named after a workstation engine
+  is itself a local-engine surface. A **catch-all `path="*"` → `Navigate to "/"`** now makes every retired deep link,
+  bookmark or restored router state fail SAFE instead of rendering an empty shell.
+- **Jake's poster generation** — the poster CTA on the offer-brief card, `generatePoster`, the `posterProgress` /
+  `posterResult` / `posterError` cards, `PosterOverlay`, `PosterExportButton` and `posterErrorText`. The deterministic,
+  model-free **offer brief itself is untouched**, including its text poster/ad brief section.
+- **Brain selection** — `jakeBrainPref` / `setJakeBrain` / `jakeBrainLabel` / `jakeBrainOrder` had **no production
+  consumer** and the "local" branch named a workstation model. There is now exactly ONE brain: the account's Gateway.
+- **The local text lane in `gemini.js`** — `LOCAL_LLM_URL`, `localChat`, the ComfyUI VRAM self-heal (`freeImageVram`),
+  `freeCreativeModel`, `useLocalLLM` and every local branch. `toEnglishImagePrompt` was a model call; it is now
+  **deterministic and synchronous**. The Creative Director text pipeline survives on managed Gemini (or its demo stubs).
+- **The eval harness's REAL mode** — `runRealEval` called a workstation model and could never run again; removed with
+  `realGuard.test.js`. The committed baseline snapshot and the deterministic FIXTURE mode are unchanged.
+
+**Truthfulness fixes (required regardless of the deletion)**
+- Studio header no longer promises editing existing images or image-to-video; it now describes only description-to-image.
+- The `product_hero_shot` preset no longer tells the user to switch to the retired Smart Edit mode.
+- Business Brain no longer claims posters / product visuals / **video** are produced in-system; the DemoMode intro no
+  longer calls the Studio a creative engine that generates ads.
+- `localReady` → **`recipeReady`** across presets/availability: the flag meant "recipe usable today", but its name read
+  as "ready on the local engine".
+
+**Structural proof** (`localEngineRetirement.test.js`, plus updated suites)
+- Every deleted module is absent from disk; **nothing in `src/` imports one**.
+- The transitive import closure of `src/main.jsx` (>40 modules, reaching `App.jsx` and `ImageStudio.jsx`) contains
+  **no retired module, no local address, and no workstation-engine term in executable code**.
+- **No runtime file in `src/` reads any local-engine env var** (14 names asserted) and `.env.example` ships no such
+  assignment — so no setting can re-open a hidden path.
+- No retired route is registered; the catch-all is asserted; `/studio` is still registered.
+- Every LIVE workflow routes to an available Studio mode; every Jake intent that reaches the Studio resolves to a LIVE
+  cloud workflow (`fast-image`); no plan step or preset advertises a retired operation.
+- Growth stays `BetaUnavailable` behind the 5-route gate; **`supabase/` has zero diff**.
+
+**Built-artifact inspection** (supporting evidence only — route/import/runtime proof is authoritative)
+- App bundle: **0 `localhost`, 0 `127.0.0.1`, 0 `http://` URLs of any kind**, 0 `:8188` / `:7860` / `:11434`,
+  0 `safetensors` / `RealVisXL` / `flux1-dev` / `CheckpointLoaderSimple` / `FaceDetailer` / `prompt_id` / `system_stats`,
+  0 `adstudio`.
+- The `localhost` / `127.0.0.1` hits in `supabase-*.js` are inside the third-party `@supabase/supabase-js` vendor chunk.
+
+**Runtime checks (browser, production build)**
+- Hosted build (`dist/`, Supabase configured): login gate, **0 console messages**, **0 local-address requests** across
+  load, five route navigations and idle.
+- A scratch demo-mode build (temp dir; `dist/` untouched) exercised the route table: **`/adstudio`, `/workflow` and
+  `/fooocus` all resolve to `#/`** (fail safe); `/studio` renders with the corrected copy, **1 mode, 4 presets, 0 file
+  uploaders**; Jake opens with the offer chip and **no poster CTA**; **0 engine terms anywhere in the DOM**,
+  **0 local-engine requests**, 0 console messages. A generate click issued **zero network requests**.
+
+**KNOWN AND DISCLOSED — local terminology / code that REMAINS**
+
+| What | Why it stays |
+|---|---|
+| `supabase/functions/_shared/aiGateway.js` registers `comfyui` / `ollama` / `fooocus` / `a1111` as provider **NAMES** in the server's routing table (and reaches the browser bundle via the shared input-limits import). | It is part of the **DEPLOYED Gateway contract**, which this slice must not change. It is a name table only: asserted to contain **no local address and no fetch to one**, and the browser never selects a provider. |
+| `scripts/local-review-prep.mjs` still calls a LOCAL Ollama for an **advisory** review summary. | Developer tooling, not the product: outside `src/`, **never imported by the application** (asserted against the import closure) and never bundled. |
+| The preset id `local_ad_creative`. | "Local" here means a **local business**, not a local engine. |
+| `gemini.js` keeps `fetchSiteText` / `analyzeBusiness`, orphaned by AdStudio's deletion. | They are **not** local-engine paths — they call `r.jina.ai` and managed Gemini — and they are part of the **FROZEN Creative Director V1 public API**, whose surface is under a standing no-change-without-approval rule. Flagged for a future approved dead-code slice. |
+
+**Verification.** Full suite **111 files / 3,000 passed / 0 skipped / 0 failed**; one production build green
+(`index-DcZkyu7y.js`, 608.60 kB, down from 648 kB). The file count fell because 6 test files were deleted with their
+subjects and no compatibility scaffolding was retained.
+
+WARNING — **not verified:** no authenticated end-to-end hosted generation was run (no credentials this session), so the
+authenticated Studio/Jake path is proved structurally and by unauthenticated runtime, not by a signed-in run.
 
 **Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 

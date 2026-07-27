@@ -495,7 +495,7 @@ export default function ImageStudio() {
     <div className="studio-hf">
       <SectionHeader
         title={<span className="row gap-2" style={{ display: 'inline-flex', alignItems: 'center' }}><Icon name="wand" size={22} style={{ color: 'var(--lime-deep)' }} /> סטודיו תמונות AI</span>}
-        sub="צור תמונות לעסק, ערוך תמונות קיימות, והפוך תמונות לסרטון קצר."
+        sub="כתוב תיאור וקבל תמונה עסקית — לוגו, מוצר, באנר או תמונת נושא."
         action={(
           <div className="row gap-2 wrap">
             <button className="btn btn-ghost btn-sm" onClick={() => setMockupOpen(true)}><Icon name="image" size={15} style={{ color: 'var(--lime-deep)' }} /> סטודיו מוקאפים</button>
@@ -543,7 +543,7 @@ export default function ImageStudio() {
                     onClick={() => applyPreset(p)}
                     title={p.useCase}
                   >
-                    {p.titleHe}{!p.localReady && <span className="dim" style={{ fontSize: '0.66rem' }}> · עתידי</span>}
+                    {p.titleHe}{!p.recipeReady && <span className="dim" style={{ fontSize: '0.66rem' }}> · עתידי</span>}
                   </button>
                 ))}
               </div>
@@ -551,8 +551,8 @@ export default function ImageStudio() {
                 <div className="card" style={{ marginTop: 10, padding: 12, fontSize: '0.8rem', lineHeight: 1.7 }}>
                   <div className="row between wrap" style={{ gap: 8, alignItems: 'center' }}>
                     <b>{activePreset.title}</b>
-                    <span className={`badge ${activePreset.localReady ? 'badge-active' : 'badge-neutral'}`}>
-                      <span className="dot" /> {activePreset.localReady ? 'זמין' : 'בקרוב'}
+                    <span className={`badge ${activePreset.recipeReady ? 'badge-active' : 'badge-neutral'}`}>
+                      <span className="dot" /> {activePreset.recipeReady ? 'זמין' : 'בקרוב'}
                     </span>
                   </div>
                   <p className="dim" style={{ margin: '4px 0' }}>{activePreset.useCase}</p>

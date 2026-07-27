@@ -25,9 +25,11 @@ import { generateOfferCampaignBrief } from './offer/offerActions.js';
 import { userScopeKey } from '../../lib/userIdentity.js';
 import { isSupabaseConfigured } from '../../lib/supabase.js';
 
-// The creative model label (for result metadata only — never sent anywhere).
-const CREATIVE_MODEL = (import.meta && import.meta.env
-  && (import.meta.env.VITE_CREATIVE_LLM_MODEL || import.meta.env.VITE_LOCAL_LLM_MODEL)) || undefined;
+// Local-engine retirement (2026-07-27): the creative model LABEL read the
+// workstation-model env variables to stamp result metadata. Those variables are
+// read by no code any more, and naming a workstation model on a saved record
+// would be untrue, so no model label is attached. The adapter already omits the
+// field when it is undefined, so persisted records simply carry no `model`.
 
 // Phase 0B critic kill-switch (default ON). concept-critic-v1 is NOT validated as a
 // recommendation/rerank driver: the authoritative assisted-golden eval measured it
@@ -50,7 +52,7 @@ function memoryStorage() {
  * @param {{ getData: ()=>object, user?: string, criticPassthrough?: boolean }} opts
  */
 export function createArtValueCreative({ getData, user, session = null, criticPassthrough = CRITIC_PASSTHROUGH_MODE } = {}) {
-  const adapter = createCreativeDirectorAdapter({ runV1: runCreativeDirector, model: CREATIVE_MODEL });
+  const adapter = createCreativeDirectorAdapter({ runV1: runCreativeDirector });
   // S0F.1 (D6) — per-account storage. Keys are scoped by the STABLE session
   // user.id (never a name/email); the PRE-S0F.1 device-global keys are LEGACY and
   // are never read, migrated, copied or deleted (a scoped key can never equal the

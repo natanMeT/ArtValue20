@@ -345,9 +345,9 @@ describe('preset availability', () => {
     expect(presetUnavailableReason({ ...base, targetTab: 'nope' })).toBe('target-mode-unavailable');
     expect(presetUnavailableReason({ ...base, targetTab: 'presenter' })).toBe('target-mode-unavailable');
     expect(presetUnavailableReason({ ...base, requiresApi: true })).toBe('external-provider-unavailable');
-    expect(presetUnavailableReason({ ...base, localReady: false })).toBe('not-ready');
+    expect(presetUnavailableReason({ ...base, recipeReady: false })).toBe('not-ready');
     for (const bad of [undefined, null, 'true', 1]) {
-      expect(presetUnavailableReason({ ...base, localReady: bad })).toBe('readiness-undeclared');
+      expect(presetUnavailableReason({ ...base, recipeReady: bad })).toBe('readiness-undeclared');
       expect(presetUnavailableReason({ ...base, requiresApi: bad })).toBe('api-requirement-undeclared');
     }
     for (const junk of [null, undefined, 'x', 0, []]) expect(isPresetAvailable(junk)).toBe(false);

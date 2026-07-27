@@ -14,11 +14,12 @@
 // guarantees nothing offer-related is written to chat storage, and a reload never
 // restores a half-filled form or a stale brief card.
 //
-// The ComfyUI Poster MVP cards — `posterProgress` (live "rendering…" card driven by a
-// pending async generation), `posterResult` (an ephemeral LOCAL ComfyUI /view image
-// URL that dies when the engine restarts), and `posterError` (a calm failure card
-// that may carry generated prompt details) — are TRANSIENT BY DESIGN: no poster image
-// or prompt is ever persisted, and a reload never restores a stuck/dead poster card.
+// The Poster MVP cards — `posterProgress`, `posterResult` and `posterError` —
+// were REMOVED with the workstation engine that rendered them (local-engine
+// retirement, 2026-07-27). Their keys are still listed in the transient
+// predicate below, and deliberately so: a browser that stored one BEFORE the
+// removal must still drop it on hydration rather than restore a card the
+// Assistant can no longer render. Nothing writes these keys any more.
 //
 // A campaign message's `campaign.critique` is the SAME class of transient state:
 // the Concept Critic view is ephemeral and recomputable, never part of the

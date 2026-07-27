@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { visibleNavSections } from '../../layout/sidebarNav.js';
 import { BETA_HIDDEN_MODULES, BETA_MESSAGES } from '../../../lib/betaCapabilities.js';
 import { activePack } from '../../../lib/jakePack.js';
@@ -13,15 +13,15 @@ import { JAKE_PACK_PERSONA } from '../../../../supabase/functions/ai-gateway/act
 //
 // What must hold in AUTHENTICATED CLOUD mode, and only there:
 //   * the Jake creative-campaign lane never runs the demo Creative path;
-//   * AdStudio is hidden from nav and its route renders BetaUnavailable
-//     BEFORE any scan / analyzer / image generation can run;
+//   * AdStudio was DELETED (local-engine retirement, 2026-07-27): its only
+//     output was a workstation-rendered poster, so the containment it used to
+//     carry is now proved as absence — no page, no route, no nav entry;
 //   * the ArtValue offer-brief chip is hidden;
 //   * local/demo keeps every one of these behaviors unchanged.
 // ===================================================================
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 const assistant = read('../Assistant.jsx');
-const adStudio = read('../../../pages/AdStudio.jsx');
 const outreachPage = read('../../../pages/Outreach.jsx');
 const app = read('../../../App.jsx');
 
@@ -57,33 +57,27 @@ describe('S0F.1 · Jake creative-campaign lane is contained in cloud beta (D1)',
   });
 });
 
-describe('S0F.1 · AdStudio is contained, not retired (D4)', () => {
-  it('adstudio is in the central BETA_HIDDEN_MODULES classification', () => {
-    expect(BETA_HIDDEN_MODULES.has('adstudio')).toBe(true);
+describe('AdStudio is REMOVED, not contained (local-engine retirement)', () => {
+  it('the page module no longer exists', () => {
+    expect(existsSync(new URL('../../../pages/AdStudio.jsx', import.meta.url))).toBe(false);
   });
 
-  it('the nav entry is hidden in cloud beta and present in local/demo', () => {
+  it('adstudio is no longer a beta-hidden module (a deleted module needs no gate)', () => {
+    expect(BETA_HIDDEN_MODULES.has('adstudio')).toBe(false);
+  });
+
+  it('the nav entry is gone in BOTH cloud beta and local/demo', () => {
     expect(flat(visibleNavSections(true))).not.toContain('/adstudio');
-    expect(flat(visibleNavSections(false))).toContain('/adstudio');
+    expect(flat(visibleNavSections(false))).not.toContain('/adstudio');
   });
 
-  it('the route stays registered so a direct URL renders the contained state', () => {
-    expect(app).toContain('path="/adstudio" element={<AdStudio />}');
+  it('the route is unregistered and the page is not imported', () => {
+    expect(app).not.toContain('path="/adstudio"');
+    expect(app).not.toContain('AdStudio');
   });
 
-  it('the page returns BetaUnavailable before scan / analyzer / image generation', () => {
-    expect(adStudio).toContain("import BetaUnavailable from '../components/ui/BetaUnavailable.jsx'");
-    expect(adStudio).toMatch(/if \(isSupabaseConfigured\) \{\s*return <BetaUnavailable/);
-    const gate = adStudio.indexOf('if (isSupabaseConfigured) {');
-    expect(gate).toBeGreaterThan(-1);
-    for (const marker of ['fetchSiteText(url)', 'analyzeBusiness(text, url)', 'runCreativeDirector(brand', 'generateMaxRealism(']) {
-      expect(adStudio.indexOf(marker), marker).toBeGreaterThan(gate);
-    }
-  });
-
-  it('the frozen engine prompts were NOT edited to achieve containment', () => {
-    // AdStudio still imports the same frozen engine entry points.
-    expect(adStudio).toContain('fetchSiteText, analyzeBusiness, runCreativeDirector,');
+  it('a retired deep link falls back to the dashboard instead of an empty shell', () => {
+    expect(app).toContain('path="*" element={<Navigate to="/" replace />}');
   });
 });
 

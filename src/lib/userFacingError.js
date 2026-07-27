@@ -4,10 +4,11 @@
 //
 // WHY THIS EXISTS
 // The creative surfaces rendered `e.message` raw. Engine-originated failures
-// therefore printed strings like `Qwen-Image-Edit אינו מותקן במנוע`,
-// `comfy: timeout` and `comfy: generation error` straight into the UI —
-// leaking model, engine and node terminology that the containment slice was
-// supposed to remove.
+// therefore printed model, engine and node terminology straight into the UI —
+// exactly what the containment slice was supposed to remove. The engines that
+// raised those particular strings are gone (local-engine retirement,
+// 2026-07-27), but the boundary stays: it is what keeps the NEXT technical
+// throw — from any provider, now or later — out of the user's view.
 //
 // CONTRACT — classification by IDENTITY, never by substring matching:
 //   - An Error is renderable ONLY if it was explicitly marked at its throw site

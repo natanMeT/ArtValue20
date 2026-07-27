@@ -8,7 +8,7 @@ import {
 // (Slice: creative engine detection + business presets)
 // ===================================================================
 
-const REQUIRED = ['id', 'title', 'titleHe', 'category', 'useCase', 'aspectRatios', 'promptScaffold', 'qualityNotes', 'pitfalls', 'localReady', 'requiresApi'];
+const REQUIRED = ['id', 'title', 'titleHe', 'category', 'useCase', 'aspectRatios', 'promptScaffold', 'qualityNotes', 'pitfalls', 'recipeReady', 'requiresApi'];
 const VALID_ASPECTS = ['square', 'portrait', 'landscape'];
 // No hype / fake-guarantee language anywhere in preset copy.
 const FORBIDDEN = ['מובטח', 'מבטיח', 'הכי טוב', 'פי 2', 'הכפלה', 'תוך שניות', 'guarantee', '100%'];
@@ -48,14 +48,14 @@ describe('creativePresets — pack shape', () => {
 
 describe('creativePresets — provider/readiness integrity', () => {
   it('local-ready presets never require an external API', () => {
-    for (const p of CREATIVE_PRESETS.filter((x) => x.localReady)) {
+    for (const p of CREATIVE_PRESETS.filter((x) => x.recipeReady)) {
       expect(p.requiresApi, `${p.id} is local-ready but requiresApi`).toBe(false);
     }
   });
 
   it('any API-requiring preset is clearly marked future/external', () => {
     for (const p of CREATIVE_PRESETS.filter((x) => x.requiresApi)) {
-      expect(p.localReady).toBe(false);
+      expect(p.recipeReady).toBe(false);
       expect(p.futureProvider, `${p.id} requiresApi but no futureProvider`).toBeTruthy();
     }
   });
@@ -71,7 +71,7 @@ describe('creativePresets — grounded, safe copy', () => {
   });
 
   it('brand/dashboard/ad presets warn about the diffusion text-rendering limitation', () => {
-    for (const p of CREATIVE_PRESETS.filter((x) => ['brand', 'dashboard', 'ad'].includes(x.category) && x.localReady)) {
+    for (const p of CREATIVE_PRESETS.filter((x) => ['brand', 'dashboard', 'ad'].includes(x.category) && x.recipeReady)) {
       expect(p.pitfalls.includes('טקסט'), `${p.id} should warn about text rendering`).toBe(true);
     }
   });
@@ -81,7 +81,7 @@ describe('creativePresets — grounded, safe copy', () => {
     for (const p of CREATIVE_PRESETS.filter((x) => x.category === 'dashboard')) {
       // Either it is not local-ready (external), or its pitfalls acknowledge the
       // local Hebrew-text limitation — it must never promise local readable UI.
-      const acknowledges = !p.localReady || p.pitfalls.includes('עברית');
+      const acknowledges = !p.recipeReady || p.pitfalls.includes('עברית');
       expect(acknowledges, `${p.id} must not claim local readable Hebrew UI`).toBe(true);
     }
   });
@@ -89,7 +89,7 @@ describe('creativePresets — grounded, safe copy', () => {
 
 describe('creativePresets — helpers', () => {
   it('isTextImagePreset is true for every ready text preset (no model dimension)', () => {
-    for (const p of CREATIVE_PRESETS) expect(isTextImagePreset(p), p.id).toBe(p.targetTab === 'text' && p.localReady === true);
+    for (const p of CREATIVE_PRESETS) expect(isTextImagePreset(p), p.id).toBe(p.targetTab === 'text' && p.recipeReady === true);
     expect(isTextImagePreset(null)).toBe(false);
   });
 

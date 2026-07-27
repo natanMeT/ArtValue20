@@ -13,98 +13,26 @@
 // on its legacy path.
 import { callAiGateway } from './aiGatewayClient.js';
 import { userError, engineError } from './userFacingError.js';
-import { resolveLocalEngineUrl } from './localEngines.js';
 
+// PRODUCT BOUNDARY (2026-07-27, owner decision): ArtValue is a CLOUD-ONLY
+// product. The workstation-engine text lane that used to live here — an
+// OpenAI-compatible local LLM (Ollama) plus the ComfyUI VRAM self-heal and
+// model-unload calls it needed — was REMOVED, together with the gate module
+// that resolved its URLs. This file now reads no engine URL, holds no model
+// constant for a workstation engine, and cannot reach a local address: the
+// only remote hosts it can contact are the server-owned AI Gateway and the
+// Google Generative Language API.
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.0-flash';
 
-// Local LLM (Ollama / any OpenAI-compatible server). When set, ALL text AI runs
-// locally on the user's GPU — free, unlimited, private — instead of Gemini cloud.
-// Gated: hosted production builds resolve to '' (see localEngines.js).
-const LOCAL_LLM_URL = resolveLocalEngineUrl(import.meta.env.VITE_LOCAL_LLM_URL);
-const LOCAL_LLM_MODEL = import.meta.env.VITE_LOCAL_LLM_MODEL || 'aya-expanse:8b';
-// Separate model for the AdStudio Creative Director (DictaLM = wilder/more original).
-// Jake & all other text AI keep using LOCAL_LLM_MODEL (aya — fast & coherent).
-const CREATIVE_LLM_MODEL = import.meta.env.VITE_CREATIVE_LLM_MODEL || LOCAL_LLM_MODEL;
-// Jake (the CRM assistant) runs on its OWN brain, independent of the frozen
-// Creative Director (aya). This is the model-agnostic seam: swap a stronger model
-// in (qwen3:14b locally, or Kimi K2 / Claude via an OpenAI-compatible API later)
-// without touching the engine. Override with VITE_JAKE_MODEL.
-const JAKE_MODEL = import.meta.env.VITE_JAKE_MODEL || LOCAL_LLM_MODEL;
-export const useLocalLLM = Boolean(LOCAL_LLM_URL);
+export const isGeminiConfigured = Boolean(API_KEY);
 
-// Qwen3 supports a "/no_think" soft switch that disables its reasoning trace. We
-// want INSTRUCT / non-thinking mode (no <think> blocks polluting the agent output
-// or breaking action parsing). Appended only for Qwen models so it doesn't affect
-// the aya rollback (which would just see stray text). Empirically Ollama's qwen3
-// already defaults to non-thinking here — this makes it deterministic.
-const NO_THINK = /qwen3/i.test(LOCAL_LLM_MODEL) ? '\n\n/no_think' : '';
-
-export const isGeminiConfigured = Boolean(API_KEY) || useLocalLLM;
-
-// If the GPU is full (ComfyUI holding image models), free it so the LLM can load.
-// Gated: hosted production builds resolve to '' (see localEngines.js).
-const COMFY_URL = resolveLocalEngineUrl(import.meta.env.VITE_COMFYUI_URL);
-async function freeImageVram() {
-  if (!COMFY_URL) return;
-  try {
-    await fetch(`${COMFY_URL}/free`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"unload_models":true,"free_memory":true}' });
-    await new Promise((r) => setTimeout(r, 1500));
-  } catch { /* ignore */ }
-}
-
-// OpenAI-compatible chat completion against the local model (with VRAM self-heal).
-async function localChat(messages, opts = {}) {
-  const { json = false, temperature = 0.7, maxTokens = 1200, model = LOCAL_LLM_MODEL } = opts;
-  const call = async () => {
-    const body = { model, messages, temperature, max_tokens: maxTokens, stream: false };
-    if (json) body.response_format = { type: 'json_object' };
-    const res = await fetch(`${LOCAL_LLM_URL}/chat/completions`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const err = new Error(res.status === 404 ? 'השירות אינו זמין כרגע' : `שגיאת שירות (${res.status})`);
-      err.status = res.status;
-      throw err;
-    }
-    const j = await res.json();
-    const text = j?.choices?.[0]?.message?.content?.trim();
-    if (!text) throw userError('לא התקבלה תשובה מהשירות');
-    return text;
-  };
-  try {
-    return await call();
-  } catch (e) {
-    // 500 usually = out of VRAM (image model resident). Free it and retry once.
-    if (e.status === 500) { await freeImageVram(); return await call(); }
-    // No HTTP status = network error → Ollama isn't reachable (often right after a reboot).
-    if (!e.status) {
-      throw userError('השירות עדיין מתאתחל או אינו זמין כרגע. נסה/י שוב בעוד כ-30 שניות.');
-    }
-    throw e;
-  }
-}
-
-// Strip ```json fences a local model sometimes adds, then JSON.parse.
-function parseJsonLoose(text) {
-  let t = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
-  const s = t.indexOf('{'); const e = t.lastIndexOf('}');
-  if (s >= 0 && e > s) t = t.slice(s, e + 1);
-  return JSON.parse(t);
-}
-
-// Generic JSON chat that works on BOTH back-ends (local Ollama or Gemini cloud).
-// Returns the parsed object. Used by the business-scan / ad-concept engine below.
+// JSON chat against the managed Gemini API. Returns the parsed object. Used by
+// the Creative Director text pipeline below; with no key configured every stage
+// short-circuits to its demo stub before reaching here.
 async function chatJson(sys, user, opts = {}) {
   const temperature = opts.temperature ?? 0.7;
   const maxTokens = opts.maxTokens ?? 2048;
-  if (useLocalLLM) {
-    const messages = [
-      { role: 'system', content: `${sys}\n\nהחזר JSON תקין בלבד (ללא טקסט נוסף, ללא הסברים).${NO_THINK}` },
-      { role: 'user', content: user },
-    ];
-    return parseJsonLoose(await localChat(messages, { json: true, temperature, maxTokens, model: opts.model }));
-  }
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
   const body = {
     systemInstruction: { parts: [{ text: sys }] },
@@ -158,7 +86,7 @@ export async function fetchSiteText(rawUrl) {
 }
 
 // Reader output (r.jina.ai markdown) is heavy with nav links, URL-encoded hrefs
-// and emoji image refs. That noise derailed DictaLM's analyzer into echoing
+// and emoji image refs. That noise derailed the analyzer into echoing
 // structural JSON (measured on elitcar.co.il: raw 14k → 0/3 valid; cleaned+trimmed
 // → 2/2 valid), surfacing as "הניתוח נכשל" on noisy WordPress sites. Strip the
 // noise, keep the prose.
@@ -224,7 +152,8 @@ export function normalizeMechanism(raw) {
 // a wild, maximalist look even if the concept text came out tame.
 export const WILD_BOOST = 'surreal hyper-maximalist advertising art, impossible dreamlike scene, explosive vivid saturated colors, dramatic cinematic lighting, bold unexpected composition, psychedelic creative energy, ultra detailed, 8k';
 
-// mechanism → ComfyUI render preset (style the FLUX render to fit the idea)
+// mechanism → render-style hint carried on the concept (presentational only:
+// this file submits no render job of any kind)
 export function mechanismStyle(mech) {
   if (['luxury-editorial', 'minimalism', 'architectural-analogy'].includes(mech)) return 'minimal';
   if (['surreal-realism', 'visual-metaphor', 'transformation', 'impossible-perspective', 'scale-manipulation', 'optical-illusion', 'hidden-message'].includes(mech)) return 'surreal';
@@ -240,7 +169,7 @@ export async function analyzeBusiness(siteText, url = '') {
 החזר JSON בעברית בלבד (פרט palette שהוא קודי hex) במבנה:
 {"business":"שם/סוג העסק","positioning":"מיצוב במשפט","audience":"קהל יעד","industry":"תעשייה","differentiators":["מה מייחד"],"emotional_triggers":["טריגרים רגשיים"],"tone":["מילות טון"],"trust_signals":["אותות אמון"],"luxury_level":"low|mid|premium|luxury","weaknesses":["חולשה שאפשר להפוך להזדמנות פרסומית"],"do_not":["מה לא לעשות/להגיד"],"palette":["#hex"]}
 היה חד, ספציפי ואמיתי לעסק הזה. עברית בלבד.`;
-  const p = await chatJson(sys, `כתובת האתר: ${url}\n\nתוכן האתר:\n${siteText}`, { temperature: 0.5, maxTokens: 1600, model: CREATIVE_LLM_MODEL });
+  const p = await chatJson(sys, `כתובת האתר: ${url}\n\nתוכן האתר:\n${siteText}`, { temperature: 0.5, maxTokens: 1600 });
   if (!p || !p.business) throw userError('הניתוח נכשל — נסה אתר אחר.');
   const arr = (v) => (Array.isArray(v) ? v.filter(Boolean) : []);
   const brand = {
@@ -269,7 +198,7 @@ export async function buildStrategy(brand) {
 החזר JSON בעברית: {"core_message":"המסר הפרסומי המרכזי","emotional_message":"המסר הרגשי","promise":"ההבטחה המרכזית","triggers":{"psychological":"","curiosity":"","trust":"","luxury":"","fomo":""},"visual_direction":"כיוון ויזואלי כללי","dna":"ה-DNA הפרסומי הקבוע של הקמפיין"}
 עברית בלבד, חד ומדויק.`;
   const ctx = `פרופיל המותג:\n${JSON.stringify(brand, null, 1)}`;
-  const s = await chatJson(sys, ctx, { temperature: 0.7, maxTokens: 1200, model: CREATIVE_LLM_MODEL });
+  const s = await chatJson(sys, ctx, { temperature: 0.7, maxTokens: 1200 });
   if (!s || !s.core_message) throw userError('בניית האסטרטגיה נכשלה — נסה שוב.');
   s.triggers = s.triggers || {};
   return s;
@@ -290,7 +219,7 @@ ${CLICHE_AVOID}
 ערכי copy/הסברים בעברית; image_prompt ו-negative_prompt באנגלית בלבד וללא טקסט בתמונה. הכותרת (headline) עד 6 מילים, חדה וזכירה. אל תמציא עובדות ואל תשנה פרטים מהבריף (שמות מקום, מוצרים, אזור). השתמש אך ורק במפתחות mechanism מהרשימה המותרת — בדיוק כפי שנכתבו. כל קונספט שונה מהותית מהאחרים${avoidSummaries.length ? `, ובפרט שונה מאלה שכבר נוצרו: ${avoidSummaries.join(' | ')}` : ''}.`;
   const ctx = `מותג: ${brand.business}\nאסטרטגיה: ${JSON.stringify(strategy)}\nגל מספר ${waveNo}.`;
   let out;
-  try { out = await chatJson(sys, ctx, { temperature: 1.0, maxTokens: 4096, model: CREATIVE_LLM_MODEL }); }
+  try { out = await chatJson(sys, ctx, { temperature: 1.0, maxTokens: 4096 }); }
   catch { return []; } // truncated/invalid JSON → skip this wave, the loop tries another
   // normalize the mechanism key — models sometimes Capitalize, add spaces, or
   // invent a near-miss key (e.g. "optimal-perspective"). Fuzzy-map to a real one.
@@ -315,7 +244,7 @@ export async function scoreConcepts(concepts, brand, strategy) {
 היה ביקורתי ומחמיר — קונספט צפוי/גנרי מקבל ציון נמוך.`;
   const ctx = `מותג: ${brand.business} | מיצוב: ${brand.positioning}\nקונספטים:\n${concepts.map((c, i) => `[${i}] מנגנון:${c.mechanism} | רעיון:${c.core_idea} | כותרת:${c.copy?.headline} | ויזואל:${c.visual_metaphor}`).join('\n')}`;
   let scores = [];
-  try { scores = (await chatJson(sys, ctx, { temperature: 0.3, maxTokens: 2000, model: CREATIVE_LLM_MODEL })).scores || []; } catch { scores = []; }
+  try { scores = (await chatJson(sys, ctx, { temperature: 0.3, maxTokens: 2000 })).scores || []; } catch { scores = []; }
   return concepts.map((c, i) => {
     const s = scores.find((x) => x.i === i) || scores[i] || {};
     const n = (v) => Math.max(0, Math.min(10, Number(v) || 0));
@@ -397,7 +326,7 @@ export async function directorNote(brand, strategy) {
 ענה חד ותמציתי בעברית: מה הצופה צריך להרגיש? מה יזכור אחרי 24 שעות? מהי התמונה הבלתי-נשכחת האחת שמסכמת את כל הקמפיין? איזה ויזואל יכול להתקיים רק לעסק הזה?
 החזר JSON: {"feel":"","remember":"","one_image":"","only_this":""}`;
   try {
-    return await chatJson(sys, `מותג: ${brand.business} | מיצוב: ${brand.positioning} | אסטרטגיה: ${strategy?.core_message || ''}`, { temperature: 0.85, maxTokens: 700, model: CREATIVE_LLM_MODEL });
+    return await chatJson(sys, `מותג: ${brand.business} | מיצוב: ${brand.positioning} | אסטרטגיה: ${strategy?.core_message || ''}`, { temperature: 0.85, maxTokens: 700 });
   } catch { return {}; }
 }
 function noteBlock(note) {
@@ -413,7 +342,7 @@ export async function brainstormConcepts(brand, strategy, opts = {}) {
   if (!isGeminiConfigured) return demoBrainstorm(Math.min(total, 8));
   const keys = WILD_MECHANISMS.map((m) => m.key);
   // Split the mechanism pool into disjoint batches so the model is FORCED to cover
-  // distinct mechanisms (otherwise DictaLM tends to return all 'visual-metaphor').
+  // distinct mechanisms (otherwise a model tends to return all 'visual-metaphor').
   const sliceSize = Math.min(8, Math.ceil(keys.length / 2));
   const batches = Math.ceil(keys.length / sliceSize);
   const repeats = Math.max(1, Math.round(total / keys.length)); // ideas per mechanism
@@ -435,7 +364,7 @@ ${CLICHE_AVOID}
 כל רעיון שונה לחלוטין ומרגיש כאילו הגיע ממנהל קריאייטיב אחר. JSON קצר ותקין.`;
     const ctx = `מותג: ${brand.business} | מיצוב: ${brand.positioning}\nאסטרטגיה: ${strategy?.core_message || ''}\n${noteBlock(opts.note)}`;
     let out;
-    try { out = await chatJson(sys, ctx, { temperature: 1.05, maxTokens: 2800, model: CREATIVE_LLM_MODEL }); } catch { out = {}; } // eslint-disable-line no-await-in-loop
+    try { out = await chatJson(sys, ctx, { temperature: 1.05, maxTokens: 2800 }); } catch { out = {}; } // eslint-disable-line no-await-in-loop
     for (const i of (out.ideas || [])) {
       const mech = normalizeMechanism(i.mechanism);
       if (mech && i.idea) {
@@ -463,8 +392,6 @@ export async function scoreBrainstorm(ideas, brand) {
 סמן "safe":true אם הרעיון בטוח, צפוי, גנרי או דומה לפרסום-AI נפוץ (אלה נפסלים).
 החזר JSON: {"scores":[{"i":0,"originality":n,"stopping":n,"emotional":n,"luxury":n,"uniqueness":n,"safe":true/false}]}`;
   const ctx = `רעיונות:\n${ideas.map((c, i) => `[${i}] (${c.mechanism}) ${c.idea}${c.useTypography ? ` [טיפו:${c.word}]` : ''}`).join('\n')}`;
-  // FIX 3 — score via aya (LOCAL_LLM_MODEL): wider, more discriminating spread than DictaLM,
-  // whose 'stopping' axis collapses to 1-2 for everything.
   let scores = [];
   try { scores = (await chatJson(sys, ctx, { temperature: 0.3, maxTokens: 2200 })).scores || []; } catch { scores = []; }
   const n = (v) => Math.max(0, Math.min(10, Number(v) || 0));
@@ -472,28 +399,21 @@ export async function scoreBrainstorm(ideas, brand) {
     const s = scores.find((x) => x.i === i) || scores[i] || {};
     const total = (n(s.originality) * 3 + n(s.stopping) * 3 + n(s.uniqueness) * 2 + n(s.emotional) * 2 + n(s.luxury)) / 11;
     // kill-safe from the CALIBRATED numeric score only. The LLM's binary 'safe' flag
-    // proved noisy (aya over-flagged ~90%, contradicting its own praise) — so the
+    // proved noisy (models over-flagged ~90%, contradicting their own praise) — so the
     // numeric spread is the reliable courage signal. Kills the weak bottom, keeps a full set.
     const safe = total < 5.0;
     return { ...c, total: Math.round(total * 10) / 10, safe };
   }).sort((a, b) => b.total - a.total);
 }
 
-// FIX 2 — hero objects must be ENGLISH. Translate Hebrew/garbage via aya, else drop.
-async function ensureEnglishObject(obj) {
+// FIX 2 — hero objects must be ENGLISH. The Hebrew→English rescue call ran on
+// the retired workstation LLM; with that lane gone a Hebrew hero object is
+// simply dropped (expand still works without a hero) rather than translated.
+function ensureEnglishObject(obj) {
   const o = (obj || '').trim();
   if (!o) return '';
   if (!HEBREW_RE.test(o)) return o.slice(0, 80);
-  if (!useLocalLLM) return '';
-  try {
-    const t = await localChat([
-      { role: 'system', content: 'Translate to a short concrete English noun phrase (a physical object). English only, max 6 words, no quotes, no Hebrew.' },
-      { role: 'user', content: o },
-    ], { temperature: 0.1, maxTokens: 40 }); // default model = aya
-    const clean = (t || '').replace(/^["'`]+|["'`]+$/g, '').trim();
-    if (clean && !HEBREW_RE.test(clean)) return clean.slice(0, 80);
-  } catch { /* noop */ }
-  return ''; // give up — expand still works without a hero
+  return '';
 }
 // FIX 1 — deterministic fallback so we NEVER ship an empty ad.
 function shortHeadline(s) { const w = (s || '').split(/\s+/).filter(Boolean).slice(0, 6).join(' '); return w || 'Art Value'; }
@@ -510,9 +430,9 @@ function fallbackExpand(idea, hero, note, brand) {
   };
 }
 
-// ===== COPYWRITER / CREATIVE EDITOR (aya) — clean, premium Hebrew copy =====
-// DictaLM's Hebrew prose is flowery & convoluted; aya writes sharper, more natural
-// headlines. The IDEA/visual stays DictaLM's; only the words are aya's.
+// ===== COPYWRITER / CREATIVE EDITOR — clean, premium Hebrew copy =====
+// A dedicated copy pass: the IDEA and the visual come from the concept stage,
+// and only the words are rewritten here.
 export async function writeCopy(concept, brand, strategy) {
   if (!isGeminiConfigured) return null;
   const sys = `אתה קופירייטר ועורך קריאייטיב בכיר בעברית, ברמת קמפיין פרימיום (אפל/יוקרה). כתוב קופי חד, טבעי ויוקרתי למודעה אחת — בלי מליצות, בלי משפטים מסורבלים, בלי דו-נקודתיים מאולצים.
@@ -522,7 +442,7 @@ export async function writeCopy(concept, brand, strategy) {
 החזר JSON בלבד: {"headline":"","subline":"","cta":""}`;
   const ctx = `מותג: ${brand.business} | מיצוב: ${brand.positioning}\nמסר הקמפיין: ${strategy?.core_message || ''}\nרעיון המודעה: ${concept.core_idea || ''}\nמטאפורה ויזואלית: ${concept.visual_metaphor || ''}\nמנגנון: ${concept.mechanism || ''}`;
   try {
-    const c = await chatJson(sys, ctx, { temperature: 0.7, maxTokens: 300 }); // default model = aya
+    const c = await chatJson(sys, ctx, { temperature: 0.7, maxTokens: 300 });
     if (c && c.headline && String(c.headline).trim()) {
       return { headline: String(c.headline).trim(), subline: String(c.subline || '').trim(), cta: String(c.cta || 'דברו איתנו').trim() };
     }
@@ -546,7 +466,7 @@ ${typoLine}
 ערכים בעברית פרט ל-image_prompt/negative_prompt/hero_object. JSON תקין ומלא.`;
   const ctx = `מותג: ${brand.business} | מיצוב: ${brand.positioning}\nאסטרטגיה: ${strategy?.core_message || ''}\n${noteBlock(note)}\nמנגנון: ${idea.mechanism}\nרעיון: ${idea.idea}${hero ? `\nאובייקט-גיבור: ${hero}` : ''}${idea.useTypography ? `\nמילה: ${idea.word}` : ''}`;
   const valid = (o) => o && o.image_prompt && o.image_prompt.trim().length > 15 && o.copy && o.copy.headline && o.copy.headline.trim();
-  const attempt = async () => { try { return await chatJson(sys, ctx, { temperature: 0.85, maxTokens: 1500, model: CREATIVE_LLM_MODEL }); } catch { return null; } };
+  const attempt = async () => { try { return await chatJson(sys, ctx, { temperature: 0.85, maxTokens: 1500 }); } catch { return null; } };
   let out = await attempt();
   if (!valid(out)) out = await attempt();        // FIX 1 — retry once
   if (!valid(out)) out = fallbackExpand(idea, hero, note, brand); // FIX 1 — never empty
@@ -558,7 +478,7 @@ ${typoLine}
     marketing_principle: out.marketing_principle || '', layout: out.layout || {},
     image_prompt: out.image_prompt, negative_prompt: out.negative_prompt || '',
   };
-  // COPY LAYER → aya (Creative Editor). DictaLM's copy is ignored; aya writes it.
+  // COPY LAYER → the Creative Editor pass. The concept stage's copy is ignored.
   const polished = await writeCopy(concept, brand, strategy);
   concept.copy = polished || {
     headline: (out.copy && out.copy.headline) ? out.copy.headline : shortHeadline(idea.idea),
@@ -570,7 +490,6 @@ ${typoLine}
 // ===== CREATIVE CRITIC — a rival world-class agency brutally reviews a concept =====
 export async function creativeCritic(concept, brand) {
   if (!isGeminiConfigured) return {};
-  // FIX 5 — run on aya (LOCAL_LLM_MODEL): DictaLM hallucinated / went off-topic.
   const sys = `אתה מנהל קריאייטיב במשרד פרסום יריב ברמה עולמית. תפקידך: לבקר **אך ורק את מודעת הפרסום שתתואר למטה** — באכזריות וביושר, בלי לרכך. אל תברח לנושאים אחרים ואל תדבר על "הבקשה" — בקר את המודעה עצמה. ענה קצר וחד בעברית, משפט לכל שדה.
 החזר JSON: {"why_fail":"למה המודעה עלולה להיכשל","generic":"מה במודעה מרגיש גנרי","ai_feel":"מה מרגיש כמו AI","weakest":"הנקודה החלשה ביותר","apple":"איך אפל הייתה משפרת אותה","nike":"איך נייקי הייתה משפרת אותה","cannes":"איך חבר שופטים ב-Cannes Lions היה מבקר אותה","unforgettable":"מה היה הופך אותה לבלתי-נשכחת"}`;
   const ctx = `המודעה לביקורת —\nמותג: ${brand.business}\nמנגנון קריאייטיב: ${concept.mechanism}\nכותרת: ${concept.copy?.headline || ''}\nתת-כותרת: ${concept.copy?.subline || ''}\nרעיון מרכזי: ${concept.core_idea || ''}\nאובייקט-גיבור: ${concept.hero_object || ''}\nמטאפורה ויזואלית: ${concept.visual_metaphor || ''}\nתיאור הויזואל: ${concept.image_prompt || ''}`;
@@ -597,10 +516,10 @@ export async function creativeCritic(concept, brand) {
 //     concepts:Concept[] }
 //
 // Stages (in order): strategy → directorNote → brainstorm(+kill-safe, retry round)
-//   → dedupe(memory+diversity) → unique-mechanism select → expand(+aya copy)
-//   → [optional critique] → toEnglish prompts → freeCreativeModel.
-// Behavior is identical to the (now-frozen) AdStudio inline flow — this only
-// canonicalizes the sequence so an agent can call ONE function.
+//   → dedupe(memory+diversity) → unique-mechanism select → expand(+copy pass)
+//   → [optional critique] → toEnglish prompts.
+// This canonicalizes the sequence so an agent can call ONE function. Rendering
+// is NOT part of it and never was in this module.
 // ===================================================================
 
 // Structured, observable logging — default no-op (zero behavior change). An agent
@@ -658,7 +577,7 @@ export async function runCreativeDirector(brand, opts = {}) {
   const winners = (diverse.length >= target ? diverse : ranked).slice(0, target);
   if (!winners.length) throw userError('לא נותרו קונספטים ייחודיים מספיק — נסה שוב.');
 
-  // Stage — expand each winner (DictaLM concept + aya copy)
+  // Stage — expand each winner (concept + copy pass)
   const concepts = [];
   for (let i = 0; i < winners.length; i += 1) {
     emit('expand', { index: i, total: winners.length, mechanism: winners[i].mechanism, message: `מרחיב קונספט ${i + 1}/${winners.length} (${MECHANISM_HE[winners[i].mechanism] || winners[i].mechanism})…` });
@@ -676,12 +595,12 @@ export async function runCreativeDirector(brand, opts = {}) {
     }
   }
 
-  // Stage — translate prompts to English (typography-aware), then free DictaLM
-  emit('translate', { message: 'מתרגם פרומפטים ומכין רינדור…' });
+  // Stage — normalize prompts to English (typography-aware). The workstation
+  // model-unload step that used to follow went with the engine that needed it.
+  emit('translate', { message: 'מכין פרומפטים…' });
   for (const c of concepts) {
-    try { c.engPrompt = await toEnglishImagePrompt(c.image_prompt, { typography: c.useTypography, word: c.word }); } catch { /* keep raw */ } // eslint-disable-line no-await-in-loop
+    try { c.engPrompt = toEnglishImagePrompt(c.image_prompt, { typography: c.useTypography, word: c.word }); } catch { /* keep raw */ }
   }
-  await freeCreativeModel();
   emit('done', { count: concepts.length });
   return { strategy, note, concepts };
 }
@@ -732,31 +651,13 @@ function demoConcepts(count) {
   ), 500));
 }
 
-// ===== ENFORCE ENGLISH on the image prompt before it reaches ComfyUI =====
-// aya is Hebrew-dominant and often returns the image_prompt in Hebrew, which
-// FLUX cannot understand. A one-shot translation (verified to comply) + a
-// deterministic "no text" suffix guarantees a clean English prompt.
+// ===== ENFORCE ENGLISH on the image prompt =====
+// The model-backed Hebrew→English rescue translation ran on the retired
+// workstation LLM. What remains is DETERMINISTIC and synchronous: strip any
+// Hebrew, apply the wild/typography shaping, and guarantee the "no text" suffix.
 const HEBREW_RE = /[֐-׿]/;
-const TRANSLATE_SHOTS = [
-  { role: 'user', content: 'תרגם לאנגלית: כלב חום רץ על חוף בשקיעה' },
-  { role: 'assistant', content: 'a brown dog running on a beach at sunset' },
-];
-// Unload the creative model (DictaLM) from Ollama so FLUX has room on a 16GB GPU.
-// Call this AFTER all text stages and BEFORE image rendering. No-op if AdStudio
-// shares Jake's model (nothing extra to free).
-export async function freeCreativeModel() {
-  if (!useLocalLLM || CREATIVE_LLM_MODEL === LOCAL_LLM_MODEL) return;
-  try {
-    const base = LOCAL_LLM_URL.replace(/\/v1\/?$/, '');
-    await fetch(`${base}/api/generate`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: CREATIVE_LLM_MODEL, keep_alive: 0 }),
-    });
-    await new Promise((r) => setTimeout(r, 1000));
-  } catch { /* ignore */ }
-}
 
-export async function toEnglishImagePrompt(text, opts = {}) {
+export function toEnglishImagePrompt(text, opts = {}) {
   const wild = opts.wild !== false; // default: inject the wild/maximalist look
   const typo = !!opts.typography; // letters ARE the art → keep them, don't say "no text"
   const word = (opts.word || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 7);
@@ -782,22 +683,10 @@ export async function toEnglishImagePrompt(text, opts = {}) {
     }
     return out;
   };
-  const ensureNoText = finalize;
-  if (!useLocalLLM || !HEBREW_RE.test(t)) {
-    return ensureNoText(HEBREW_RE.test(t) ? t.replace(/[֐-׿"']+/g, ' ').replace(/\s+/g, ' ').trim() : t);
+  if (HEBREW_RE.test(t)) {
+    t = t.replace(/[֐-׿"']+/g, ' ').replace(/\s+/g, ' ').trim() || 'premium cinematic advertising scene, dramatic lighting';
   }
-  const sys = 'You are a Hebrew-to-English translator for image-generation prompts. Output MUST be English only. Never output any Hebrew character. Keep every visual detail, scene, composition and lighting; do not add or remove content.';
-  const ask = async () => {
-    const out = await localChat([{ role: 'system', content: sys }, ...TRANSLATE_SHOTS, { role: 'user', content: `תרגם לאנגלית: ${t}` }], { temperature: 0.1, maxTokens: 340 });
-    return (out || '').replace(/^["'`]+|["'`]+$/g, '').trim();
-  };
-  try {
-    let eng = await ask();
-    if (HEBREW_RE.test(eng) || eng.length < 8) eng = await ask(); // one retry
-    if (eng && !HEBREW_RE.test(eng)) t = eng;
-  } catch { /* keep original */ }
-  if (HEBREW_RE.test(t)) t = t.replace(/[֐-׿"']+/g, ' ').replace(/\s+/g, ' ').trim() || 'premium cinematic advertising scene, dramatic lighting';
-  return ensureNoText(t);
+  return finalize(t);
 }
 
 // ===================================================================
@@ -807,7 +696,7 @@ export async function toEnglishImagePrompt(text, opts = {}) {
 // M2 J3B: served EXCLUSIVELY by the AI Gateway action `crm.diagnose_quote`.
 // The system instruction + JSON schema + user-message template are
 // server-owned (action profile + pure contract builder); no browser Gemini
-// key is read, no direct Google/Ollama call is made, and a Gateway failure
+// key is read, no direct provider call is made, and a Gateway failure
 // NEVER falls back to a local/browser provider. The unconfigured
 // environment (no Supabase) keeps the calm demo diagnosis.
 // ===================================================================
@@ -846,41 +735,13 @@ export async function diagnoseQuote(input) {
 // forceActionsJake → `jake.force_actions` below (server-owned AI Gateway).
 
 // ===================================================================
-// JAKE BRAIN PREFERENCE + BADGE (legacy router, UI-only since M2 J2).
-// The production Jake lanes (chatJake / forceActionsJake / draftWithJake) are
-// served EXCLUSIVELY by the server-owned AI Gateway — no browser Gemini key,
-// no Ollama, no fallback loop. What remains here is the persisted brain
-// preference + the badge label the Assistant UI still renders; they no longer
-// influence which engine answers a production chat. The Creative Director
-// engine's brain (DictaLM/aya, FROZEN) is untouched — this is Jake-only.
+// JAKE BRAIN SELECTION — REMOVED (local-engine retirement, 2026-07-27).
+// The persisted brain preference and the cloud/local badge label were the last
+// provider-SELECTION surface in the frontend. They had no production consumer
+// (the Jake lanes below have been Gateway-exclusive since M2 J2) and the "local"
+// branch named a workstation model, so they went with the engine. There is now
+// exactly one brain for every Jake lane: the account's server-owned AI Gateway.
 // ===================================================================
-const JAKE_BRAIN_KEY = 'artvalue_jake_brain';
-const JAKE_CLOUD_MODEL = import.meta.env.VITE_JAKE_CLOUD_MODEL || 'gemini-2.5-flash';
-
-export function jakeBrainPref() {
-  try { const v = (localStorage.getItem(JAKE_BRAIN_KEY) || '').toLowerCase(); if (v === 'cloud' || v === 'local' || v === 'auto') return v; } catch { /* ignore */ }
-  return (import.meta.env.VITE_JAKE_BRAIN || 'auto').toLowerCase();
-}
-export function setJakeBrain(v) { try { localStorage.setItem(JAKE_BRAIN_KEY, String(v || 'auto').toLowerCase()); } catch { /* ignore */ } }
-
-// The ordered list of brains to try, filtered to what's actually configured.
-function jakeBrainOrder() {
-  const pref = jakeBrainPref();
-  const haveCloud = Boolean(API_KEY);
-  const haveLocal = useLocalLLM;
-  // 'auto' & 'cloud' → cloud first (smartest); 'local' → local first. The other is the fallback.
-  const order = pref === 'local' ? ['local', 'cloud'] : ['cloud', 'local'];
-  return order.filter((b) => (b === 'cloud' ? haveCloud : haveLocal));
-}
-
-// What brain is live right now (for the UI badge): resolves the primary choice.
-export function jakeBrainLabel() {
-  const order = jakeBrainOrder();
-  if (!order.length) return { brain: 'demo', label: 'מצב הדגמה', cloud: false };
-  return order[0] === 'cloud'
-    ? { brain: 'cloud', label: `${JAKE_CLOUD_MODEL} · ענן`, cloud: true }
-    : { brain: 'local', label: `${JAKE_MODEL} · מקומי`, cloud: false };
-}
 
 // No context vs context: the legacy lanes treat null/undefined/'' contextText
 // as "no context supplied"; anything else travels to the Gateway BYTE-EXACT in
@@ -918,7 +779,7 @@ function buildJakeChatGatewayPayload(history, contextText) {
 // M2 J2: served EXCLUSIVELY by the AI Gateway action `jake.chat`, which owns
 // the FULL production chat authority server-side (persona + grounding rules +
 // action protocol + confirm discipline). No browser Gemini key is read, no
-// direct Google/Ollama call is made, and a Gateway failure NEVER falls back
+// direct provider call is made, and a Gateway failure NEVER falls back
 // to a local/browser provider. The unconfigured environment (no Supabase)
 // keeps the calm demo behavior, like before.
 export async function chatJake(history, contextText) {
@@ -993,7 +854,7 @@ function buildJakeDraftGatewayPayload(history, contextText) {
 //
 // Slice B: served EXCLUSIVELY by the AI Gateway action `jake.draft_message`.
 // No browser Gemini key is read, no direct Google call is made, and a Gateway
-// failure NEVER falls back to the legacy Gemini/Ollama path. The unconfigured
+// failure NEVER falls back to any legacy provider path. The unconfigured
 // environment (no Supabase) keeps the calm demo behavior, like before.
 export async function draftWithJake(history, contextText) {
   const res = await callAiGateway('jake.draft_message', buildJakeDraftGatewayPayload(history, contextText));
@@ -1014,7 +875,7 @@ export async function draftWithJake(history, contextText) {
 //
 // M2 J3A: served EXCLUSIVELY by the AI Gateway action `crm.lead_ideas`.
 // The system instruction + JSON schema are server-owned (action profile);
-// no browser Gemini key is read, no direct Google/Ollama call is made,
+// no browser Gemini key is read, no direct provider call is made,
 // and a Gateway failure NEVER falls back to a local/browser provider.
 // The unconfigured environment (no Supabase) keeps the calm demo list.
 // ===================================================================

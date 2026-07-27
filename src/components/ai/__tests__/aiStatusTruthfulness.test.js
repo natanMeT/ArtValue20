@@ -9,8 +9,9 @@
 //      localStorage write, no model/provider name.
 //   2. Diagnose + Outreach demo wording keys on isSupabaseConfigured.
 //   3. The five released Gateway call expressions are byte-identical.
-//   4. Frozen files (gemini.js brain exports, AdStudio's real demo gate)
-//      are untouched.
+//   4. The brain-selection surface is gone from BOTH the Assistant and
+//      gemini.js (local-engine retirement, 2026-07-27) — there is exactly one
+//      brain now, the account's Gateway, so there is nothing to select.
 // ===================================================================
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -21,7 +22,6 @@ const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)),
 const assistant = read('../Assistant.jsx');
 const diagnose = read('../../../pages/Diagnose.jsx');
 const outreach = read('../../../pages/Outreach.jsx');
-const adstudio = read('../../../pages/AdStudio.jsx');
 const gemini = read('../../../lib/gemini.js');
 
 describe('S1 · Assistant truthful status (non-clickable, Gateway-keyed)', () => {
@@ -57,10 +57,17 @@ describe('S1 · Assistant truthful status (non-clickable, Gateway-keyed)', () =>
   });
 
   it('no model/provider name is shown by the status (server owns provider authority)', () => {
-    // note: gentleError's matcher regex legitimately contains 'Ollama' — it
-    // matches legacy error TEXT and displays no provider name.
     for (const banned of ['JAKE_CLOUD_MODEL', 'gemini-2.5-flash', 'כפתור המוח']) {
       expect(assistant.includes(banned), banned).toBe(false);
+    }
+  });
+
+  // gentleError used to keep a matcher regex naming 'Ollama' so it could
+  // recognise the legacy workstation-engine error TEXT. That engine is gone,
+  // and so is the matcher: the Assistant now names no engine at all.
+  it('the Assistant names no workstation engine anywhere (not even in a matcher)', () => {
+    for (const term of ['Ollama', 'ComfyUI', 'comfy', 'Fooocus', 'A1111', 'localhost', '127.0.0.1']) {
+      expect(assistant.includes(term), term).toBe(false);
     }
   });
 });
@@ -107,20 +114,17 @@ describe('S1 · locked compatibility — released Gateway calls byte-identical',
   });
 });
 
-describe('S1 · frozen files untouched', () => {
-  it('gemini.js keeps the legacy brain exports for a later approved dead-code slice', () => {
-    for (const kept of [
-      'export const isGeminiConfigured',
-      'export function jakeBrainPref()',
-      'export function setJakeBrain(',
-      'export function jakeBrainLabel()',
-    ]) {
-      expect(gemini.includes(kept), kept).toBe(true);
-    }
+describe('S1 · one brain, nothing to select', () => {
+  it('gemini.js still reports configuration truthfully', () => {
+    expect(gemini.includes('export const isGeminiConfigured')).toBe(true);
   });
 
-  it("AdStudio keeps its real isGeminiConfigured demo gate (Creative V1 truly runs demo without an engine)", () => {
-    expect(adstudio.includes('isGeminiConfigured')).toBe(true);
-    expect(adstudio.includes('{!isGeminiConfigured && (')).toBe(true);
+  it('every brain-selection export is gone from gemini.js', () => {
+    for (const gone of [
+      'jakeBrainPref', 'setJakeBrain', 'jakeBrainLabel', 'jakeBrainOrder',
+      'artvalue_jake_brain', 'VITE_JAKE_BRAIN', 'VITE_JAKE_MODEL',
+    ]) {
+      expect(gemini.includes(gone), gone).toBe(false);
+    }
   });
 });

@@ -33,7 +33,7 @@ import { isStudioModeAvailable } from './studioModes.js';
 // Fields that PARTICIPATE in the availability decision.
 export const PRESET_REQUIREMENT_FIELDS = Object.freeze([
   'targetTab',    // destination mode — must be part of the product
-  'localReady',   // is the recipe actually usable today
+  'recipeReady',   // is the recipe actually usable today
   'requiresApi',  // does it need an external provider this build cannot call
 ]);
 
@@ -60,7 +60,7 @@ export function presetUnavailableReason(preset) {
 
   // 2. readiness flags must be explicitly declared booleans (fail closed on
   //    undefined / 'true' / null — an undeclared requirement is not a satisfied one)
-  if (!isBool(preset.localReady)) return 'readiness-undeclared';
+  if (!isBool(preset.recipeReady)) return 'readiness-undeclared';
   if (!isBool(preset.requiresApi)) return 'api-requirement-undeclared';
 
   // 3. this build calls no external image provider, so a recipe that needs one
@@ -68,7 +68,7 @@ export function presetUnavailableReason(preset) {
   if (preset.requiresApi === true) return 'external-provider-unavailable';
 
   // 4. and the recipe itself must be declared usable
-  if (preset.localReady !== true) return 'not-ready';
+  if (preset.recipeReady !== true) return 'not-ready';
   return '';
 }
 
