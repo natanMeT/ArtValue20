@@ -6,7 +6,11 @@
 **Purpose:** single source of truth for state, so work continues across sessions with no loss.
 Nathan passes this to ChatGPT so it can review/advise **without re-deriving or guessing** state.
 **ChatGPT does NOT edit this document.** Only Claude updates it.
-**Last updated:** 2026-07-27 — session: **COMPLETE LOCAL-ENGINE RETIREMENT (rounds 8–15) — CLOSED / LIVE IN PRODUCTION.** Merge commit `9ecb8ebf023886f32496d3002944a3b092314cfe` (parents `5d7506d1` + the approved head `cd651ea`), 2026-07-27T07:00:34Z, **0 unresolved review threads**, Codex clean on the exact merged head. **The retirement is LIVE:** Production **`b3708cc2` / `index-C4frcMDi.js` (source `2c8b1df`)**, promoted unchanged from the accepted Preview `17bba0b3` (12/12 byte-identical), Edge `ai-gateway` **v36 ACTIVE / `verify_jwt=true`**. Current rollback target **`247ef9ec`**; `476830a2` is a historical fallback. No migration, schema, Auth or secret change. Rollback tag `pre-local-engine-retirement` @ `5d7506d1`. At the merged head: focused proof 2 files / 172 passed; **full suite 110 files / 3,074 passed / 0 skipped / 0 failed**. **The closure box in the Baseline below is the authoritative state.** Authenticated Studio generation and authenticated Jake Gateway calls are now **VERIFIED** (Preview acceptance, Account A). The Edge redeploy has been **performed** (v35 → v36).
+**Last updated:** 2026-07-27 — session: **ASSET LIBRARY SLICE 1 (durable cloud gallery images) — CLOSED / LIVE IN PRODUCTION.** Merge `87fed4bffcb2b84d7967f371b9f1063d79db433f` (PR [#125](https://github.com/natanMeT/ArtValue20/pull/125), parents `3803b61` + the owner-gated head `607cac1`). Production **`5bcf1ef0-fa3e-4ff6-b55f-7a22f68db3aa` / `index-dUN1r8PM.js` (source `87fed4b`)**, promoted unchanged from the accepted Preview `d1235743` (wrangler "Uploaded 0 files (12 already uploaded)"; canonical serves 12/12 byte-identical). **Current rollback target `b3708cc2`**; `247ef9ec` is now a **historical fallback only**. Migration **`20260727120000` APPLIED and verified live — 7/7**. Edge `ai-gateway` **v36 ACTIVE / `verify_jwt=true`, untouched**; no secret change. Full suite 114 files / 3,153 passed / 0 failed. Rollback tag `pre-asset-library-slice-1` @ `3803b61`. **The closure box in the Baseline below is the authoritative state.**
+
+> *The paragraph below describes the PREVIOUS release and is retained as history. Its "Production …" and "Current rollback target …" statements describe that release, NOT today.*
+
+**(HISTORICAL — previous release)** **COMPLETE LOCAL-ENGINE RETIREMENT (rounds 8–15) — CLOSED, since superseded in Production.** Merge commit `9ecb8ebf023886f32496d3002944a3b092314cfe` (parents `5d7506d1` + the approved head `cd651ea`), 2026-07-27T07:00:34Z, **0 unresolved review threads**, Codex clean on the exact merged head. **The retirement is LIVE:** Production **`b3708cc2` / `index-C4frcMDi.js` (source `2c8b1df`)**, promoted unchanged from the accepted Preview `17bba0b3` (12/12 byte-identical), Edge `ai-gateway` **v36 ACTIVE / `verify_jwt=true`**. Current rollback target **`247ef9ec`**; `476830a2` is a historical fallback. No migration, schema, Auth or secret change. Rollback tag `pre-local-engine-retirement` @ `5d7506d1`. At the merged head: focused proof 2 files / 172 passed; **full suite 110 files / 3,074 passed / 0 skipped / 0 failed**. **The closure box in the Baseline below is the authoritative state.** Authenticated Studio generation and authenticated Jake Gateway calls are now **VERIFIED** (Preview acceptance, Account A). The Edge redeploy has been **performed** (v35 → v36).
 
 > *Everything below in this summary is a **HISTORICAL** account of how the slice was built. Round labels such as "IN FLIGHT" describe the state **at that round**, not today.*
 
@@ -29,32 +33,115 @@ Nathan passes this to ChatGPT so it can review/advise **without re-deriving or g
 
 ---
 
-## Baseline (current — COMPLETE LOCAL-ENGINE RETIREMENT CLOSED / LIVE in Production)
+## Baseline (current — ASSET LIBRARY SLICE 1 CLOSED / LIVE in Production)
 
-> ### ✅ COMPLETE LOCAL-ENGINE RETIREMENT — **CLOSED / LIVE IN PRODUCTION** (2026-07-27)
+> ### ✅ ASSET LIBRARY SLICE 1 — **CLOSED / LIVE IN PRODUCTION** (2026-07-27)
 >
-> ArtValue is now a **cloud-only product in Production**. Every executable ComfyUI / Ollama / Fooocus / A1111
-> integration — and its consumers, routes, provider registrations, configuration, scripts and tooling — is gone from
-> the running application.
+> ImageStudio gallery images are now **durable cloud assets** owned by the signed-in account: a private `assets`
+> Storage bucket plus `public.assets` metadata rows. Changing device no longer loses generated images. This closes
+> the durability gap named in roadmap **§4.5** and delivers **one** of the three **§7.6** Growth reopening
+> prerequisites — **Growth is NOT reopened**; durable Campaigns and an account-aware Growth data model remain open.
 >
 > | | |
 > | --- | --- |
-> | **Production deployment** | **`b3708cc2-ab2e-44ee-a557-8cc2ae688635`** (Environment Production, branch `main`, source `2c8b1df`) |
-> | **Bundle** | **`index-C4frcMDi.js`** — SHA256 `3b9872b38ab6f19935f979ecc536a1d0aa3c5d2c682f6aa683e17c2f9470ebbc` (693,452 B) |
-> | Release source | `2c8b1dff2f35d3f7ff7fc6c3d43df01eb8c0189d` (PR #119 merge). Application-code anchor `753ee2e`; later commits are test/docs-only |
-> | Code PRs | [#118](https://github.com/natanMeT/ArtValue20/pull/118) merged `9ecb8eb` · [#119](https://github.com/natanMeT/ArtValue20/pull/119) merged `2c8b1df` |
-> | **Edge** | `ai-gateway` **v36 ACTIVE, `verify_jwt=true`** — deployed from merged main; the only function on the project |
-> | Migration / schema / Auth / secrets | **none** — 6/6 migrations applied and matching |
-> | Preview accepted | **`17bba0b3`** (`retirement-preview-2c8b1df`) — full authenticated acceptance PASS |
+> | **Production deployment** | **`5bcf1ef0-fa3e-4ff6-b55f-7a22f68db3aa`** (Environment Production, branch `main`, source `87fed4b`) |
+> | **Bundle** | **`index-dUN1r8PM.js`** — SHA256 `03e8f062be62b678bbb442639fa2a75033a123e1a6277a7842b8b54c10ac225c` (697,879 B) |
+> | Release source | `87fed4bffcb2b84d7967f371b9f1063d79db433f` (PR #125 merge; parents `3803b61` + the owner-gated head `607cac1`) |
+> | Code PR | [#125](https://github.com/natanMeT/ArtValue20/pull/125) — merge gated on head `607cac1`, verified before merging |
+> | **Edge** | `ai-gateway` **v36 ACTIVE, `verify_jwt=true`** — **UNCHANGED, not redeployed** by this slice |
+> | Migration | **`20260727120000_asset_library_slice1.sql` APPLIED 2026-07-27 — 7/7 applied and matching.** No Auth or secret change |
+> | Preview accepted | **`d1235743`** (`assets-preview-87fed4b`) — full authenticated QA-account acceptance PASS |
+> | Rollback tag | `pre-asset-library-slice-1` @ `3803b61` |
 >
-> **Artifact proof — promoted unchanged, never rebuilt.** The deployed `dist/` was proven byte-identical three ways
+> **Design — isolation is STRUCTURAL, not merely policy-based.** The object path is `{auth.uid()}/{asset_id}.{ext}`
+> and `public.assets` carries `check (storage_path = user_id::text || '/' || id::text || '.' || ext)`, which
+> **reconstructs the exact string from the row's own columns** — not a prefix test, not a `LIKE` pattern. Bytes are
+> reached only through **short-lived signed URLs**; the bucket is private and the public-URL helper is never called.
+>
+> **The quota is SYMMETRIC — 40, enforced on BOTH sides.** A create writes the **row first** and only then the
+> bytes, so a quota on `storage.objects` alone would leave `public.assets` uncapped: an account at 40 could insert a
+> row, have the upload refused, keep the dangling row by design, and repeat without bound. That defect was found in
+> owner review and corrected in `607cac1`. Each side has its **own** `SECURITY DEFINER` counter — a dangling row
+> counts as a row but not an object, so one shared counter would be wrong. Both take **no owner argument**.
+> A policy that counts from the table it guards would recurse infinitely; `SECURITY DEFINER` is what breaks the cycle.
+>
+> **The ordering rule — always fail toward the VISIBLE state.** Create = row, then bytes; delete = object, then row.
+> An orphaned object is invisible forever; a dangling row is visible and deletable. A failed upload therefore leaves
+> the row **deliberately uncleaned** — removing it would risk erasing the record of an object that actually landed.
+>
+> **NO data migration.** The device IndexedDB gallery (`artvalue_gallery_<uid>`) is **legacy** in cloud mode: never
+> read, converted, copied or deleted. Local/demo is unchanged. **Visible consequence, by design:** images that
+> existed only in a device gallery no longer appear in cloud mode — they are not deleted, they are not read.
+>
+> **Live database evidence (2026-07-27, owner-run SQL against the real project):** the **row quota is PROVEN** —
+> seeded 40 rows; an impersonation probe confirmed `running_as = authenticated`, `auth.uid() = 245df07a-ddcd-4d9e-bffd-7916a4854409`
+> and `rows_counted = 40`; the 41st insert failed with **`ERROR 42501: new row violates row-level security policy`**;
+> after freeing exactly one slot the **identical statement succeeded**; cleanup returned `remaining_qa = 0`,
+> `total_rows = 0`. **The probe is what makes this evidence** — it rules out an empty `auth.uid()` or a path-CHECK
+> violation as the source of the same error. Without the positive half it would prove a block, not a quota.
+>
+> **Preview acceptance evidence (QA account, the only place these are testable):** create issued
+> `POST /rest/v1/assets` **201** then `POST /storage/v1/object/assets/{uid}/{asset_id}.jpg` **200** (row-first
+> confirmed live); refresh preserved the item, served from `/object/sign/` with a token, 484,018 bytes decoding to
+> 1024×1024; delete issued `DELETE /storage/…` **200** then `DELETE /rest/v1/assets?id=eq.…` **204** (object-first
+> confirmed live) and the item did not return after refresh. **Storage policies:** write outside own prefix →
+> **403**, signed URL for another account's path → **404**, `x-upsert: true` overwrite → **403**, duplicate path →
+> **409**. **Object quota:** filled to 40, the 41st → **403**; freeing one slot made the identical write **200**.
+> Cleanup verified from three independent sources: storage list 0, rows 0, `asset_object_count()` **0**.
+> **0 console messages throughout.**
+>
+> **Production smoke (non-mutating, Account A `32d34371-5546-4663-9939-bee3938ca7b2`) — PASS.** Gallery hydration
+> issued exactly one `GET /rest/v1/assets` → 200 (Account A holds 0 cloud assets); across five routes only **2 GETs
+> total, 0 writes, 0 console messages**; the account's brand palette rendered.
+>
+> **Declared limitations — recorded, not fixed:**
+> - **L1 Concurrency.** Both quota predicates count inside the statement snapshot, so two simultaneous creates at 39
+>   can reach 41. It bounds growth; it is **not** a security boundary.
+> - **L2 Account deletion.** `on delete cascade` removes `public.assets` **rows**, not Storage **objects**.
+> - **L3 Declared MIME.** `allowed_mime_types` validates the Content-Type the client **declares**; no byte sniffing.
+> - **L4 No UPDATE policy.** Absence is the denial, which is why every upload must pass `upsert: false` — **proven
+>   live** by the `x-upsert` attempt returning 403.
+> - **⚠️ OPEN, non-blocking: `anon` holds EXECUTE on both counter functions.** `revoke … from public` in the
+>   migration does not remove Supabase's default role grants. Exposure is **zero today only because
+>   `arg_count = 0`** — both functions read `auth.uid()` themselves. **Adding a parameter to either function would
+>   turn this into a cross-account leak.** Revoke from `anon` in the next migration.
+>
+> **(HISTORICAL — previous release) COMPLETE LOCAL-ENGINE RETIREMENT — CLOSED, superseded in Production.** ArtValue
+> became a **cloud-only product** in that release; every executable ComfyUI / Ollama / Fooocus / A1111 integration and
+> its consumers, routes, provider registrations, configuration, scripts and tooling were removed. It shipped as
+> deployment **`b3708cc2`** / `index-C4frcMDi.js` (source `2c8b1df`, PRs [#118](https://github.com/natanMeT/ArtValue20/pull/118) `9ecb8eb` and [#119](https://github.com/natanMeT/ArtValue20/pull/119) `2c8b1df`), with Preview
+> `17bba0b3` accepted and 6/6 migrations at the time. **`b3708cc2` is now the CURRENT rollback target** (see the
+> hierarchy below) — that is its role today; it is no longer the live deployment.
+>
+> **Artifact proof for THIS release (Asset Library slice 1) — promoted unchanged, never rebuilt.** Exactly **one**
+> build, from `87fed4b`. Before Preview the artifact was scanned; before Production the same `dist/` was re-verified
+> **12/12 byte-identical to the bytes Preview actually served**. Wrangler reported **"Uploaded 0 files (12 already
+> uploaded)"**, and the canonical `artvalue-product.pages.dev` then served **12/12 files byte-identical**, with
+> `index.html` referencing `assets/index-dUN1r8PM.js` (entry SHA256 `03e8f062…`, 697,879 B).
+>
+> **Artifact scan before deploying — product code clean, with a positive control.** The product chunk
+> `index-dUN1r8PM.js` contains **0** occurrences of the public-URL helper, **0** local-engine identifiers and **0**
+> loopback addresses. The scanner was first proven able to report a hit (`createSignedUrls` = 1 in the same chunk),
+> so the zeroes are meaningful. The **only** hit anywhere in the artifact is the public-URL helper's own **definition
+> inside the Supabase SDK vendor chunk** `supabase-C8W5_S3P.js`, which is **byte-identical (SHA256 `11d6e4f5…`) to
+> the chunk Production was already serving** — this release introduced no new occurrence.
+>
+> **⚠️ Two measurement traps recorded so they are not re-learned the expensive way.**
+> 1. **Post-deploy propagation.** For roughly a minute after promotion the canonical `/` still served the OLD bundle
+>    **even with cache-busting and `no-cache`**, while `/index.html` already served the new one. Five repeated
+>    cache-busted probes then agreed. Wait and re-probe before declaring a mismatch.
+> 2. **Content-hashed assets make a naive 12/12 pass meaningless.** Both the old and new entry bundles return HTTP
+>    200 simultaneously, so only `index.html` distinguishes releases — and it must be compared at **`/`**, the path
+>    users actually hit, not at `/index.html`.
+>
+> **(HISTORICAL — previous release) Artifact proof.** The retirement's deployed `dist/` was proven byte-identical three ways
 > **before** deployment: local `dist/` ≡ the pre-Preview scan manifest (no drift) ≡ the bytes Preview actually served
 > (12/12). Wrangler reported **"Uploaded 0 files (12 already uploaded)"**, and the canonical
 > `artvalue-product.pages.dev` then served **12/12 files HTTP 200 and byte-identical**, with `index.html` referencing
 > `assets/index-C4frcMDi.js`. The one build had already reproduced the previously smoke-verified hash exactly,
 > confirming the intervening commits were test/docs-only.
 >
-> **Authenticated Preview acceptance (Account A) — all ten checks PASS.** Studio exposes one creative lane
+> **(HISTORICAL — previous release) Authenticated Preview acceptance (Account A) — all ten checks PASS.** Studio exposes one creative lane
 > (`טקסט → תמונה`) plus Mockup Studio, Poster Editor, presets and aspect ratios; **zero** retired terms anywhere;
 > Account A's durable brand palette (`#B7FF00 #0E0E0E #00D9FF #05070A #F5F7FA`) loaded, toggle active, and present in
 > the generation payload; **exactly one** `studio.generate_image` call → **200 `ok:true`** through Edge v36, a real
@@ -66,20 +153,29 @@ Nathan passes this to ChatGPT so it can review/advise **without re-deriving or g
 > verified back to 0 items, with **no database writes at any point** and business data unchanged (3 clients, 0 tasks,
 > 0 quotes, ₪0 transactions).
 >
-> **Production smoke (non-mutating) — PASS.** Canonical URL serves `index-C4frcMDi.js`; the authenticated Account A
+> **(HISTORICAL — previous release) Production smoke (non-mutating) — PASS.** At that time the canonical URL served `index-C4frcMDi.js`; the authenticated Account A
 > session loads Clients, Quotes, Finance and Growth OS; Studio shows only supported cloud functionality with the brand
 > palette active; **0** retired terms; retired routes fail safe; 20 s idle → **0** requests; **0** local-engine
 > requests, **0** mutating requests, **0** console errors; Edge re-confirmed v36 / `verify_jwt=true`. No generation,
 > save or delete was performed.
 >
 > **Rollback hierarchy — exactly one current target; never collapse these.**
-> 1. **CURRENT rollback target: `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b`** (source `03c23c2`, bundle
->    `index-BZ3B-0yd.js`) — the immediately previous Production deployment, verified **HTTP 200** and still serving its
->    own bundle after this release.
-> 2. **HISTORICAL FALLBACK ONLY — not the current target: `476830a2-f8ea-45dc-b0ce-a71876bc48dd`** (source `7e30199`,
->    `index-BrR14XIC.js`), verified **HTTP 200**. Older deployments are progressively further behind.
-> 3. Git rollback tag **`pre-local-engine-retirement` @ `5d7506d1`**. Edge rollback: redeploy the pre-merge
->    `supabase/functions/_shared/` to restore the v35 contract.
+> 1. **CURRENT rollback target: `b3708cc2-ab2e-44ee-a557-8cc2ae688635`** (source `2c8b1df`, bundle
+>    `index-C4frcMDi.js`, complete local-engine retirement) — the immediately previous Production deployment,
+>    verified **HTTP 200 and still serving its own bundle after this release**. **This is the deployment to roll
+>    back to.**
+> 2. **HISTORICAL FALLBACK ONLY — NOT the current target: `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b`** (source
+>    `03c23c2`, bundle `index-BZ3B-0yd.js`, Studio containment). **It was demoted from current target by this
+>    release and was NOT deleted.** Rolling back here would also revert the complete local-engine retirement.
+>    `476830a2` (source `7e30199`, `index-BrR14XIC.js`) and the older `e63198b7` / `4b86993d` / `69f8a175` /
+>    `cec116b9` / `31cb521d` / `4cb17aee` are likewise fallbacks only, progressively further behind.
+> 3. Git rollback tag **`pre-asset-library-slice-1` @ `3803b61`**. **No Edge rollback applies to this release —
+>    `ai-gateway` v36 was not redeployed.** (The retirement's Edge rollback, restoring the v35 contract, remains
+>    documented under that release.)
+>
+> **⚠️ A rollback of the FRONTEND does not undo the migration.** `20260727120000` is applied and additive; the
+> `assets` table, bucket and policies remain in place after any frontend rollback. The previous bundle simply never
+> queries them, so the device-local gallery behaviour returns. Nothing needs to be un-migrated to roll back.
 >
 > **Remaining unselected follow-up (NOT implemented, NOT scheduled): platform-level egress hardening.** A guarantee
 > that no future code path can construct a private-network request belongs to CSP `connect-src` and server-side egress
@@ -88,24 +184,31 @@ Nathan passes this to ChatGPT so it can review/advise **without re-deriving or g
 >
 > **P1 Atomic Quote Persistence remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 - Repo: `C:\Users\PC\ArtValue` (origin/main). GitHub repo `natanMeT/ArtValue20`.
-- **Active application release code anchor:** **`2c8b1dff2f35d3f7ff7fc6c3d43df01eb8c0189d`** (repository `main` after docs PR #119; the running Production artifact was built from this commit). *(Historical anchors, retained only as the sources of older deployments: `03c23c2` — Studio containment, now the **current rollback target's** source; `7e30199` — P1; `983f4899` — S0F.1.)*
+- **Active application release code anchor:** **`87fed4bffcb2b84d7967f371b9f1063d79db433f`** (PR #125 merge; the running Production artifact was built from this commit). *(Historical anchors, retained only as the sources of older deployments: `2c8b1df` — complete local-engine retirement, now the **current rollback target's** source; `03c23c2` — Studio containment; `7e30199` — P1; `983f4899` — S0F.1.)*
 - **Three DISTINCT anchors — never collapse them.** This tracker records no fixed value for the repository head, because documentation merges advance it continuously and any pinned value would be false within minutes:
   1. **Repository `main` HEAD — NOT recorded here. Resolve it LIVE at every task's preflight** (`git rev-parse origin/main`). Do not read any SHA in this document as "the current head".
-  2. **Historical application-code merge anchors:** `9ecb8eb` (PR #118) and `2c8b1df` (PR #119) — where the local-engine retirement entered `main`; its code is **now RELEASED** (see anchor 3). `29cccdd` (PR #114, Studio containment) is an older such anchor.
-  3. **Deployed Production source:** **`2c8b1df`** — the commit the running Production artifact was actually built from (complete local-engine retirement). The prior `03c23c2` (Studio containment) is retained as the **current rollback deployment's** source.
+  2. **Historical application-code merge anchors:** `87fed4b` (PR #125) — where Asset Library slice 1 entered `main`; its code is **now RELEASED** (see anchor 3). `9ecb8eb` (PR #118), `2c8b1df` (PR #119) and `29cccdd` (PR #114) are older such anchors.
+  3. **Deployed Production source:** **`87fed4b`** — the commit the running Production artifact was actually built from (Asset Library slice 1). The prior `2c8b1df` (complete local-engine retirement) is retained as the **current rollback deployment's** source.
   A live head will normally differ from anchors 2 and 3. **Divergence is expected and is NOT deployment drift. Never treat "merged into `main`" as "live" — always confirm which commit the running artifact was built from.**
 - Hosting: Cloudflare Pages `artvalue-product` — canonical https://artvalue-product.pages.dev
-- **Current Production deploy: `b3708cc2-ab2e-44ee-a557-8cc2ae688635`** (Environment Production, branch `main`, source **`2c8b1df`**, bundle **`index-C4frcMDi.js`**) — **LIVE (Complete Local-Engine Retirement — cloud-only product)**. Deployed by reusing the exact Preview-accepted `dist/` — **NOT rebuilt** (wrangler "Uploaded 0 files (12 already uploaded)"). **Served-bytes proof: 12/12 files fetched from the canonical URL are HTTP 200 and byte-identical (SHA256) to the accepted artifact**; entry `index-C4frcMDi.js` = `3b9872b38ab6f19935f979ecc536a1d0aa3c5d2c682f6aa683e17c2f9470ebbc` (693,452 bytes). Before deployment the same `dist/` was additionally proven identical to the pre-Preview scan manifest **and** to the bytes Preview `17bba0b3` actually served. Authenticated Account A **Preview acceptance (10/10) and non-mutating Production smoke both PASSED**.
+- **Current Production deploy: `5bcf1ef0-fa3e-4ff6-b55f-7a22f68db3aa`** (Environment Production, branch `main`, source **`87fed4b`**, bundle **`index-dUN1r8PM.js`**) — **LIVE (Asset Library slice 1 — durable cloud gallery images)**. Deployed by reusing the exact Preview-accepted `dist/` — **NOT rebuilt** (wrangler "Uploaded 0 files (12 already uploaded)"). **Served-bytes proof: 12/12 files fetched from the canonical URL are byte-identical (SHA256) to the accepted artifact**; entry `index-dUN1r8PM.js` = `03e8f062be62b678bbb442639fa2a75033a123e1a6277a7842b8b54c10ac225c` (697,879 bytes). Authenticated QA-account **Preview acceptance PASS** and a non-mutating **Account A Production smoke PASS** (one `GET /rest/v1/assets` → 200, 2 GETs across five routes, 0 writes, 0 console messages).
 - **Rollback hierarchy — exactly ONE deployment may be called the current target. Do not collapse these levels.**
-  1. **CURRENT frontend rollback target: `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b`** (source `03c23c2`, bundle `index-BZ3B-0yd.js`, Studio / Local-Engine UI Containment) — the immediately previous Production deployment, retained and **verified HTTP 200 post-deploy, still serving its own bundle**. **This is the deployment to roll back to.**
-  2. **HISTORICAL FALLBACK ONLY — NOT the current target: `476830a2-f8ea-45dc-b0ce-a71876bc48dd`** (source `7e30199`, bundle `index-BrR14XIC.js`, P1) — retained, verified HTTP 200. It is **two releases behind**, so rolling back here would revert the Studio containment as well as the retirement. Use only if target 1 is itself unusable. (Older `e63198b7` S0F.1 / `4b86993d` S0E / `69f8a175` S0D / `cec116b9` S0C / `31cb521d` S0B / `4cb17aee` S0A are retained historically — likewise fallbacks only, progressively further behind.)
-  3. **Edge rollback:** redeploy the pre-merge `supabase/functions/_shared/` to restore the **v35** contract. **Git rollback tag: `pre-local-engine-retirement` @ `5d7506d1`.**
-- Preview (retained): **`17bba0b3-e904-49e3-9c8f-45e88f60f1fe`** (branch `retirement-preview-2c8b1df`, source `2c8b1df`, bundle `index-C4frcMDi.js`) — full authenticated acceptance PASSED; **this is the artifact promoted to Production unchanged**. The Studio-containment Preview `ec239e3b`, the P1 Preview `c999988e` and the S0F.1 Preview `0760f00e` are retained historically.
+  1. **CURRENT frontend rollback target: `b3708cc2-ab2e-44ee-a557-8cc2ae688635`** (source `2c8b1df`, bundle `index-C4frcMDi.js`, complete local-engine retirement) — the immediately previous Production deployment, retained and **verified HTTP 200 post-deploy, still serving its own bundle**. **This is the deployment to roll back to.**
+  2. **HISTORICAL FALLBACK ONLY — NOT the current target: `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b`** (source `03c23c2`, bundle `index-BZ3B-0yd.js`, Studio containment) — **demoted from current target by this release; retained, NOT deleted**, verified HTTP 200. Rolling back here would revert the complete local-engine retirement as well. Use only if target 1 is itself unusable. (Older `476830a2` P1 / `e63198b7` S0F.1 / `4b86993d` S0E / `69f8a175` S0D / `cec116b9` S0C / `31cb521d` S0B / `4cb17aee` S0A are retained historically — likewise fallbacks only, progressively further behind.)
+  3. **Git rollback tag: `pre-asset-library-slice-1` @ `3803b61`.** **No Edge rollback applies to this release — `ai-gateway` v36 was NOT redeployed.** **A frontend rollback does NOT undo migration `20260727120000`** — it is additive and stays applied; the previous bundle simply never queries the new table.
+- Preview (retained): **`d1235743-564d-43a9-bf26-bb7a25d3850d`** (branch `assets-preview-87fed4b`, source `87fed4b`, bundle `index-dUN1r8PM.js`) — full authenticated QA-account acceptance PASSED; **this is the artifact promoted to Production unchanged**. The retirement Preview `17bba0b3`, the Studio-containment Preview `ec239e3b`, the P1 Preview `c999988e` and the S0F.1 Preview `0760f00e` are retained historically.
 - Git rollback tags (P1): `pre-atomic-quote-persistence` @ `716da1b`, `pre-atomic-quote-live-compatibility` @ `f7ff9fad`, `pre-atomic-quote-pk-catalog-cast` @ `2e1b137` — all retained.
-- Git rollback tags: `pre-local-engine-retirement` @ `5d7506d1`, `pre-s0f-creative-trust-brand-palette` @ `5efbeb9103710875fc3dad882ae78aca4b2938bc`, `pre-s0e-demo-tour-containment` @ `c10ac5590967410d0931a89b08a7bdab12030b25`, `pre-s0e-guided-onboarding` @ `becd070be72c5c0d59148f870db378cfad9cebea`, `pre-s0d-business-context` @ `3ee62aee`, `pre-s0c-identity-isolation` @ `385f77874da68f905b504facf92843e7ede76d97`, `pre-s0b-cloud-persistence` @ `7066520` — all retained.
+- Git rollback tags: `pre-asset-library-slice-1` @ `3803b61`, `pre-local-engine-retirement` @ `5d7506d1`, `pre-s0f-creative-trust-brand-palette` @ `5efbeb9103710875fc3dad882ae78aca4b2938bc`, `pre-s0e-demo-tour-containment` @ `c10ac5590967410d0931a89b08a7bdab12030b25`, `pre-s0e-guided-onboarding` @ `becd070be72c5c0d59148f870db378cfad9cebea`, `pre-s0d-business-context` @ `3ee62aee`, `pre-s0c-identity-isolation` @ `385f77874da68f905b504facf92843e7ede76d97`, `pre-s0b-cloud-persistence` @ `7066520` — all retained.
 - **Edge: `ai-gateway` v36 ACTIVE, `verify_jwt=true`** — the only function on the project. **v36 removed the local providers from the shared contract**: `comfyui` / `ollama` / `fooocus` / `a1111` are gone from `AI_PROVIDERS`, `AI_MODELS` and every routing chain, together with the `LOCAL_PROVIDERS` partition, the `localFirst` ordering option and its response metadata, and the local zero-cost branch; the 20-action cloud vocabulary is unchanged and every action still resolves to a non-empty all-API chain. Verified live: a request naming `provider:'ollama'` with `localFirst` returns `options:{}` and the chain `["gemini","openai","openrouter"]`. *(Historical: **v35** was the previous ACTIVE version — its only S0F.1 change was the Jake persona text constant and its related comment in `actionProfiles.ts`; it remains the Edge rollback target.)* Account Business Context continues to be assembled + injected by the **frontend chat/draft seam** before the existing Gateway call; the ImageStudio brand-palette block is likewise composed **frontend-side** into the existing `studio.generate_image` prompt.
-- Supabase: project `weciwurjfwmqihcyexzj`; **all 6 migrations applied & matching, none pending** — `20260726120000_atomic_quote_persistence.sql` (P1) applied 2026-07-26, `public.save_quote_atomic` live and verified (SECURITY INVOKER, empty `search_path`; **`authenticated` is the only client-facing role with EXECUTE — `anon` and PUBLIC are denied/absent; `service_role` also holds EXECUTE via Supabase's project-level defaults and is server-side only**). **S0F.1 added NO migration** (no Product/Inventory/Campaign/Asset-Library schema). S0D migration `20260724120000_s0d_business_profile.sql` remains **APPLIED & verified** — `public.business_profile`: PK `user_id`, FK → `auth.users(id)` ON DELETE CASCADE, RLS ON + policy `business_profile_own` (USING+WITH CHECK `auth.uid()=user_id`), trigger `trg_business_profile_updated`→`set_updated_at()`, authenticated GRANTs present.
-- **Test evidence for the CURRENT release (complete local-engine retirement, source `2c8b1df`, deployment `b3708cc2`):** full suite **110 files / 3,074 passed / 0 skipped / 0 failed**; focused retirement proof **2 files / 172 passed**; one production build green, emitting the deployed `index-C4frcMDi.js`; authenticated Preview acceptance **10/10 PASS** on Account A and a non-mutating Production smoke **PASS**.
+- Supabase: project `weciwurjfwmqihcyexzj`; **all 7 migrations applied & matching, none pending.**
+  - **`20260727120000_asset_library_slice1.sql` (Asset Library slice 1) APPLIED 2026-07-27 and VERIFIED LIVE.** Adds the **private** `assets` bucket (`public = false`, `file_size_limit = 10485760`, `allowed_mime_types = {image/png,image/jpeg,image/webp}`) and `public.assets` (PK `id`, `user_id` → `auth.users(id)` ON DELETE CASCADE, RLS ON). **Structural isolation:** `check (storage_path = user_id::text || '/' || id::text || '.' || ext)` — the path is reconstructed from the row's own columns, not prefix-matched. **Three policies per surface, and NO UPDATE policy on either** (`assets_select_own` / `assets_insert_own` / `assets_delete_own`; `assets_objects_select_own` / `assets_objects_insert_own` / `assets_objects_delete_own`). **Symmetric 40 quota** in the `WITH CHECK` of BOTH INSERT policies via two separate `SECURITY DEFINER`, zero-argument counters (`public.asset_row_count()`, `public.asset_object_count()`) — a counter must be `SECURITY DEFINER` or a policy counting its own table recurses infinitely.
+    - **Row quota PROVEN by live SQL:** seeded 40; probe confirmed `running_as = authenticated`, `auth.uid() = 245df07a-ddcd-4d9e-bffd-7916a4854409`, `rows_counted = 40`; the 41st insert → **`ERROR 42501: new row violates row-level security policy`**; the identical statement **succeeded** after freeing one slot; cleanup left `remaining_qa = 0`, `total_rows = 0`. **The probe is what makes this evidence** — it excludes an empty `auth.uid()` or a path-CHECK violation as the cause of the same error.
+    - **Object quota and Storage policies PROVEN in the Preview acceptance** (they are not reachable from SQL): write outside own prefix → **403**, signed URL for another account's path → **404**, `x-upsert: true` → **403** (the live proof that **L4** holds: no UPDATE policy exists, so uploads must pass `upsert: false`), duplicate path → **409**; filled to 40 objects, the 41st → **403**, and freeing one slot made the identical write **200**.
+    - **⚠️ OPEN, non-blocking:** **`anon` holds EXECUTE on both counter functions** — `revoke … from public` does not remove Supabase's default role grants. Exposure is **zero today only because `arg_count = 0`** (each function reads `auth.uid()` itself); **adding a parameter would turn this into a cross-account leak.** Revoke from `anon` in the next migration.
+  - `20260726120000_atomic_quote_persistence.sql` (P1) applied 2026-07-26, `public.save_quote_atomic` live and verified (SECURITY INVOKER, empty `search_path`; **`authenticated` is the only client-facing role with EXECUTE — `anon` and PUBLIC are denied/absent; `service_role` also holds EXECUTE via Supabase's project-level defaults and is server-side only**). **S0F.1 added NO migration** (no Product/Inventory/Campaign/Asset-Library schema). S0D migration `20260724120000_s0d_business_profile.sql` remains **APPLIED & verified** — `public.business_profile`: PK `user_id`, FK → `auth.users(id)` ON DELETE CASCADE, RLS ON + policy `business_profile_own` (USING+WITH CHECK `auth.uid()=user_id`), trigger `trg_business_profile_updated`→`set_updated_at()`, authenticated GRANTs present.
+- **Test evidence for the CURRENT release (Asset Library slice 1, source `87fed4b`, deployment `5bcf1ef0`):** full suite **114 files / 3,153 passed / 0 skipped / 0 failed**; **exactly one** production build, emitting the deployed `index-dUN1r8PM.js`; **eight negative controls**, each run and each failing for the right reason — reversed delete order (3 failures), disabled client quota pre-check (2), row cleaned up after a failed upload (1), quota predicate removed + UPDATE policy added (2), path CHECK weakened to a `LIKE` prefix (1), signed URLs passed to `revokeObjectURL` (1), row-quota predicate removed (1), the un-quota'd `FOR ALL` policy restored (1); authenticated QA-account **Preview acceptance PASS** and a non-mutating **Account A Production smoke PASS**.
+  - **Two harness defects were found BY the controls, not by review** — recorded because both would otherwise have produced a false CLEAN: (a) the migration checker stripped `--` lines but **not `/* */` blocks**, so a predicate commented OUT still satisfied its own test — the row-quota control did not fire until the strip was corrected; (b) the public-URL artifact scan needed a **positive control** before its zero could be trusted, and it immediately caught a hit in comment prose (which is why `src/lib/api.js` never spells that helper's name).
+- **(HISTORICAL — previous release) Test evidence for the complete local-engine retirement, source `2c8b1df`, deployment `b3708cc2`, now the CURRENT ROLLBACK TARGET:** full suite **110 files / 3,074 passed / 0 skipped / 0 failed**; focused retirement proof **2 files / 172 passed**; one production build green emitting `index-C4frcMDi.js`; authenticated Preview acceptance **10/10 PASS** on Account A and a non-mutating Production smoke **PASS**.
 - **(HISTORICAL — previous release) Test evidence for the Studio-containment release, source `03c23c2`, now the rollback target `247ef9ec`. These figures describe THAT artifact, not the one running today — read the scope, the two figures are NOT one run:**
   - **Full suite — on the EARLIER implementation head, before the fail-closed capability correction:** 121 files / **3,098 passed / 1 pre-existing skip / 0 failed**. This figure does **not** describe the final corrected code.
   - **Focused affected suite — on the FINAL corrected code that was built and deployed:** every test file importing the changed exports or the changed Studio pages — **27 files / 1,608 passed / 0 failed**. **The full suite was deliberately NOT rerun on the final head.** Justification (recorded in the Studio section): the changed exports have exactly two production consumers (`geminiImage.js`, `ImageStudio.jsx`) and every test file importing either was inside the focused set.
@@ -117,6 +220,14 @@ Nathan passes this to ChatGPT so it can review/advise **without re-deriving or g
 ---
 
 ## Status ledger
+- **Asset Library slice 1 (durable cloud gallery images)** — **CLOSED / LIVE VERIFIED in Production (2026-07-27).**
+  - **Release chain:** PR [#125](https://github.com/natanMeT/ArtValue20/pull/125) → main `87fed4b` (merge gated on head `607cac1`) → migration `20260727120000` **APPLIED + verified live** → **one build** + artifact scan → **Preview `d1235743`** (QA-account acceptance PASS) → **Production `5bcf1ef0`** (`index-dUN1r8PM.js`, promoted unchanged — "Uploaded 0 files (12 already uploaded)") + **non-mutating Account A smoke PASS**. No rollback taken (`b3708cc2` retained, HTTP 200).
+  - **Delivered:** a private `assets` bucket + `public.assets` rows; **structural** per-account isolation by path CHECK; owner-only RLS on both surfaces; bytes only via **short-lived signed URLs**; server-enforced MIME allowlist, 10 MiB per-file ceiling and a **symmetric 40-asset quota** on rows *and* objects; **persist-first truthful saves** — a durable save that fails is surfaced, never swallowed.
+  - **Ordering rule:** create = row → bytes; delete = object → row. **Always fail toward the visible state** — a dangling row is visible and deletable, an orphaned object is invisible forever, so a failed upload deliberately leaves its row.
+  - **NO data migration.** The device IndexedDB gallery is legacy in cloud mode: never read, converted, copied or deleted; local/demo unchanged. **Visible consequence, by design:** device-only images no longer appear in cloud mode.
+  - **Owner review found a real defect and it was fixed before the migration ran** (`607cac1`): the quota had been enforced only on `storage.objects`, leaving `public.assets` uncapped under the row-first ordering — an account at 40 could insert unlimited dangling rows. The correction added a second `SECURITY DEFINER` counter and split the `FOR ALL` policy into one policy per command, so being at the cap can never block SELECT or DELETE (deleting is how a full account recovers).
+  - **Scope discipline:** **NO Gateway/Edge change** (v36 untouched, not redeployed), no secret change, no gallery redesign, no roadmap change. Frontend + one additive migration only. Growth remains BetaUnavailable — **this slice does NOT reopen it**.
+  - **Open, non-blocking:** `anon` retains EXECUTE on both counters (harmless only while `arg_count = 0`) — revoke in the next migration.
 - **S0A False-Success Containment** — CLOSED / LIVE VERIFIED (Production `4cb17aee`, superseded by S0B then S0C; retained historically).
 - **S0B Cloud Persistence (durable Tasks + client Follow-ups)** — **CLOSED / LIVE VERIFIED** (Production `31cb521d`, now superseded by S0C `cec116b9`; `31cb521d` retained as the S0C rollback target). Delivered durable+truthful Tasks + `clients.next_action/next_action_date`; migration `20260722120000_s0b_tasks_followups` applied.
 - **S0C Identity & User-Isolation Trust Hardening** — **CLOSED / LIVE VERIFIED in Production (2026-07-24).**
@@ -201,7 +312,7 @@ Durability:
 - ⬜ **Products** — no durable table.
 - ⬜ **Templates / Activity** — still non-durable / BETA-unavailable.
 - ⬜ **Campaigns** — no durable table. Creative-campaign and production-package records are **per-account isolated device-local storage** (S0F.1), **not** durable cloud records.
-- ⬜ **Asset Library** — does not exist. The ImageStudio gallery is **per-account isolated device-local storage** (S0F.1), not a durable cloud Asset Library.
+- ✅ **Asset Library (gallery images)** — **durable in cloud (slice 1). CLOSED / LIVE.** Private `assets` bucket + `public.assets`, owner-only, signed-URL access, symmetric 40 quota. Scope is **gallery images only**: favourites, approve/reject, usage rights, versions, campaign association, cross-account sharing, logo/brand assets and video are **NOT** included and remain open.
 
 Beta-trust blockers — RESOLVED:
 - ✅ **Hardcoded Nathan/ArtValue identity** — RESOLVED (S0C: session-derived identity, neutral fallback).
@@ -220,7 +331,7 @@ Beta-trust blockers — RESOLVED:
 - ✅ **Account brand palette not reaching image generation** — RESOLVED (S0F.1: exact approved uppercase HEX passed unchanged, ON by default with a per-generation OFF control, over-limit blocked before the Gateway).
 
 Still open:
-- ⬜ **Durable Asset Library** — does not exist; the gallery is device-local per account.
+- ✅ **Durable Asset Library (gallery images)** — **RESOLVED and LIVE** (slice 1). Remaining Asset-Library scope beyond gallery images (favourites, approve/reject, usage rights, versions, campaign association, cross-account sharing, logo/brand assets, video) is **still open**.
 - ⬜ **Durable Campaigns** — no durable table; campaign/package records are device-local per account.
 - ⬜ **Products durability** — no durable table.
 - ⬜ **Projects / Inventory / Templates / Activity durability** — still open (BETA-unavailable).
@@ -238,7 +349,7 @@ Still open:
 ## Growth OS status (authenticated cloud beta)
 - Growth OS remains **fully BetaUnavailable** in the authenticated cloud beta, **unchanged by S0F.1**. All **five** Growth routes (`/growth`, `/growth/leads`, `/growth/calendar`, `/growth/content`, `/calls`) **and their navigation entries are contained** (nav entries absent; direct routes → BetaUnavailable). **Outreach remains LIVE** and is now account-aware (S0F.1). Local/demo Growth is **unchanged**. **AdStudio joined the contained set in S0F.1.**
 - **Reason:** Growth's current datasets and content library are **ArtValue-specific** and cannot be exposed to other accounts.
-- **Reopening is blocked on** durable **Campaigns**, a durable **Asset Library**, and an **account-aware Growth data model**. S0F.1 delivered the account-aware Business Context and palette consumption for Jake, Outreach, quotes and ImageStudio, **but it did not add any of those three durability prerequisites and does not reopen Growth.**
+- **Reopening is blocked on** durable **Campaigns**, a durable **Asset Library**, and an **account-aware Growth data model**. **Asset Library slice 1 delivered the durable Asset Library prerequisite for gallery images — ONE of the three. Growth is NOT reopened:** durable Campaigns and an account-aware Growth data model remain open, and reopening still requires a separate approved slice. (S0F.1 delivered the account-aware Business Context and palette consumption but none of the three prerequisites.)
 - **No public or guest Growth Console exists**, and none was added.
 
 ## Accepted operational nuance (NOT a release blocker)
@@ -253,7 +364,8 @@ Recorded here only as a **planned future product slice / candidate**, not as an 
 
 ## Open decisions awaiting Nathan
 - [x] **Next product slice — Studio / local-engine UI containment: DONE, CLOSED / LIVE** *(shipped as deployment `247ef9ec`, now the rollback target; superseded in Production by the complete local-engine retirement, `b3708cc2`)* — see its section below. The candidate list below is preserved for the slice AFTER this one.
-- [ ] **Slice after this one — PENDING NATHAN DECISION.** Do NOT begin/design/invent the next slice until Nathan selects one and approves a spec. Candidate open items: durable **Asset Library**; durable **Campaigns** + account-aware Growth data model (the Growth reopening prerequisites); **Products / Projects / Inventory / Templates / Activity durability**; **organization boundaries**; **credits / cost controls**; **Website Scanner** (per the section above); Jake conversation-refresh UX. **NOT a candidate: the Quote cloud-save source-label correction — it is already RESOLVED and LIVE in Production (implemented in merged PR #108, shipped in deployment `476830a2`), so it must never be selected or re-implemented as a new slice.**
+- [x] **Asset Library slice 1 (durable cloud gallery images): DONE, CLOSED / LIVE** *(Production `5bcf1ef0`)*.
+- [ ] **Slice after this one — PENDING NATHAN DECISION.** Do NOT begin/design/invent the next slice until Nathan selects one and approves a spec. Candidate open items: **Asset Library beyond gallery images** (favourites, approve/reject, usage rights, versions, campaign association, logo/brand assets, video); durable **Campaigns** + account-aware Growth data model (the Growth reopening prerequisites); **Products / Projects / Inventory / Templates / Activity durability**; **organization boundaries**; **credits / cost controls**; **Website Scanner** (per the section above); Jake conversation-refresh UX. **NOT a candidate: the Quote cloud-save source-label correction — it is already RESOLVED and LIVE in Production (implemented in merged PR #108, shipped in deployment `476830a2`), so it must never be selected or re-implemented as a new slice.**
 
 ## Studio Hosted Mode Containment Correction — **CLOSED / LIVE IN PRODUCTION** (opened 2026-07-26; merged 2026-07-27 as PR #118; deployed as `b3708cc2`)
 
@@ -843,9 +955,10 @@ the earlier `2ff51c2` review were already replied to and resolved; nothing in th
 chain, and every provider in every chain is an API provider. No new provider was introduced and no business-facing
 behavior changed. `aiGatewayContract.js` had one stale comment naming `localFirst`; corrected.
 
-⚠️ **AN EDGE DEPLOYMENT WILL BE REQUIRED LATER — NOT PERFORMED IN THIS TASK.** The deployed `ai-gateway` function
-(v35) still carries the OLD shared table. Nothing was deployed, no secret or remote configuration was touched, and the
-running Production frontend is unaffected (it is still `247ef9ec`, built long before this branch).
+⚠️ **(HISTORICAL, at that round) AN EDGE DEPLOYMENT WILL BE REQUIRED LATER — NOT PERFORMED IN THAT TASK.** The
+deployed `ai-gateway` function was still v35 with the OLD shared table; nothing was deployed and the Production
+frontend of that moment (`247ef9ec`) was unaffected. *(Since resolved: the Edge went to **v36**, which is the live
+version today, and Production has since moved to `b3708cc2` and then to `5bcf1ef0`.)*
 
 **Also deleted this round**
 - `scripts/local-review-prep.mjs` and `scripts/__tests__/local-review-prep.test.mjs` — the review-prep CLI called a
@@ -1382,14 +1495,13 @@ statement was wrong and is corrected here.
   **0 requests to any loopback address or engine port**, 0 engine terms in rendered text, and 0 console errors.
 - **Production smoke:** non-mutating, authenticated, on the canonical `artvalue-product.pages.dev` — correct bundle
   served, all assets HTTP 200, 0 console errors, 0 mutating requests, DB row counts unchanged before/after.
-- **Frontend rollback — three distinct roles, never collapse them (verified LIVE against Cloudflare Pages, 2026-07-27):**
-  1. **LIVE now:** **`247ef9ec-ad3a-4c15-8b16-25afa1c47f2b`** (source `03c23c2`) — the canonical
-     `artvalue-product.pages.dev` serves its bundle **`index-BZ3B-0yd.js`**.
-  2. **CURRENT rollback target, until this new release is promoted:** **`476830a2-f8ea-45dc-b0ce-a71876bc48dd`**
-     (source `7e30199`, bundle `index-BrR14XIC.js`) — the immediately previous Production deployment. It is **NOT**
-     live: its alias serves its own, different bundle.
-  3. **AFTER the future Studio-retirement promotion:** the new deployment becomes live and **`247ef9ec`** becomes the
-     rollback target; `476830a2` demotes to historical fallback.
+- **(HISTORICAL — the rollback roles as they stood during the retirement release. Superseded twice since; for today's
+  hierarchy read the Baseline above, which is the ONLY authoritative statement of the current target.)**
+  1. **LIVE at that time:** **`247ef9ec-ad3a-4c15-8b16-25afa1c47f2b`** (source `03c23c2`, bundle `index-BZ3B-0yd.js`).
+  2. **Rollback target at that time:** **`476830a2-f8ea-45dc-b0ce-a71876bc48dd`** (source `7e30199`, bundle
+     `index-BrR14XIC.js`).
+  3. **What then happened:** the retirement was promoted, `247ef9ec` became the target, and Asset Library slice 1 has
+     since demoted it — **today the current target is `b3708cc2`** and `247ef9ec` is a historical fallback only.
 
   Restored via the Cloudflare Pages deployment history. Git-level rollback: `pre-local-engine-retirement` @ `5d7506d1`.
 
@@ -1406,10 +1518,11 @@ statement was wrong and is corrected here.
 function share one contract module.
 ## Studio / Local-Engine UI Containment — **LIVE IN PRODUCTION** (2026-07-26)
 
-**Status: RELEASED, then SUPERSEDED.** This slice went live as `247ef9ec` / `index-BZ3B-0yd.js` (source `03c23c2`).
-It has since been **superseded in Production by the complete local-engine retirement** — deployment `b3708cc2` /
-`index-C4frcMDi.js` (source `2c8b1df`), which also carries the corrective containment work recorded above.
-`247ef9ec` is now the **current rollback target**.
+**Status: RELEASED, then SUPERSEDED TWICE.** This slice went live as `247ef9ec` / `index-BZ3B-0yd.js` (source
+`03c23c2`). It was superseded in Production by the complete local-engine retirement (`b3708cc2` /
+`index-C4frcMDi.js`, source `2c8b1df`), which also carries the corrective containment work recorded above, and that
+in turn by Asset Library slice 1 (`5bcf1ef0` / `index-dUN1r8PM.js`). **`247ef9ec` is a historical fallback only —
+the current rollback target is `b3708cc2`.**
 
 - **Code:** PR [#114](https://github.com/natanMeT/ArtValue20/pull/114) merged as `29cccddda52e1c546b4ae46be052285ec24d2116`; docs PR [#115](https://github.com/natanMeT/ArtValue20/pull/115) merged as `03c23c23568905cb42e7f154014dd2ddc32bb58f`. Codex round 2 clean (reviewed commit `bb8e955ef2`), 0 unresolved threads.
 - **Build: exactly ONE**, from `main` @ `03c23c2`. The same `dist/` was deployed to Preview and then promoted to Production **without rebuilding** — re-hashed immediately before promotion and confirmed identical, and wrangler reported **"Uploaded 0 files (12 already uploaded)"**.
@@ -1641,15 +1754,17 @@ Every stage below is **done**; nothing here is an outstanding instruction.
 **No slice is in flight.** S0A + S0B + S0C + S0D + S0E + S0F.1 + P1 Atomic Quote Persistence + **Studio / Local-Engine
 UI Containment are all CLOSED / LIVE.**
 
-> ⚠️ **But `main` carries merged, undeployed work.** The **complete local-engine retirement** (PR
-> [#118](https://github.com/natanMeT/ArtValue20/pull/118), merged 2026-07-27 as `9ecb8eb`) is on `main` and is
-> **running nowhere** — see the PR #118 box in the Baseline and the Release Readiness section. **Merged is not live.**
+> ⚠️ **(HISTORICAL, at that moment) `main` carried merged, undeployed work.** The complete local-engine retirement (PR
+> [#118](https://github.com/natanMeT/ArtValue20/pull/118), merged 2026-07-27 as `9ecb8eb`) was on `main` and running
+> nowhere. *(Since resolved — it was released as `b3708cc2`, and Production has since moved on again.)* The general
+> rule it illustrates still holds: **merged is not live.**
 
-Production is **`247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js`** (source `03c23c2`), promoted from the
-accepted Preview artifact without rebuilding, with **12/12 byte-identical served files** and an **authenticated
-non-mutating Account A smoke PASS**. **Current rollback target: `476830a2` / `index-BrR14XIC.js`** (source `7e30199`)
-— retained and verified healthy; `e63198b7` (S0F.1) is a **historical fallback only**, never the current target.
-No migration; Edge `ai-gateway` **v35** unchanged.
+**(HISTORICAL — the state at that round; for today read the Baseline.)** Production was
+**`247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js`** (source `03c23c2`), promoted from the accepted
+Preview artifact without rebuilding, with **12/12 byte-identical served files** and an **authenticated non-mutating
+Account A smoke PASS**. The rollback target at that time was `476830a2` / `index-BrR14XIC.js` (source `7e30199`).
+No migration; Edge `ai-gateway` was **v35**. *(Today: Production `5bcf1ef0` / `index-dUN1r8PM.js`, current rollback
+target `b3708cc2`, Edge v36, 7 migrations.)*
 
 **CLOSED / LIVE:** the **Studio Hosted Mode Containment Correction** and the complete local-engine retirement (see their sections) — merged 2026-07-27 as PR #118 and **deployed to Production as `b3708cc2`**. PR #117 (roadmaps/exports) is **paused** pending its own review.
 
@@ -1668,6 +1783,7 @@ canonical roadmap advance is a separate, separately-approved documentation step.
 PENDING NATHAN DECISION** and must not be started until he selects one.
 
 ## Change log
+- **2026-07-27** — **Asset Library slice 1 (durable cloud gallery images) CLOSED / LIVE VERIFIED in Production.** Release chain: PR [#125](https://github.com/natanMeT/ArtValue20/pull/125) → main **`87fed4b`** (merge gated on the approved head `607cac1`, verified before merging) → migration **`20260727120000_asset_library_slice1.sql` APPLIED** (7/7, "Remote database is up to date") → **exactly one build** from `87fed4b` + artifact scan → **Preview `d1235743`** (12/12 byte-identical, authenticated QA-account acceptance PASS) → **Production `5bcf1ef0` / `index-dUN1r8PM.js`** by reusing the accepted `dist/` (wrangler "Uploaded 0 files (12 already uploaded)"; canonical serves 12/12 byte-identical) + **non-mutating Account A Production smoke PASS**. **Current rollback target `b3708cc2` / `index-C4frcMDi.js`** verified HTTP 200 post-deploy; **`247ef9ec` demoted to historical fallback, retained, not deleted (§22 requires exactly one current target)**. Rollback tag `pre-asset-library-slice-1` @ `3803b61`. Delivered: a **private** `assets` bucket + `public.assets`, **structural** per-account isolation (`check (storage_path = user_id::text || '/' || id::text || '.' || ext)` — reconstruction, not prefix matching), owner-only RLS on both surfaces with **no UPDATE policy on either**, bytes reachable only through **short-lived signed URLs**, a server-enforced MIME allowlist and 10 MiB ceiling, and a **symmetric 40-asset quota on rows AND objects** via two separate zero-argument `SECURITY DEFINER` counters. **Ordering rule — always fail toward the visible state:** create = row → bytes, delete = object → row; a failed upload deliberately leaves its row, because an orphaned object is invisible forever while a dangling row is visible and deletable. **NO data migration** — the device IndexedDB gallery is legacy in cloud mode, never read, converted, copied or deleted (visible consequence by design: device-only images no longer appear in cloud mode); local/demo unchanged. **Owner review caught a real defect before the migration ran** (fixed in `607cac1`): the quota had been enforced only on `storage.objects`, so under the row-first ordering `public.assets` was uncapped and an account at 40 could insert unlimited dangling rows — the fix added the row counter and split the `FOR ALL` policy into one policy per command so the cap can never block SELECT or DELETE. **Evidence:** full suite **114 files / 3,153 passed / 0 failed**, build green, **eight negative controls** each failing for the right reason; **row quota proven by live SQL** (40 seeded; probe confirmed `running_as = authenticated`, `auth.uid() = 245df07a-…`, `rows_counted = 40`; the 41st → `ERROR 42501`; the identical statement succeeded after freeing one slot; cleanup `remaining_qa = 0`, `total_rows = 0` — the probe is what excludes an empty `auth.uid()` or a path-CHECK violation as the cause); **object quota and Storage policies proven in the Preview acceptance** (403 on a foreign prefix, 404 on another account's signed URL, **403 on `x-upsert`** — the live proof of **L4**, 409 on a duplicate path, 403 on the 41st object and 200 after freeing a slot). **Two harness defects were found by the controls themselves:** the migration checker ignored `/* */` blocks so a commented-out predicate satisfied its own test, and the public-URL artifact scan needed a positive control before its zero meant anything. **Open, non-blocking: `anon` retains EXECUTE on both counters** — `revoke … from public` does not remove Supabase's default role grants; exposure is zero **only** because `arg_count = 0`, and **adding a parameter would make it a cross-account leak** — revoke in the next migration. **No Gateway/Edge change** (v36 ACTIVE / `verify_jwt=true`, not redeployed), no secret change, no roadmap change, no gallery redesign. **Growth remains BetaUnavailable — this slice delivers ONE of its three reopening prerequisites and does NOT reopen it.** Two measurement traps recorded for future releases: post-deploy edge propagation briefly served the old bundle at `/` even with cache-busting, and content-hashed assets make a naive 12/12 comparison pass while `/` still serves the old app.
 - **2026-07-27** — **Target audience widened in the product roadmap; the separate vision file removed as a duplicate (documentation-only).** **`docs/PRODUCT_VISION.md` deleted the same day it was added.** It was written on the premise that nothing in `docs/` explained the product in one page; the owner then produced an older Word export (`Business OS v0.6`, 24 July) which turned out to be **the same document as `docs/roadmaps/BUSINESS_OS_MASTER_ROADMAP.md`, now four versions ahead at v0.10** — §1.1 vision, §1.3 what ArtValue is, §1.4 what it is not, §1.5 market entry. The new file duplicated those sections, so it was removed rather than maintained; `docs/README.md` returns to three authoritative Markdown files and now names §1.1–§1.5 as where the vision lives, so this is not re-attempted. **Correction to the record:** four capabilities were reported to the owner as absent — Website Scanner, whole-campaign planning, the growth centre and the monthly action calendar. **All four are already in the roadmap**; Website Scanner is **§4.3, PLANNED, with SSRF/private-IP blocking, redirect, response-size, timeout and rate limits already specified and owner approval required before any finding is saved**. The initial search missed it because it searched for `SiteScanner`, not `Website Scanner` / `סורק האתר`. Growth OS and the monthly calendar exist in code (`src/pages/growth/`) and are contained as `BetaUnavailable` in the cloud by `GrowthBetaGate`, not unbuilt — reopening is blocked on durable Campaigns, a durable Asset Library and an account-aware Growth data model. **Roadmap edits:** §1.5 now states explicitly that the audience is **not only small businesses** — educational institutions, charities, car dealerships and similar organizations with multiple stakeholders, approval chains and data sensitivity — and that permissions, approvals, vertical modules and client-specific screens are therefore product requirements, with a bespoke screen built **under prior agreement and separate pricing**; §5.3 gains an **educational-institutions** vertical row (school year and cohorts, enrollment, parents as a second contact, board/management approval chain, payments and scholarships, institutional events, high-sensitivity parent communication → *Enrollment & Community Pack*). No code, tests, configuration, migration or deployment; Production, Edge and data unchanged.
 - **2026-07-27** — ~~**`docs/PRODUCT_VISION.md` added**~~ *(superseded by the entry above — the file was removed the same day as a duplicate of §1.1–§1.5.)* **Original entry:** **`docs/PRODUCT_VISION.md` added — a one-page, non-technical product vision (documentation-only).** Both roadmaps are long strategic drafts that carry release history; neither is the document you hand to a person to explain the product in one page, and after phase 2 nothing in `docs/` filled that role. The new page states the problem, the promise (the closed loop: understanding → decision → creation → distribution → follow-up → measurement → learning), who it is for, what Jake is, **what ArtValue explicitly is *not*** (not a content generator, not a chat layer over a CRM, not an automation pile, not an installed tool), five non-negotiable principles (human accountability · account isolation · visible failure · commercial integrity · evidence-based status) and the success measure. **It carries no release identifiers, versions or rollback targets** and points at this tracker for live state and at the roadmaps for sequencing — it is a fifth strategic document, not a fifth state document. The filename previously existed and was deleted in phase 2 (it governed the frozen local Creative Director Engine v1, removed from the product); the content is new and unrelated. `docs/README.md` updated: the authoritative set is now four Markdown files. **Reported, not fixed (out of scope):** `docs/Art-Value-Brief.md` still asserts local-engine operation as present tense in six places (lines 12, 33, 76, 120, 130, 136 — "all AI runs locally on the user's machine, completely free", localStorage as the data store, "all components run locally on the user's hardware"); only its §3 engine table carries the retirement notice, so the same stale-state class corrected in the roadmaps survives in that file. No code, tests, configuration, migration or deployment; Production, Edge and data unchanged.
 - **2026-07-27** — **Working rules absorbed into `docs/ARTVALUE_ENGINEERING_METHOD.md` (documentation-only).** Extended the existing method document rather than adding a rules file — a second rules document would recreate the duplication phase 2 just removed. Seven sections added: **§19 Owner Approval Gates** (merge, deploy, migration, secrets/config/dependencies, slice selection, anything reaching a third party, destructive git — never autonomous; defect fixing inside the slice's allowed files is autonomous, and a defect found outside them is reported rather than fixed); **§20 Scope Discipline in Practice** (every plan states what is out of scope before work starts; six symptoms that scope is growing; *is this still in scope?* is asked **before** *is there a more elegant way?* — the deleted egress framework was an elegant, universal solution to a problem nobody approved); **§21 Positive and Negative Controls** (a check that has never failed is not known to be a check — prove the failure and its count before the fix and the pass after; state the counting rule with every count; never simulate the artifact); **§22 Rollback Hierarchy** (exactly one current target — the deployment immediately before the live one — everything older labeled historical, target verified reachable after each deploy, recorded in this tracker only); **§23 Verification Before "Done"** (implemented ≠ verified; unverifiable steps are reported as awaiting owner-executed verification, partial work is named partial); **§24 Defect-Pattern Log** (append-only, in this document because an agent reads it at task start and a lesson in an unopened file prevents nothing; seeded with four patterns measured 2026-07-27 — historical labels do not neutralize present-tense claims inside them; blanket exemption markers hide what they were built to catch; a language-neutral check with English-only markers is half a check; on the *second* instance of a defect, inventory the class before editing again); **§25 Practices Considered and Not Adopted**, with reasons — "use subagents liberally" (contradicts the project instruction and the evidence: real-system verification caught the defects, a local model scored 0/12 on the golden set; a separate session *with repo access* that verifies claims is the form that works) and `tasks/todo.md` (a fourth state location). Cross-references added in §7 and §8. No code, tests, configuration, migration or deployment; Production, Edge and data unchanged.
