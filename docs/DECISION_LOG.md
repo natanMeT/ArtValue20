@@ -1,6 +1,6 @@
 # ArtValue – Engineering Decision Log
 
-> Permanent record. Per PRODUCT_VISION (Decision Log): every major decision records
+> Permanent record. Every major decision records
 > Date · Decision · Reason · Alternatives considered · Outcome. Append-only; newest last.
 
 ---
