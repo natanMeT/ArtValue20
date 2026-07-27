@@ -973,6 +973,11 @@ all: a destination assembled at runtime —
 — **never exists as a URL literal**, so no source-text scan can ever see it. That is proof that a source-level proxy
 cannot decide a runtime property. Both were reproduced before any edit.
 
+> ⚠️ **THE ENTIRE FRAMEWORK DESCRIBED IN THE REST OF THIS ROUND WAS REMOVED IN ROUND 12 (below).** `networkPolicy.js`,
+> `guardedFetch`, the AST sink registry and its suite no longer exist, and the five production sinks were restored to
+> their prior cloud behaviour. It is recorded here as the historical account of a **scope expansion**, not as a
+> description of the code. Read Round 12 for the shipped state.
+
 **THE PROOF WAS REPLACED, NOT EXTENDED.** The cloud-only claim is now the CONJUNCTION of two layers, and this round
 changed PRODUCTION code to create the first one.
 
@@ -1030,6 +1035,87 @@ candidate of its own — and layer 2 independently proves it is the sole `fetch`
 **0 local requests**, 0 console messages, the only non-origin request being the Google Fonts stylesheet.
 
 **Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+
+### Round 12 — SCOPE CORRECTION: the network-egress framework is REMOVED (2026-07-27)
+
+**Codex's review of `4382331` raised five valid findings against the newly introduced network-policy and structural
+egress framework:** redirects can reach a private destination after the initial check; dynamic JSX resource attributes
+bypass `guardedFetch`; destructured or reflective captures of network globals bypass the structural detector;
+`0.0.0.0/8` is incompletely classified; CGNAT `100.64.0.0/10` is not rejected.
+
+**None of the five was patched.** They were correct, and they were correct about a framework that should not have been
+built. Rounds 10–11 drifted from the approved product decision — *remove all executable local-engine integrations from
+ArtValue* — into an unapproved universal guarantee: **that arbitrary future JavaScript can never construct a
+private-network request.** That is a different problem with a different solution shape, and a hand-built runtime shim
+plus an AST scanner is not that solution. Each review round made the framework more elaborate without making the
+product decision any more established than it already was.
+
+**Removed in this round**
+
+| Removed | Was |
+| --- | --- |
+| `src/lib/networkPolicy.js` | production module: `guardedFetch`, `assertPublicDestination`, `classifyDestination`, `isForbiddenHost` |
+| `src/lib/__tests__/support/networkEgress.js` | AST structural sink detector |
+| `src/lib/__tests__/networkEgressInvariant.test.js` | ADAPTER_REGISTRY invariant suite (47 controls) |
+
+**Restored to their pre-framework cloud behaviour** (plain `fetch`, byte-for-byte as previously released):
+`gemini.js` ×2 (the Google API call and `fetchSiteText`), `hostedImage.js` (`downloadImage`), `galleryStore.js`
+(`srcToBlob`), `PosterEditor.jsx` (image load). **No cloud functionality was removed with the framework** — the diff is
+purely the removal of the wrapper and its imports, verified line by line.
+
+**The retirement scanner is kept, and re-scoped to what it can honestly prove.** `support/sourceScan.js` still parses
+with `@babel/parser` and still normalizes candidates through the WHATWG `URL` parser — those were genuine fixes, and
+normalization is what makes the narrow claim correct (`127.1`, `2130706433` and `0x7f000001` are all the same loopback
+address). What is gone is the universal private-address classifier. It now classifies **loopback only** —
+`localhost`/`*.localhost`, `127.0.0.0/8`, `[::1]` and the IPv4-mapped loopback form — plus the four retired engine
+ports (`8188`, `8189`, `7860`, `11434`). That is exactly the surface the retired engines occupied. RFC1918, link-local,
+unique-local, CGNAT and the unspecified range are **explicitly out of scope**, and controls now pin that in both
+directions.
+
+**Why the five findings are structurally obsolete rather than patched**
+
+| Codex finding | Why it no longer applies |
+| --- | --- |
+| Redirects reach a private destination after the initial check | `guardedFetch` — the thing that performed an initial check — does not exist |
+| Dynamic JSX resource attributes bypass `guardedFetch` | same: there is no boundary to bypass |
+| Destructured / reflective captures bypass the structural detector | the structural detector and its registry are deleted |
+| `0.0.0.0/8` incompletely classified | there is no address-class classifier; loopback is `127/8` and nothing else |
+| CGNAT `100.64.0.0/10` not rejected | CGNAT is out of scope by design, and stated as such in the code and the controls |
+
+**The claim this PR now makes — and only this claim**
+
+- All known executable ComfyUI, Ollama, Fooocus and A1111 integrations were removed.
+- Their consumers, routes, provider registrations, configuration, scripts and tooling were removed.
+- The Studio and the product no longer expose or invoke those engines.
+- Runtime smoke observed **zero** local-engine requests.
+- Regression tests prevent the **specifically retired** modules, providers, routes and configuration from returning.
+
+**What this PR explicitly does NOT claim.** It does not claim that arbitrary future JavaScript can never construct a
+private-network request. That is a platform-level security-hardening concern — CSP `connect-src`, server-side egress
+policy, or an approved network architecture — and it is recorded below as an unselected follow-up, not implemented here.
+
+**Verification**
+
+- Suite **110 files / 3,057 passed / 0 skipped / 0 failed**.
+- Production build green — and the emitted artifact is **`index-C4frcMDi.js`**, byte-identical by content hash to the
+  pre-framework artifact that was already smoke-verified earlier in this PR. The removal restored the previously
+  verified bundle exactly; the framework's `index-Cb5pUh5g.js` is gone. `localhost` occurrences in the app bundle: **0**
+  (they existed only because the deleted classifier named them).
+- **Browser smoke re-run** on a build of this head: 8 retired route paths (`/adstudio`, `/workflow`, `/workflowstudio`,
+  `/fooocus`, `/comfy`, `/comfyui`, `/ollama`, `/a1111`) all fail safe to the dashboard; `/studio` renders with **0**
+  engine terms; Jake opens with **0** engine terms; with a spy over `fetch`/`XMLHttpRequest`/`WebSocket`/`EventSource`
+  across the whole drive plus an 8s idle: **0 requests total, 0 local-engine requests, 0 console messages**.
+- **Smoke limitation, stated:** the drive was unauthenticated (no credentials in this session), so authenticated
+  Studio generation and Jake Gateway calls were not exercised — the same limitation recorded in earlier rounds.
+
+**Unselected follow-up (NOT implemented, NOT in this PR): platform-level egress hardening.** If the product ever needs a
+guarantee that no code path can reach a private address, the mechanism is a CSP `connect-src` allowlist plus server-side
+egress policy — not application-level JavaScript. One concrete sub-item worth naming: `fetchSiteText` passes a
+user-supplied URL to the third-party reader proxy, so the proxy can be asked to fetch a private address on the user's
+behalf. That is pre-existing, released behaviour and is unchanged by this PR.
+
+**Still IN FLIGHT / NOT RELEASED. Not merged, not deployed. P1 remains CLOSED / LIVE. PR #117 remains paused and
+untouched.**
 
 ## Studio / Local-Engine UI Containment — **LIVE IN PRODUCTION** (2026-07-26)
 

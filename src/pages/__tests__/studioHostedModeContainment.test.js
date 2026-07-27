@@ -110,10 +110,6 @@ describe('the Studio is cloud/Gateway only', () => {
       // It registers local provider NAMES for the server's own routing table;
       // the browser never selects a provider (asserted separately below).
       if (relative(f).startsWith('supabase/functions/')) continue;
-      // The network-policy boundary is the classifier: it NAMES the address
-      // classes it refuses. The egress-invariant suite proves separately that
-      // it holds no destination and is the only module allowed to call fetch.
-      if (relative(f) === 'src/lib/networkPolicy.js') continue;
       const hits = LOCAL_TERMS.filter((t) => stripComments(readSource(f)).includes(t));
       if (hits.length) offenders.push(`${relative(f)} :: ${hits.join(', ')}`);
     }

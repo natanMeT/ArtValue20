@@ -43,7 +43,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse } from '@babel/parser';
-import { isForbiddenHost } from '../../networkPolicy.js';
 
 // Every module extension the toolchain can execute. `.mjs`/`.cjs` are included
 // at EVERY depth, not just the repository root.
@@ -166,25 +165,30 @@ export const stripComments = executableSource;
 /** A workstation-engine product name appearing as executable code. */
 export const ENGINE_NAME_RE = /\b(comfy|comfyui|fooocus|ollama|automatic1111|a1111)\b/i;
 
-// ── network destinations ───────────────────────────────────────────
-// The cloud-only invariant is about NETWORK DESTINATIONS the product must never
-// reach. Expressing that as a list of textual regex forms was the defect Codex
-// found on `d84cfdc`: `fe80::/10` spans `fe80`–`febf` but the pattern only
-// accepted the literal `fe80` prefix, and URL parsing normalizes `127.1`,
-// `2130706433` and `0x7f000001` all to `127.0.0.1`. With an unlisted port such
-// as `9000` nothing matched, so a loopback destination read as clean.
+// ── retired-engine destinations ────────────────────────────────────
+// SCOPE (deliberately narrow). This detector exists for ONE claim: the retired
+// workstation engines — ComfyUI, Ollama, Fooocus and A1111 — are gone and
+// cannot return. Those engines ran on THIS MACHINE'S LOOPBACK, on four known
+// ports. So this looks for loopback destinations and those ports, and nothing
+// else.
 //
-// A regex cannot own this question, because the authority on "what host is this
-// really?" is the URL parser the runtime already ships. So we no longer describe
-// host syntax at all: we EXTRACT candidate destinations, hand each to the
-// platform's WHATWG `URL` normalizer — the same algorithm a browser applies —
-// and classify the NORMALIZED host numerically.
+// It is NOT a general network-egress policy. An earlier revision of this file
+// grew a universal private-address classifier (RFC1918, link-local, unique
+// local, IPv4-mapped IPv6, the unspecified range) and a runtime `guardedFetch`
+// boundary in production code. That was a scope expansion beyond the approved
+// product decision, and it has been removed — see docs/PROJECT_TRACKER.md. A
+// universal "no JavaScript may ever reach a private address" guarantee is a
+// platform concern (CSP, server-side egress policy), not a source scan.
 //
-// The business-data boundary is preserved by the extraction step: a candidate
-// must look like an executable destination (a scheme, a protocol-relative `//`,
-// or an explicit `host:port`). Standalone IP-like text — a version string, an
-// SKU, a decimal pair — is never a candidate, so it is never normalized and
-// never flagged.
+// The parsing method is kept, because it is what makes the NARROW claim
+// correct: `127.1`, `2130706433` and `0x7f000001` are all the same loopback
+// address, and only the URL parser knows that. Candidates are EXTRACTED (a
+// scheme, a protocol-relative `//`, or an explicit `host:port`), normalized by
+// the platform's WHATWG `URL` parser, and only then classified.
+//
+// The business-data boundary is preserved by the extraction step: standalone
+// IP-like text — a version string, an SKU, a decimal pair — is never a
+// candidate, so it is never normalized and never flagged.
 
 // Base used only so a protocol-relative `//host/x` can be normalized at all.
 const RELATIVE_BASE = 'http://invalid.example';
@@ -236,15 +240,33 @@ function normalizedHost(candidate) {
   return '';
 }
 
-// Host classification is NOT reimplemented here. It is the PRODUCTION network
-// policy's job, and `src/lib/networkPolicy.js` owns it — including IPv4-mapped
-// IPv6 (`::ffff:127.0.0.1`), which this file classified incorrectly until the
-// review of `826de90`. Re-exported so the scanner and the real execution
-// boundary can never disagree about what "private" means.
-export { isForbiddenHost };
+const V4_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+/** Is this NORMALIZED host the loopback the retired engines listened on? */
+export function isLoopbackHost(host) {
+  if (!host) return false;
+  const h = String(host).toLowerCase();
+  if (h === 'localhost' || h.endsWith('.localhost')) return true;
+
+  const v4 = V4_RE.exec(h);
+  // 127.0.0.0/8 — the whole loopback block, because `127.1` normalizes into it.
+  if (v4) return v4.slice(1).every((o) => Number(o) <= 255) && Number(v4[1]) === 127;
+
+  // IPv6: only the loopback address itself, and the IPv4-mapped form of a
+  // loopback address (`[::ffff:127.0.0.1]` normalizes to `[::ffff:7f00:1]`).
+  const inner = h.replace(/^\[|\]$/g, '');
+  if (!inner.includes(':')) return false;
+  if (inner === '::1') return true;
+  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(inner);
+  if (mapped) return (parseInt(mapped[1], 16) >> 8) === 127;
+  const mappedDotted = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(inner);
+  if (mappedDotted) return isLoopbackHost(mappedDotted[1]);
+  return false;
+}
 
 /**
- * Does this executable source reference a forbidden network destination?
+ * Does this executable source reference a retired workstation-engine
+ * destination — a loopback address, or one of the four engine ports?
  * Every candidate is normalized by the platform URL parser before classification.
  */
 export function hasLocalAddress(code) {
@@ -252,7 +274,7 @@ export function hasLocalAddress(code) {
   if (ENGINE_PORT_RE.test(text)) return true;
   if (/\blocalhost\b/i.test(text)) return true;
   for (const m of text.matchAll(URL_CANDIDATE_RE)) {
-    if (isForbiddenHost(normalizedHost(m[0]))) return true;
+    if (isLoopbackHost(normalizedHost(m[0]))) return true;
   }
   return false;
 }

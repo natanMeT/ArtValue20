@@ -36,7 +36,7 @@ import path from 'node:path';
 import {
   collectModules, isModuleFile, MODULE_EXTENSIONS,
   executableSource, executableSourceOf, parserOptionsFor, UnparseableSourceError,
-  namesEngine, hasLocalAddress, isForbiddenHost,
+  namesEngine, hasLocalAddress, isLoopbackHost,
 } from './support/sourceScan.js';
 
 const SRC = 'src';
@@ -65,14 +65,6 @@ const LOCAL_ENV_VARS = [
 ];
 
 const isTestPath = (p) => /\.test\.[jt]sx?$/.test(p) || /(^|[\\/])__tests__[\\/]/.test(p);
-
-// The network-policy boundary is the AUTHORITY on what a private destination
-// is, so it necessarily NAMES the classes it rejects (`localhost`, the RFC1918
-// octets). Excluding it from the ADDRESS scan is not a hole: the compensating
-// assertion below proves it holds no destination of its own, and the
-// egress-invariant suite proves it is the only module allowed to call fetch.
-const POLICY_BOUNDARY = path.normalize('src/lib/networkPolicy.js');
-const isPolicyBoundary = (f) => path.normalize(f) === POLICY_BOUNDARY;
 
 // Recursive collection of EVERY executable module extension (incl. .mjs/.cjs at
 // any depth) is owned by support/sourceScan.js and shared with the controls.
@@ -156,7 +148,6 @@ describe('local-engine retirement · the app import closure is clean', () => {
   it('no reachable module contains a local address in executable code', () => {
     const offenders = [];
     for (const file of closure) {
-      if (isPolicyBoundary(file)) continue; // the classifier names what it rejects
       const code = executableSourceOf(file);
       if (hasLocalAddress(code)) offenders.push(file);
     }
@@ -352,20 +343,11 @@ describe('local-engine retirement · repository-wide executable scan', () => {
   it('no executable file contains a local address outside a comment', () => {
     const offenders = [];
     for (const file of repoExecutables()) {
-      if (isTestPath(file) || isPolicyBoundary(file)) continue;
+      if (isTestPath(file)) continue;
       const code = executableSourceOf(file);
       if (hasLocalAddress(code)) offenders.push(file);
     }
     expect(offenders, `local addresses in executable code: ${offenders.join(', ')}`).toEqual([]);
-  });
-
-  // COMPENSATING ASSERTION for the single exemption above: the policy boundary
-  // may NAME address classes, but it must contain no destination of its own —
-  // no URL candidate at all — so the exemption cannot hide a real endpoint.
-  it('the exempt policy boundary contains no destination of its own', () => {
-    const code = executableSourceOf(POLICY_BOUNDARY);
-    const candidates = [...code.matchAll(/(?:https?|wss?|ftp):\/\/[^\s'"`)\]}<>\,;]+/gi)].map((m) => m[0]);
-    expect(candidates, `the policy boundary holds a destination: ${candidates.join(', ')}`).toEqual([]);
   });
 
   it('no package script starts, probes or calls a local model', () => {
@@ -562,18 +544,18 @@ describe('negative control · UTF-16 parser-range fidelity (Codex P1)', () => {
   it('the drift scales with the number of astral characters and is still contained', () => {
     for (const n of [1, 2, 5, 20, 80]) {
       const src = `const l = '${'🎨'.repeat(n)}'; // note\n`
-        + "fetch('http://192.168.1.9:9000/x');\n";
+        + "fetch('http://127.0.0.1:9000/x');\n";
       const code = executableSource(src, 'emoji.js');
       expect(hasLocalAddress(code), `${n} emoji`).toBe(true);
-      expect(code, `${n} emoji`).toContain('192.168.1.9:9000');
+      expect(code, `${n} emoji`).toContain('127.0.0.1:9000');
     }
   });
 
   it('astral characters INSIDE the comment are blanked without touching the code after', () => {
-    const src = "/* 🎨🚀 http://127.0.0.1:8188 🔥 */ fetch('http://10.0.0.5:9000/x');\n";
+    const src = "/* 🎨🚀 the old bridge 🔥 */ fetch('http://127.0.0.1:9000/x');\n";
     const code = executableSource(src, 'emoji.js');
-    expect(code).toContain("fetch('http://10.0.0.5:9000/x')");
-    expect(code).not.toContain('127.0.0.1');
+    expect(code).toContain("fetch('http://127.0.0.1:9000/x')");
+    expect(code).not.toContain('the old bridge');
   });
 
   it('blanking preserves UTF-16 length and line structure even with astral text', () => {
@@ -606,48 +588,38 @@ describe('negative control · UTF-16 parser-range fidelity (Codex P1)', () => {
   });
 });
 
-describe('negative control · browser-normalized network destinations (Codex P1)', () => {
-  // THE BYPASS: private-host detection was a list of textual regex forms.
-  // `fe80::/10` spans fe80–febf but only the literal `fe80` prefix matched, and
-  // URL parsing normalizes `127.1`, `2130706433` and `0x7f000001` all to
-  // 127.0.0.1. With an unlisted port such as 9000 nothing matched at all.
+describe('negative control · browser-normalized loopback destinations', () => {
+  // THE BYPASS this control exists for: loopback detection used to be a list of
+  // textual regex forms, but URL parsing normalizes `127.1`, `2130706433` and
+  // `0x7f000001` all to 127.0.0.1. With an unlisted port such as 9000 nothing
+  // matched at all, so a retired-engine call could read as clean.
   //
-  // Detection no longer describes host syntax: candidates go through the
-  // platform's WHATWG `URL` normalizer — the same algorithm a browser uses —
-  // and the NORMALIZED host is classified numerically.
+  // SCOPE. This detector answers ONE question: does the source reach a retired
+  // workstation engine — i.e. THIS MACHINE'S LOOPBACK, or one of the four engine
+  // ports. It is not a general private-network policy; the universal
+  // private-address classifier and the runtime egress boundary that briefly
+  // lived here were a scope expansion and have been removed.
   const FORBIDDEN = [
-    // — Codex's exact reproductions, all on an unlisted port —
+    // — every textual form of loopback, all on an unlisted port —
     ["const u = 'http://127.1:9000/x';", 'IPv4 shorthand 127.1'],
     ["const u = 'http://2130706433:9000/x';", 'decimal-encoded IPv4'],
     ["const u = 'http://0x7f000001:9000/x';", 'hexadecimal-encoded IPv4'],
-    ["const u = 'http://[fe90::1]:9000/x';", 'fe90:: — inside fe80::/10, outside the old prefix'],
-    ["const u = 'http://[febf::1]:9000/x';", 'febf:: — the top of fe80::/10'],
-    // — full loopback range and other encodings —
     ["const u = 'http://127.0.0.1:9000/x';", 'IPv4 loopback'],
     ["const u = 'http://127.5.6.7:9000/x';", 'loopback across the whole /8'],
     ["const u = 'http://0177.0.0.1/x';", 'octal-encoded IPv4'],
-    // — RFC1918, link-local, unspecified —
-    ["const u = 'http://10.0.0.5:9000/x';", 'RFC1918 10.0.0.0/8'],
-    ["const u = 'http://192.168.1.50:9000/x';", 'RFC1918 192.168.0.0/16'],
-    ["const u = 'http://172.16.3.4:9000/x';", 'RFC1918 172.16 lower bound'],
-    ["const u = 'http://172.31.255.1:9000/x';", 'RFC1918 172.31 upper bound'],
-    ["const u = 'http://169.254.10.20:9000/x';", 'IPv4 link-local'],
-    ["const u = 'http://0.0.0.0:9000/x';", 'the unspecified address'],
-    // — IPv6 ranges in full, not just one prefix —
+    // — IPv6 loopback, including the IPv4-mapped form —
     ["const u = 'http://[::1]:9000/api';", 'IPv6 loopback'],
-    ["const u = 'http://[::]:9000/api';", 'IPv6 unspecified'],
-    ["const u = 'http://[fe80::1ff:fe23:4567]:9000/';", 'IPv6 link-local fe80'],
-    ["const u = 'http://[fc00::1]:9000/';", 'IPv6 unique-local fc00 (bottom of /7)'],
-    ["const u = 'http://[fdff::1]:9000/';", 'IPv6 unique-local fdff (top of /7)'],
-    // — zone identifiers —
-    ["const u = 'http://[fe80::1%25eth0]:9000/x';", 'IPv6 zone id, percent-encoded'],
-    ["const u = 'http://[fe80::1%eth0]:9000/x';", 'IPv6 zone id, raw'],
+    ["const u = 'http://[0:0:0:0:0:0:0:1]:9000/api';", 'uncompressed IPv6 loopback'],
+    ["const u = 'http://[::ffff:127.0.0.1]:9000/x';", 'IPv4-mapped IPv6 loopback'],
     // — shapes other than scheme://host —
-    ["const u = '//192.168.0.9/x';", 'protocol-relative private host'],
+    ["const u = '//127.0.0.1/x';", 'protocol-relative loopback'],
     ["const u = '127.0.0.1:9000';", 'bare host:port, no scheme'],
-    ["const u = '[fe80::1]:9000';", 'bare bracketed IPv6 host:port'],
     ["const u = 'ws://localhost:9000/socket';", 'localhost over ws'],
-    ["const u = base + ':8188/prompt';", 'a known engine port in a composed expression'],
+    ["const u = 'http://sub.localhost:9000/x';", 'a localhost subdomain'],
+    // — the four retired engine ports, wherever they appear —
+    ["const u = base + ':8188/prompt';", 'ComfyUI port in a composed expression'],
+    ["const u = base + ':11434/api/tags';", 'Ollama port in a composed expression'],
+    ["const u = base + ':7860/sdapi/v1/txt2img';", 'A1111/Fooocus port in a composed expression'],
   ];
 
   it.each(FORBIDDEN)('flags %s', (source) => {
@@ -656,22 +628,22 @@ describe('negative control · browser-normalized network destinations (Codex P1)
 
   // The business-data boundary. Extraction requires an executable DESTINATION
   // shape (a scheme, a protocol-relative `//`, or an explicit host:port), so
-  // standalone IP-like text is never normalized and never flagged.
+  // standalone IP-like text is never normalized and never flagged. The LAN and
+  // public entries below are deliberate: this detector is scoped to the retired
+  // engines' loopback, not to network egress in general.
   const ALLOWED = [
     ['const price = 10.0; const qty = 192168;', 'prices and quantities'],
     ["const version = '10.0.0.1';", 'a version string with no scheme or port'],
     ["const ratio = '172.16';", 'a bare decimal pair'],
     ['const total = 127.0 + 0.1;', 'arithmetic on floats'],
-    ["const sku = '192.168.1.50-BLUE';", 'an SKU embedding a private-looking quad'],
+    ["const sku = '192.168.1.50-BLUE';", 'an SKU embedding a dotted quad'],
     ['const n = 2130706433;', 'a bare integer that WOULD normalize to loopback as a host'],
     ["const at = '12:30';", 'a clock time'],
     ["const u = 'https://api.artvalue.example/v1/generate';", 'a real remote endpoint'],
     ["const u = 'https://8.8.8.8:443/';", 'a PUBLIC IPv4 endpoint'],
     ["const u = 'http://[2606:4700::1]:443/';", 'a PUBLIC IPv6 endpoint'],
-    ["const u = 'http://172.32.0.1:9000/';", 'just above the RFC1918 172.16/12 block'],
-    ["const u = 'http://192.169.0.1:9000/';", 'just above 192.168/16'],
-    ["const u = 'http://[fe7f::1]:9000/';", 'just below fe80::/10'],
-    ["const u = 'http://[fec0::1]:9000/';", 'just above fe80::/10'],
+    ["const u = 'http://126.0.0.1:9000/';", 'just below the 127/8 loopback block'],
+    ["const u = 'http://128.0.0.1:9000/';", 'just above the 127/8 loopback block'],
   ];
 
   it.each(ALLOWED)('does NOT flag %s', (source) => {
@@ -685,15 +657,16 @@ describe('negative control · browser-normalized network destinations (Codex P1)
     }
   });
 
-  it('isForbiddenHost classifies NORMALIZED hosts, not raw text', () => {
-    for (const h of ['localhost', '127.0.0.1', '127.255.255.254', '10.1.2.3', '192.168.0.1',
-      '172.16.0.1', '172.31.0.1', '169.254.0.1', '0.0.0.0', '[::1]', '[fe80::1]', '[febf::1]',
-      '[fc00::1]', '[fdff::1]']) {
-      expect(isForbiddenHost(h), h).toBe(true);
+  it('isLoopbackHost classifies NORMALIZED hosts, not raw text', () => {
+    for (const h of ['localhost', 'sub.localhost', '127.0.0.1', '127.255.255.254', '[::1]',
+      '[::ffff:7f00:1]']) {
+      expect(isLoopbackHost(h), h).toBe(true);
     }
-    for (const h of ['8.8.8.8', 'api.example.com', '172.32.0.1', '192.169.0.1', '11.0.0.1',
-      '[2606:4700::1]', '[fe7f::1]', '[fec0::1]', '']) {
-      expect(isForbiddenHost(h), h).toBe(false);
+    // Explicitly OUT of scope: this is a retired-engine detector, not a
+    // private-network policy. LAN and public hosts alike are not its business.
+    for (const h of ['8.8.8.8', 'api.example.com', '10.1.2.3', '192.168.0.1', '169.254.0.1',
+      '[2606:4700::1]', '[fe80::1]', '[::ffff:8.8.8.8]', '']) {
+      expect(isLoopbackHost(h), h).toBe(false);
     }
   });
 

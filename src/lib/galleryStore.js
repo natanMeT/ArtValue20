@@ -10,7 +10,6 @@
 // ===================================================================
 
 import { userScopeKey } from './userIdentity.js';
-import { guardedFetch } from './networkPolicy.js';
 
 // S0F.1 (D6) — the gallery is scoped PER ACCOUNT. `artvalue_gallery` (bare)
 // is the PRE-S0F.1 device-global database: it is LEGACY and is never opened,
@@ -165,9 +164,7 @@ export function createGalleryStore(session) {
 }
 
 // Fetch any image src (data url, blob url, remote url) into a Blob.
-// Egress goes through the network policy boundary: `src` is a runtime value,
-// so the destination is normalized and classified at the moment of the request.
 export async function srcToBlob(src) {
-  const r = await guardedFetch(src);
+  const r = await fetch(src);
   return r.blob();
 }
