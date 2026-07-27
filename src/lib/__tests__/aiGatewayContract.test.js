@@ -947,7 +947,7 @@ describe('guardrail · frozen files carry no gateway wiring', () => {
   it('no do-not-touch file references the AI gateway (no wiring crept in)', () => {
     // gemini.js left this list in Slice B (jake.draft_message): its ONE
     // authorized gateway operation is draftWithJake, guarded precisely below.
-    // geminiImage.js left this list in M2 J3C S4.2: its ONE authorized gateway
+    // hostedImage.js owns the ONE authorized gateway
     // operation is studio.generate_image (generateImage), guarded precisely below.
     const frozen = [
       '../../components/ai/Assistant.jsx',
@@ -960,8 +960,8 @@ describe('guardrail · frozen files carry no gateway wiring', () => {
     }
   });
 
-  it('geminiImage.js: ONLY studio.generate_image is gateway-routed — no other operation migrated', () => {
-    const code = read('../geminiImage.js');
+  it('hostedImage.js: ONLY studio.generate_image is gateway-routed — no other operation migrated', () => {
+    const code = read('../hostedImage.js');
     // the single allowed gateway import
     expect(/import \{ callAiGateway \} from '\.\/aiGatewayClient\.js';/.test(code)).toBe(true);
     // the ONE migrated lane: hosted text→image (M2 J3C S4.2)

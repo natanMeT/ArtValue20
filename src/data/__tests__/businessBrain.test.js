@@ -101,24 +101,11 @@ describe('systemCapabilities · derived registry', () => {
   });
 
   it('adds the static system surfaces without clobbering studio entries', () => {
-    // Studio-related static surfaces now carry an explicit availability
-    // requirement, so the full availability snapshot is supplied here.
-    // A gated subfeature is no longer re-derived here from a capability flag —
-    // its availability AND its wording are INJECTED, so the snapshot carries it.
-    const caps = systemCapabilities({
-      modes: ALL_LIVE_MODES,
-      modeLabels: [],
-      capabilities: { comfy: true, video: true, ltx: true, kontext: true, pulid: true, qwen: true },
-      subfeatures: {
-        'product-lock-blend': {
-          id: 'product-lock-blend', available: true,
-          title: 'שיפור חיבור וצללים (Product Lock B2)',
-          description: 'תיאור מוזרק',
-          capabilityText: 'טקסט יכולת מוזרק',
-        },
-      },
-    });
-    for (const id of ['image-studio', 'growth-os', 'gallery', 'creative-modes', 'product-lock-blend']) {
+    // Studio-related static surfaces carry an explicit availability requirement,
+    // so the availability snapshot is supplied here. There is no capability map
+    // or subfeature registry any more — both went with the local engine.
+    const caps = systemCapabilities({ modes: ALL_LIVE_MODES, modeLabels: [] });
+    for (const id of ['image-studio', 'growth-os', 'gallery', 'creative-modes']) {
       const cap = caps.find((c) => c.id === id);
       expect(cap, id).toBeTruthy();
       expect(cap.kind).toBe('system');

@@ -26,10 +26,18 @@ describe('exports', () => {
 });
 
 describe('workflowIdToMode', () => {
-  it('maps the three live studio workflows to their modes', () => {
+  it('maps the live studio workflows to their modes', () => {
     expect(workflowIdToMode('fast-image')).toBe('text');
-    expect(workflowIdToMode('product-presenter')).toBe('presenter');
     expect(workflowIdToMode('product-lock')).toBe('lock');
+  });
+
+  it('a RETIRED local workflow maps to no mode at all', () => {
+    // PRODUCT BOUNDARY (2026-07-27): these cards left the catalog with their
+    // engines, so a hand-off naming one carries no mode. The prompt still
+    // prefills; the Studio stays on a mode that exists.
+    for (const retired of ['product-presenter', 'smart-edit', 'area-edit', 'image-to-video', 'before-after', 'character-series', 'model-album']) {
+      expect(workflowIdToMode(retired), retired).toBeNull();
+    }
   });
 
   it('returns null for unknown / missing / hostile ids', () => {
@@ -53,8 +61,10 @@ describe('readStudioHandoff · valid payloads', () => {
     expect(readStudioHandoff(validState())).toEqual({ prompt: 'a poster about CRM', mode: 'text' });
   });
 
-  it('product-presenter handoff → mode presenter', () => {
-    expect(readStudioHandoff(validState({ workflow: 'product-presenter' })).mode).toBe('presenter');
+  it('a retired-workflow handoff keeps the prompt and carries NO mode', () => {
+    const r = readStudioHandoff(validState({ workflow: 'product-presenter' }));
+    expect(r.prompt).toBe('a poster about CRM');
+    expect(r.mode).toBeNull();
   });
 
   it('product-lock handoff → mode lock', () => {
@@ -135,7 +145,7 @@ describe('ImageStudio integration · source-level', () => {
     const start = studio.indexOf('Jake handoff prefill');
     expect(start).toBeGreaterThan(-1);
     const effect = studio.slice(start, studio.indexOf('}, [location.key]);', start));
-    for (const gen of ['run(', 'onCta(', 'buildLockComposite(', 'runLockBlend(', 'buildAlbum(', 'buildCharacterPack(']) {
+    for (const gen of ['run(', 'onCta(', 'buildLockComposite(']) {
       expect(effect.includes(gen), gen).toBe(false);
     }
     // and it does not navigate / clear state
@@ -145,8 +155,6 @@ describe('ImageStudio integration · source-level', () => {
 
   it('generation call sites remain click-bound', () => {
     expect(studio).toContain('onClick={onCta}');
-    expect(studio).toContain('onClick={runLockBlend}');
-    expect(studio).toContain('onClick={run}');
   });
 
   it('this slice added no storage / events / query parsing', () => {

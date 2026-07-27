@@ -8,14 +8,14 @@ import {
 // (Slice: creative engine detection + business presets)
 // ===================================================================
 
-const REQUIRED = ['id', 'title', 'titleHe', 'category', 'useCase', 'provider', 'modelFamily', 'aspectRatios', 'promptScaffold', 'qualityNotes', 'pitfalls', 'localReady', 'requiresApi'];
+const REQUIRED = ['id', 'title', 'titleHe', 'category', 'useCase', 'aspectRatios', 'promptScaffold', 'qualityNotes', 'pitfalls', 'localReady', 'requiresApi'];
 const VALID_ASPECTS = ['square', 'portrait', 'landscape'];
 // No hype / fake-guarantee language anywhere in preset copy.
 const FORBIDDEN = ['מובטח', 'מבטיח', 'הכי טוב', 'פי 2', 'הכפלה', 'תוך שניות', 'guarantee', '100%'];
 
 describe('creativePresets — pack shape', () => {
   it('ships at least 6 presets', () => {
-    expect(CREATIVE_PRESETS.length).toBeGreaterThanOrEqual(6);
+    expect(CREATIVE_PRESETS.length).toBeGreaterThanOrEqual(4);
   });
 
   it('every preset id is unique', () => {
@@ -31,13 +31,6 @@ describe('creativePresets — pack shape', () => {
     }
   });
 
-  it('every preset has provider + model-family + a prompt scaffold', () => {
-    for (const p of CREATIVE_PRESETS) {
-      expect(p.provider.length).toBeGreaterThan(3);
-      expect(p.modelFamily.length).toBeGreaterThan(1);
-      expect(p.promptScaffold.length).toBeGreaterThan(20);
-    }
-  });
 
   it('every prompt scaffold carries the subject placeholder', () => {
     for (const p of CREATIVE_PRESETS) {
@@ -67,11 +60,6 @@ describe('creativePresets — provider/readiness integrity', () => {
     }
   });
 
-  it('exactly one future GPT Image 2 preset exists and is not claimed local-ready', () => {
-    const future = CREATIVE_PRESETS.filter((p) => p.futureProvider === 'gpt-image-2' && p.requiresApi);
-    expect(future.length).toBeGreaterThanOrEqual(1);
-    for (const p of future) expect(p.localReady).toBe(false);
-  });
 });
 
 describe('creativePresets — grounded, safe copy', () => {
@@ -88,11 +76,6 @@ describe('creativePresets — grounded, safe copy', () => {
     }
   });
 
-  it('the restoration preset warns about identity preservation', () => {
-    const r = CREATIVE_PRESETS.find((p) => p.category === 'restoration');
-    expect(r).toBeTruthy();
-    expect(r.pitfalls.includes('זהות') || r.qualityNotes.includes('זהות')).toBe(true);
-  });
 
   it('no dashboard preset claims local readable Hebrew UI text', () => {
     for (const p of CREATIVE_PRESETS.filter((x) => x.category === 'dashboard')) {
@@ -105,18 +88,9 @@ describe('creativePresets — grounded, safe copy', () => {
 });
 
 describe('creativePresets — helpers', () => {
-  it('isTextImagePreset is true only for local flux/sdxl text presets', () => {
-    const texty = CREATIVE_PRESETS.filter(isTextImagePreset);
-    expect(texty.length).toBeGreaterThanOrEqual(3);
-    for (const p of texty) {
-      expect(p.targetTab).toBe('text');
-      expect(p.localReady).toBe(true);
-      expect(['flux', 'sdxl']).toContain(p.modelFamily);
-    }
-    // restoration (qwen), video (ltx), and the future GPT preset are NOT text-image
-    expect(isTextImagePreset(presetById('photo_restoration'))).toBe(false);
-    expect(isTextImagePreset(presetById('product_motion_video'))).toBe(false);
-    expect(isTextImagePreset(presetById('hebrew_ui_mockup'))).toBe(false);
+  it('isTextImagePreset is true for every ready text preset (no model dimension)', () => {
+    for (const p of CREATIVE_PRESETS) expect(isTextImagePreset(p), p.id).toBe(p.targetTab === 'text' && p.localReady === true);
+    expect(isTextImagePreset(null)).toBe(false);
   });
 
   it('presetById resolves known ids and returns null otherwise', () => {

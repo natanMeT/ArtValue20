@@ -2,15 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'node:fs';
 
 // Mock the LOCAL image engine. `hasLocalComfy` is exposed as a getter so each test can
-// flip "ComfyUI configured?" without re-importing. checkLocalEngine / generateImage are
+// flip "ComfyUI configured?" without re-importing. checkLocalEngine / generateLocalImage are
 // spies so we can PROVE the fail-closed, ComfyUI-only contract (never Pollinations/Gemini).
 const state = vi.hoisted(() => ({ hasLocalComfy: true }));
 const checkLocalEngine = vi.hoisted(() => vi.fn());
-const generateImage = vi.hoisted(() => vi.fn());
-vi.mock('../geminiImage.js', () => ({
+const generateLocalImage = vi.hoisted(() => vi.fn());
+vi.mock('../localComfyEngine.js', () => ({
   get hasLocalComfy() { return state.hasLocalComfy; },
   checkLocalEngine,
-  generateImage,
+  generateLocalImage,
 }));
 
 import { generatePosterFromOffer } from '../comfyPoster.js';
@@ -21,7 +21,7 @@ const LOCAL_SRC = 'http://localhost:8188/view?filename=artvalue_x.png&type=outpu
 beforeEach(() => {
   state.hasLocalComfy = true;
   checkLocalEngine.mockReset().mockResolvedValue(true);
-  generateImage.mockReset().mockResolvedValue({ src: LOCAL_SRC, engine: 'local' });
+  generateLocalImage.mockReset().mockResolvedValue({ src: LOCAL_SRC, engine: 'local' });
 });
 
 describe('comfyPoster — local ComfyUI-only adapter (fail-closed)', () => {
@@ -31,7 +31,7 @@ describe('comfyPoster — local ComfyUI-only adapter (fail-closed)', () => {
     expect(r.ok).toBe(false);
     expect(r.reason).toBe('comfy_not_configured');
     expect(checkLocalEngine).not.toHaveBeenCalled();
-    expect(generateImage).not.toHaveBeenCalled();
+    expect(generateLocalImage).not.toHaveBeenCalled();
   });
 
   it('ComfyUI offline → { ok:false, reason:comfy_offline } and never submits a render', async () => {
@@ -39,7 +39,7 @@ describe('comfyPoster — local ComfyUI-only adapter (fail-closed)', () => {
     const r = await generatePosterFromOffer(brief);
     expect(r.ok).toBe(false);
     expect(r.reason).toBe('comfy_offline');
-    expect(generateImage).not.toHaveBeenCalled();
+    expect(generateLocalImage).not.toHaveBeenCalled();
     expect(r.prompt).toBeTruthy(); // the built prompt is returned for context
   });
 
@@ -48,8 +48,8 @@ describe('comfyPoster — local ComfyUI-only adapter (fail-closed)', () => {
     expect(r.ok).toBe(true);
     expect(r.src).toBe(LOCAL_SRC);
     expect(r.engine).toBe('local');
-    expect(generateImage).toHaveBeenCalledTimes(1);
-    const [promptArg, optsArg] = generateImage.mock.calls[0];
+    expect(generateLocalImage).toHaveBeenCalledTimes(1);
+    const [promptArg, optsArg] = generateLocalImage.mock.calls[0];
     expect(typeof promptArg).toBe('string');
     expect(optsArg.arch).toBe('sdxl');          // SDXL is the MVP default
     expect(optsArg.width).toBe(1024);
@@ -58,26 +58,26 @@ describe('comfyPoster — local ComfyUI-only adapter (fail-closed)', () => {
 
   it('passes an ENGLISH prompt to the engine (no Hebrew)', async () => {
     await generatePosterFromOffer(brief);
-    const [promptArg] = generateImage.mock.calls[0];
+    const [promptArg] = generateLocalImage.mock.calls[0];
     expect(/[֐-׿]/.test(promptArg)).toBe(false);
   });
 
   it('engine throws → { ok:false, reason:generation_failed } and does NOT throw', async () => {
-    generateImage.mockRejectedValue(new Error('comfy 500'));
+    generateLocalImage.mockRejectedValue(new Error('comfy 500'));
     await expect(generatePosterFromOffer(brief)).resolves.toEqual(
       expect.objectContaining({ ok: false, reason: 'generation_failed' }),
     );
   });
 
   it('rejects a non-local engine result (no Pollinations/Gemini image is ever surfaced)', async () => {
-    generateImage.mockResolvedValue({ src: 'https://image.pollinations.ai/x', engine: 'pollinations' });
+    generateLocalImage.mockResolvedValue({ src: 'https://image.pollinations.ai/x', engine: 'pollinations' });
     const r = await generatePosterFromOffer(brief);
     expect(r.ok).toBe(false);
     expect(r.reason).toBe('unexpected_engine');
   });
 
   it('missing src from the engine → { ok:false, reason:no_image }', async () => {
-    generateImage.mockResolvedValue({ engine: 'local' });
+    generateLocalImage.mockResolvedValue({ engine: 'local' });
     const r = await generatePosterFromOffer(brief);
     expect(r.ok).toBe(false);
     expect(r.reason).toBe('no_image');
@@ -88,7 +88,7 @@ describe('comfyPoster — local ComfyUI-only adapter (fail-closed)', () => {
     expect(r.ok).toBe(false);
     expect(r.reason).toBe('prompt_failed');
     expect(checkLocalEngine).not.toHaveBeenCalled();
-    expect(generateImage).not.toHaveBeenCalled();
+    expect(generateLocalImage).not.toHaveBeenCalled();
   });
 
   it('never throws for any input', async () => {
@@ -114,6 +114,6 @@ describe('comfyPoster — source purity (no external provider/token in the poste
   });
   it('imports only the local engine + the deterministic poster prompt builder', () => {
     const specs = [...raw.matchAll(/from\s*['"]([^'"]+)['"]/g)].map((m) => m[1]);
-    expect(specs.sort()).toEqual(['../creative/v2/poster/comfyPosterPrompt.js', './geminiImage.js']);
+    expect(specs.sort()).toEqual(['../creative/v2/poster/comfyPosterPrompt.js', './localComfyEngine.js']);
   });
 });

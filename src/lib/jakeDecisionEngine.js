@@ -60,7 +60,9 @@ const INTENT_DOMAIN = Object.freeze({
 const INTENT_CAPABILITY = Object.freeze({
   create_marketing_asset: 'poster',
   studio_prompt: 'fast-image',
-  product_visual: 'presenter',
+  // PRODUCT BOUNDARY (2026-07-27): the presenter capability was removed with the
+  // local engine. The intent still classifies, but it names no retired capability.
+  product_visual: null,
   product_lock: 'product-lock',
   build_campaign: 'campaign',
   create_content_plan: 'monthly-plan',
@@ -78,7 +80,7 @@ const INTENT_CAPABILITY = Object.freeze({
 const INTENT_WORKFLOW = Object.freeze({
   create_marketing_asset: 'fast-image',
   studio_prompt: 'fast-image',
-  product_visual: 'product-presenter',
+  // (product_visual intentionally has NO workflow: the presenter card is retired)
   product_lock: 'product-lock',
   // everything else: no direct Studio workflow
 });

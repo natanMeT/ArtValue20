@@ -16,7 +16,6 @@
 
 import { buildAccountBusinessContext, hasDurableProfile } from '../data/businessBrain.js';
 import { studioAvailability } from './studioModes.js';
-import { liveStudioCapabilities } from './geminiImage.js';
 
 // Dedupe sentinel: the first Business Brain safety rule, present in EVERY
 // brain builder output (buildPosterBrief / campaign / plan / studio seeds).
@@ -89,12 +88,13 @@ export function withBusinessBrain(contextText, userText, businessProfile = null)
     : (shouldIncludeBusinessBrain(userText) || isBusinessContextQuestion(userText));
   if (!include) return base;
 
-  // Jake may only advertise creative workflows this configuration can open.
-  // The authoritative set is computed here (lib/ may see the engine flags)
-  // and injected into the pure data layer.
+  // Jake may only advertise creative workflows the product actually has. The
+  // authoritative set is FIXED (the Studio is cloud/Gateway only), and is still
+  // injected rather than imported so the pure data layer stays free of any
+  // Studio import.
   const brain = buildAccountBusinessContext(businessProfile, {
     maxCapabilities: 8,
-    availableModes: studioAvailability(liveStudioCapabilities()),
+    availableModes: studioAvailability(),
   });
   return `${base}\n\n${brain}\n\n${ANTI_CLAIM}`;
 }

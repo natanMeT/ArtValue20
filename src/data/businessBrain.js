@@ -150,9 +150,9 @@ export const BUSINESS_BRAIN = deepFreeze({
 // fields only. Deterministic (same catalog → same list).
 // ===================================================================
 const STATIC_CAPABILITIES = deepFreeze([
-  { id: 'image-studio', kind: 'system', title: 'Image Studio', description: 'סטודיו התמונות המרכזי — כל מצבי היצירה והעריכה במקום אחד, כולל גלריה.' },
+  { id: 'image-studio', kind: 'system', title: 'Image Studio', description: 'סטודיו התמונות המרכזי — יצירת תמונות לעסק וגלריית תוצרים במקום אחד.' },
   { id: 'growth-os', kind: 'system', title: 'Growth OS', description: 'מרכז הצמיחה: מיפוי קטגוריות לידים, לוח פעולה חודשי, הכנת שיחות וספריית תוכן.' },
-  { id: 'gallery', kind: 'system', title: 'גלריה / היסטוריית רנדרים', description: 'כל התוצרים (תמונות ווידאו) נשמרים ומסומנים לפי מקור, לשימוש חוזר.' },
+  { id: 'gallery', kind: 'system', title: 'גלריה / היסטוריית תוצרים', description: 'כל התמונות שנוצרו נשמרות ומסומנות לפי מקור, לשימוש חוזר.' },
   // Containment: this used to advertise "מפת Workflows קריאייטיביים" — the
   // workflow-map surface that the Studio no longer renders. Jake must not offer
   // a screen the user cannot open, so the capability is described as what
@@ -160,7 +160,6 @@ const STATIC_CAPABILITIES = deepFreeze([
   // `requires` makes the availability relationship EXPLICIT. Nothing here is
   // filtered by array position, wording or ordering.
   //   requires: { anyStudioMode: true }  -> needs at least one openable mode
-  //   requires: { capability: 'comfy' }  -> needs that engine capability
   // `describe(availability)` lets an entry state only what is actually open,
   // instead of hard-coding a list that may include hidden workflows.
   {
@@ -171,26 +170,10 @@ const STATIC_CAPABILITIES = deepFreeze([
       ? `מצבי היצירה הזמינים בחשבון זה בסטודיו התמונות: ${a.modeLabels.join(', ')}.`
       : 'מצבי היצירה הזמינים בסטודיו התמונות.'),
   },
-  // The gated Product Lock enhancement. Neither its requirement nor its wording
-  // is restated here — both are injected from the single subfeature authority
-  // (lib/studioModes.js), so Jake's description and the Studio's own control can
-  // no longer disagree about whether it exists.
-  {
-    id: 'product-lock-blend', kind: 'system', title: '', description: '',
-    requires: { subfeature: 'product-lock-blend' },
-    titleOf: (a) => subfeatureOf(a, 'product-lock-blend').title,
-    describe: (a) => subfeatureOf(a, 'product-lock-blend').description,
-  },
+  // PRODUCT BOUNDARY (2026-07-27): the gated "Product Lock B2" AI seam/shadow
+  // enhancement was REMOVED with the local engine, so there is no gated
+  // subfeature left to advertise and no subfeature plumbing here at all.
 ]);
-
-// Read an injected subfeature record. Missing snapshot / unknown id → a closed
-// record, so a caller that forgets under-advertises rather than over-promises.
-const CLOSED_SUB = Object.freeze({ available: false, title: '', description: '', capabilityText: '' });
-function subfeatureOf(availability, id) {
-  const map = availability && availability.subfeatures;
-  const rec = map && typeof map === 'object' ? map[id] : null;
-  return rec && typeof rec === 'object' ? rec : CLOSED_SUB;
-}
 
 // Jake may only advertise creative workflows the ACTIVE configuration can
 // actually open. `liveWorkflows()` is the catalog of what EXISTS; it is not a
@@ -205,19 +188,16 @@ function subfeatureOf(availability, id) {
 // than promising a mode the Studio would refuse to open. Workflows with no
 // `mode` are non-Studio capabilities and are always listed.
 export function systemCapabilities(availability = {}) {
-  // Accepts the full snapshot { modes, modeLabels, capabilities } or a bare
-  // array/Set of mode ids (capabilities then default to false = fail closed).
+  // Accepts the full snapshot { modes, modeLabels } or a bare array/Set of mode
+  // ids. There is no `capabilities` map any more: the local-engine capability
+  // vocabulary was removed with the engines it described.
   const a = Array.isArray(availability) || availability instanceof Set
-    ? { modes: availability, modeLabels: [], capabilities: {} }
+    ? { modes: availability, modeLabels: [] }
     : (availability || {});
   const allowed = a.modes instanceof Set ? a.modes : new Set(Array.isArray(a.modes) ? a.modes : []);
-  const caps = a.capabilities || {};
-  const subfeatures = a.subfeatures && typeof a.subfeatures === 'object' ? a.subfeatures : {};
   const snapshot = {
     modes: [...allowed],
     modeLabels: Array.isArray(a.modeLabels) ? a.modeLabels : [],
-    subfeatures,
-    capabilities: caps,
   };
 
   // A static capability is advertised only when its EXPLICIT requirement holds.
@@ -225,30 +205,14 @@ export function systemCapabilities(availability = {}) {
     const r = c.requires;
     if (!r) return true;                                   // non-Studio business capability
     if (r.anyStudioMode && allowed.size === 0) return false;
-    if (r.capability && !caps[r.capability]) return false;
-    // A gated subfeature is advertised only when the injected authority says so
-    // — never re-derived from a capability flag here.
-    if (r.subfeature && subfeatureOf(snapshot, r.subfeature).available !== true) return false;
     return true;
-  };
-
-  // A workflow's own description must not assert a GATED SUBFEATURE. An
-  // available parent mode does not make every subfeature available. The card
-  // names subfeature IDS; availability and wording both come from the injected
-  // authority, so this cannot advertise something the Studio would not render.
-  const describeWorkflow = (w) => {
-    const extras = (Array.isArray(w.subfeatures) ? w.subfeatures : [])
-      .map((id) => subfeatureOf(snapshot, id))
-      .filter((f) => f.available === true && typeof f.capabilityText === 'string' && f.capabilityText)
-      .map((f) => f.capabilityText);
-    return extras.length ? [w.description, ...extras].join(' ') : w.description;
   };
 
   const studio = liveWorkflows().filter((w) => !w.mode || allowed.has(w.mode)).map((w) => ({
     id: w.id,
     kind: 'studio',
     title: w.title,
-    description: describeWorkflow(w),
+    description: w.description,
     ...(w.mode ? { mode: w.mode } : {}),
     engine: w.engine,
     tags: [...w.tags],

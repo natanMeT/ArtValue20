@@ -225,11 +225,11 @@ describe('P2 · palette-aware Gateway prompt limit', () => {
   });
 
   it('rejection happens BEFORE any request: zero Gateway calls, input preserved', () => {
-    const run = imageStudio.slice(imageStudio.indexOf('const run = async () => {'), imageStudio.indexOf('// Consistent-character pack'));
+    const run = imageStudio.slice(imageStudio.indexOf('const run = async () => {'), imageStudio.indexOf('const buildLockComposite'));
     const guard = run.indexOf('if (overflow) { setError(');
     expect(guard).toBeGreaterThan(-1);
     // nothing that could reach an engine/Gateway may precede the guard
-    for (const marker of ['setLoading(true)', 'markNextComfyJob', 'generateImage(p,', 'await ']) {
+    for (const marker of ['setLoading(true)', 'generateImage(p,', 'await ']) {
       expect(run.indexOf(marker), marker).toBeGreaterThan(guard);
     }
     expect(run).toContain('const overflow = gatewayImagePromptOverflow(p, { gatewayLane: usesGatewayImageLane });');
@@ -248,7 +248,7 @@ describe('P2 · palette-aware Gateway prompt limit', () => {
   });
 
   it('the studio.generate_image payload shape is unchanged', () => {
-    expect(imageStudio).toContain('r = await generateImage(p, { arch: presetArch, width: asp.w, height: asp.h, hd, aspect });');
+    expect(imageStudio).toContain('const r = await generateImage(p, { aspect });');
     const r = validateAiGatewayInput('studio.generate_image', { prompt: 'ok', aspectRatio: '1:1' });
     expect(r.ok).toBe(true);
     expect(Object.keys(r.payload).sort()).toEqual(['aspectRatio', 'prompt']);

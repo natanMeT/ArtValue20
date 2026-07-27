@@ -3,7 +3,6 @@ import {
   defaultPlacement, clampPlacement, placementToPixels, hasTransparency, applyCleanCutout,
   buildSeamRingMask, seamRingSizes, shadowEllipseFor,
 } from '../productLock.js';
-import { productLockBlendGraph } from '../geminiImage.js';
 
 // ===================================================================
 // productLock — pure placement math + cutout coverage. No DOM, no
@@ -234,42 +233,3 @@ describe('buildSeamRingMask', () => {
   });
 });
 
-describe('productLockBlendGraph — product-pixel protection by construction', () => {
-  const g = productLockBlendGraph('composite.png', 'ring.png', 'blend the seam', 42);
-  const nodes = Object.values(g);
-  const byClass = (cls) => nodes.filter((n) => n.class_type === cls);
-
-  it('loads the composite and the ring mask, red-channel mask', () => {
-    const loads = byClass('LoadImage').map((n) => n.inputs.image);
-    expect(loads).toContain('composite.png');
-    expect(loads).toContain('ring.png');
-    expect(byClass('ImageToMask')[0].inputs.channel).toBe('red');
-  });
-
-  it('uses grow_mask_by 0 — the ring geometry from the browser is exact', () => {
-    expect(byClass('VAEEncodeForInpaint')[0].inputs.grow_mask_by).toBe(0);
-  });
-
-  it('blends (denoise < 1) instead of replacing the region', () => {
-    const k = byClass('KSampler')[0];
-    expect(k.inputs.denoise).toBeLessThan(1);
-    expect(k.inputs.denoise).toBeGreaterThan(0);
-  });
-
-  it('REQUIRED terminal paste-back: ImageCompositeMasked restores original pixels outside the ring', () => {
-    const paste = byClass('ImageCompositeMasked')[0];
-    expect(paste).toBeTruthy();
-    expect(paste.inputs.destination).toEqual(['10', 0]); // original composite
-    expect(paste.inputs.source).toEqual(['8', 0]);       // inpainted decode
-    expect(paste.inputs.mask).toEqual(['14', 0]);        // the ring
-    expect(paste.inputs.x).toBe(0);
-    expect(paste.inputs.y).toBe(0);
-    // SaveImage takes the PASTED result, not the raw VAE decode
-    const pasteId = Object.keys(g).find((id) => g[id].class_type === 'ImageCompositeMasked');
-    expect(byClass('SaveImage')[0].inputs.images).toEqual([pasteId, 0]);
-  });
-
-  it('is deterministic for the same inputs', () => {
-    expect(productLockBlendGraph('a.png', 'b.png', 'p', 7)).toEqual(productLockBlendGraph('a.png', 'b.png', 'p', 7));
-  });
-});

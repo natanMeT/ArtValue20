@@ -4,7 +4,7 @@
 // Seven legacy symbols with zero non-test production callers were deleted:
 //   gemini.js      — chatWithLocalModel, forceActions, enhanceImagePrompt,
 //                    demoEnhance
-//   geminiImage.js — imageEngineName, generatePulidScene, qwenEdit
+//   localComfyEngine.js — imageEngineName, generatePulidScene, qwenEdit
 // Orphans removed with them (proven single-caller): the
 // `import { activePack, buildJakeSystem } from './jakePack.js'` line and the
 // JAKE_NO_THINK constant in gemini.js.
@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 
 const gemini = read('../gemini.js');
-const geminiImage = read('../geminiImage.js');
+const geminiImage = read('../localComfyEngine.js');
 const imageStudio = read('../../pages/ImageStudio.jsx');
 
 // \b-bounded so forceActionsJake / qwenEditGraph / hasQwenEditNode never match.
@@ -47,7 +47,7 @@ describe('S2 · the seven approved dead symbols are gone from the two files', ()
     }
   });
 
-  it('geminiImage.js no longer defines its three', () => {
+  it('localComfyEngine.js no longer defines its three', () => {
     const stripped = geminiImage.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
     for (const re of DEAD.slice(4)) {
       expect(re.test(stripped), String(re)).toBe(false);
@@ -113,16 +113,17 @@ describe('S2 · active replacements and Gateway lanes are intact', () => {
   // M2 J3C S4.2 superseded the retired order (…→ Pollinations → browser Gemini):
   // the hosted tail is now a single protected AI-Gateway attempt, and the direct
   // browser-Gemini branch is gone. Local engines keep their exact precedence.
-  it('generateImage engine policy: ComfyUI → local SD → single Gateway attempt; no browser Gemini', () => {
-    const start = geminiImage.indexOf('export async function generateImage(');
+  it('generateImage policy: ONE Gateway attempt, and no local branch survives', () => {
+    // PRODUCT BOUNDARY (2026-07-27): the ComfyUI → local-SD → Gateway ladder is
+    // gone. The Studio's image lane is the Gateway and nothing else.
+    const hosted = read('../hostedImage.js');
+    const start = hosted.indexOf('export async function generateImage(');
     expect(start).toBeGreaterThan(-1);
-    const body = geminiImage.slice(start);
-    const iComfy = body.indexOf('if (COMFY_URL)');
-    const iLocal = body.indexOf('if (LOCAL_URL)');
-    const iGateway = body.indexOf('generateImageViaGateway(text, opts)');
-    expect(iComfy).toBeGreaterThan(-1);
-    expect(iLocal).toBeGreaterThan(iComfy);
-    expect(iGateway).toBeGreaterThan(iLocal);
+    const body = hosted.slice(start);
+    expect(body.includes("callAiGateway('studio.generate_image'")).toBe(true);
+    for (const local of ['COMFY_URL', 'LOCAL_URL', 'comfyUI(', 'localSD(']) {
+      expect(hosted.includes(local), local).toBe(false);
+    }
     // the retired direct-browser-Gemini branch and its vectors are gone
     expect(body.includes('if (API_KEY)')).toBe(false);
     expect(geminiImage.includes('generativelanguage')).toBe(false);
@@ -143,16 +144,20 @@ describe('S2 · active replacements and Gateway lanes are intact', () => {
     ]) {
       expect(gemini.includes(kept), kept).toBe(true);
     }
+    // The local engine keeps ONLY what its two non-Studio consumers call.
     for (const kept of [
       'export async function generateMaxRealism(prompt, opts = {})',
-      'export async function generateImage(',
-      'export const isImageAiConfigured',
-      'function pollinations(text)',
-      'export async function qwenCompose(',
-      'export async function characterPackPulid(',
-      'export async function productLockBlend(',
+      'export async function generateLocalImage(',
+      'export async function checkLocalEngine()',
     ]) {
       expect(geminiImage.includes(kept), kept).toBe(true);
+    }
+    // and the Studio-only engine paths went with the Studio modes
+    for (const gone of ['qwenCompose', 'characterPackPulid', 'productLockBlend', 'ltxVideo', 'flfVideo', 'inpaintImage', 'editImage']) {
+      expect(geminiImage.includes(gone), gone).toBe(false);
+    }
+    for (const kept of ['export async function generateImage(', 'export const isImageAiConfigured', 'function pollinations(text)']) {
+      expect(read('../hostedImage.js').includes(kept), kept).toBe(true);
     }
   });
 });

@@ -3,7 +3,7 @@
 //
 // Bridges an OfferCampaignBrief → a deterministic English key-visual prompt
 // (comfyPosterPrompt) → the local ComfyUI engine, reusing the proven primitives in
-// geminiImage.js. It is FAIL-CLOSED:
+// localComfyEngine.js. It is FAIL-CLOSED:
 //   • if ComfyUI is not configured or is offline, it returns { ok:false } and does
 //     NOT fall through to Pollinations, Gemini, or any external provider;
 //   • it NEVER throws to the caller — the Assistant chat must never crash.
@@ -15,7 +15,7 @@
 // by posterIsolation.test.js). It imports posterBridge/posterSchema/posterTypes from
 // NOWHERE — only comfyPosterPrompt — so the rest of the poster layer stays unwired.
 // ===================================================================
-import { generateImage, checkLocalEngine, hasLocalComfy } from './geminiImage.js';
+import { generateLocalImage, checkLocalEngine, hasLocalComfy } from './localComfyEngine.js';
 import { buildComfyPosterPrompt } from '../creative/v2/poster/comfyPosterPrompt.js';
 
 // MVP default engine = SDXL (fast ~10s). FLUX is a future optional quality mode.
@@ -51,7 +51,7 @@ export async function generatePosterFromOffer(offerBrief, opts = {}) {
   // ComfyUI branch and NEVER reaches the Pollinations / Gemini fallbacks; on failure
   // it throws, which we catch into a calm { ok:false } (still no provider fallback).
   try {
-    const r = await generateImage(prompt.promptEn, {
+    const r = await generateLocalImage(prompt.promptEn, {
       arch: opts.arch || DEFAULT_ARCH,
       width: prompt.width,
       height: prompt.height,

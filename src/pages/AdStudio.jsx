@@ -6,7 +6,7 @@ import {
   fetchSiteText, analyzeBusiness, runCreativeDirector,
   isGeminiConfigured, MECHANISM_HE, mechanismStyle, toEnglishImagePrompt,
 } from '../lib/gemini.js';
-import { generateMaxRealism } from '../lib/geminiImage.js';
+import { generateMaxRealism } from '../lib/localComfyEngine.js';
 import { userFacingError } from '../lib/userFacingError.js';
 import { createGalleryStore, srcToBlob } from '../lib/galleryStore.js';
 import { isSupabaseConfigured } from '../lib/supabase.js';

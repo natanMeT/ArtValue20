@@ -63,19 +63,17 @@ describe('localEngines · gate CLOSED (hosted production default)', () => {
     vi.resetModules();
   });
 
-  it('ComfyUI: system_stats + object_info + model listing cannot fetch; feature flags read "not configured"', async () => {
-    const img = await import('../geminiImage.js');
-    expect(img.localEngineUrl).toBe('');
+  it('ComfyUI: nothing can fetch and the flag reads "not configured"', async () => {
+    // PRODUCT BOUNDARY (2026-07-27): the Studio no longer imports this module at
+    // all. What survives serves the Ad Studio and the Jake poster adapter only,
+    // and the gate still closes it in every hosted build.
+    const img = await import('../localComfyEngine.js');
     expect(img.hasLocalComfy).toBe(false);
-    expect(img.hasFluxModel).toBe(false);
-    expect(img.hasVideoModel).toBe(false);
-    expect(img.hasKontextModel).toBe(false);
     await expect(img.checkLocalEngine()).resolves.toBe(false);       // system_stats path
-    await expect(img.listImageModels()).resolves.toEqual([]);        // object_info/CheckpointLoaderSimple
-    await expect(img.hasPulidNode()).resolves.toBe(false);           // object_info/ApplyPulidFlux
     await expect(img.hasFaceDetailerNode()).resolves.toBe(false);    // object_info/FaceDetailer
     await expect(img.hasUpscaleModel()).resolves.toBe(false);        // object_info/UpscaleModelLoader
-    await expect(img.hasQwenEditNode()).resolves.toBe(false);        // object_info/UnetLoaderGGUF
+    await expect(img.generateMaxRealism('x')).rejects.toBeTruthy();  // refuses before any request
+    await expect(img.generateLocalImage('x')).rejects.toBeTruthy();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -92,21 +90,20 @@ describe('localEngines · gate CLOSED (hosted production default)', () => {
 // route now redirects to /studio in App.jsx.) ----
 describe('localEngines · source guards (no bypass)', () => {
   const GEMINI = read('../gemini.js');
-  const GEMINI_IMAGE = read('../geminiImage.js');
+  const GEMINI_IMAGE = read('../localComfyEngine.js');
 
   it('every local-engine env URL resolves through resolveLocalEngineUrl()', () => {
     expect(GEMINI.includes("resolveLocalEngineUrl(import.meta.env.VITE_LOCAL_LLM_URL)")).toBe(true);
     expect(GEMINI.includes("resolveLocalEngineUrl(import.meta.env.VITE_COMFYUI_URL)")).toBe(true);
-    expect(GEMINI_IMAGE.includes("resolveLocalEngineUrl(import.meta.env.VITE_LOCAL_IMAGE_URL)")).toBe(true);
     expect(GEMINI_IMAGE.includes("resolveLocalEngineUrl(import.meta.env.VITE_COMFYUI_URL)")).toBe(true);
     // the old ungated read pattern must not return in any of these files
-    for (const [name, src] of [['gemini.js', GEMINI], ['geminiImage.js', GEMINI_IMAGE]]) {
+    for (const [name, src] of [['gemini.js', GEMINI], ['localComfyEngine.js', GEMINI_IMAGE]]) {
       expect(/\(import\.meta\.env\.VITE_(COMFYUI_URL|LOCAL_LLM_URL|LOCAL_IMAGE_URL|FOOOCUS_URL)\s*\|\|/.test(src), name).toBe(false);
     }
   });
 
   it('only localEngines.js decides enablement (no scattered VITE_ENABLE_LOCAL_ENGINES reads)', () => {
-    for (const [name, src] of [['gemini.js', GEMINI], ['geminiImage.js', GEMINI_IMAGE]]) {
+    for (const [name, src] of [['gemini.js', GEMINI], ['localComfyEngine.js', GEMINI_IMAGE]]) {
       expect(src.includes('VITE_ENABLE_LOCAL_ENGINES'), name).toBe(false);
     }
     expect(read('../localEngines.js').includes("VITE_ENABLE_LOCAL_ENGINES === 'true'")).toBe(true);
