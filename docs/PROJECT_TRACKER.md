@@ -6,7 +6,7 @@
 **Purpose:** single source of truth for state, so work continues across sessions with no loss.
 Nathan passes this to ChatGPT so it can review/advise **without re-deriving or guessing** state.
 **ChatGPT does NOT edit this document.** Only Claude updates it.
-**Last updated:** 2026-07-27 — session: **ABSOLUTE CLOUD-ONLY BOUNDARY (ROUND 11) — IN FLIGHT / NOT RELEASED.** Nathan's absolute decision: no executable local-engine code anywhere in the repository, product AND tooling. Round 10's two disclosed exceptions are withdrawn. **The AI Gateway shared contract changed:** `comfyui` / `ollama` / `fooocus` / `a1111` are removed from `AI_PROVIDERS`, `AI_MODELS` and every routing chain, together with the `LOCAL_PROVIDERS` partition, the `localFirst` selection option (and its response metadata) and the local zero-cost branch — the 20-action cloud vocabulary is unchanged and every action still resolves to a non-empty all-API chain. **`scripts/local-review-prep.mjs` (a local-Ollama caller), its test, the whole `scripts/` directory, `comfy_help.txt` and the `local:review-prep` / `dev:local` / `preview:local` npm scripts are DELETED.** Docs corrected where they claimed local engines are still supported. Repo-wide proof scans **172 non-test executables** across `src/`, `supabase/`, root and `scripts/` for engine names and local addresses with comments stripped, and proves the `src/lib` Gateway shims are pure re-exports so no divergent copy can exist. Two further Codex P2s on `1233034` (a DemoMode copy regression of mine, and eval-provenance wording) were confirmed and fixed. Suite **110 files / 2,980 passed / 0 skipped / 0 failed**, build green (`index-C4frcMDi.js`, 608.05 kB); the app bundle now has **zero** hits for every local term including the provider-registry strings that survived round 10. Runtime: retired routes fail safe, all surviving creative routes render, 0 local requests, 0 console messages. ⚠️ **An Edge `ai-gateway` redeploy will be REQUIRED later — NOT performed here**; nothing deployed, no secret or remote configuration touched. Prior round summaries follow. **(Round 10)** 
+**Last updated:** 2026-07-27 — session: **ABSOLUTE CLOUD-ONLY BOUNDARY (ROUND 11) — IN FLIGHT / NOT RELEASED.** Nathan's absolute decision: no executable local-engine code anywhere in the repository, product AND tooling. Round 10's two disclosed exceptions are withdrawn. **The AI Gateway shared contract changed:** `comfyui` / `ollama` / `fooocus` / `a1111` are removed from `AI_PROVIDERS`, `AI_MODELS` and every routing chain, together with the `LOCAL_PROVIDERS` partition, the `localFirst` selection option (and its response metadata) and the local zero-cost branch — the 20-action cloud vocabulary is unchanged and every action still resolves to a non-empty all-API chain. **`scripts/local-review-prep.mjs` (a local-Ollama caller), its test, the whole `scripts/` directory, `comfy_help.txt` and the `local:review-prep` / `dev:local` / `preview:local` npm scripts are DELETED.** Docs corrected where they claimed local engines are still supported. Repo-wide proof scans **172 non-test executables** across `src/`, `supabase/`, root and `scripts/` for engine names and local addresses with comments stripped, and proves the `src/lib` Gateway shims are pure re-exports so no divergent copy can exist. Two further Codex P2s on `1233034` (a DemoMode copy regression of mine, and eval-provenance wording) were confirmed and fixed. Codex then found 2 real defects in the retirement PROOF itself (a comment stripper that ate `//` inside URL string literals, and a walker blind to nested `.mjs`/`.cjs`); both fixed, with negative controls that reproduce each bypass. Suite **110 files / 2,997 passed / 0 skipped / 0 failed**, build green (`index-C4frcMDi.js`, 608.05 kB); the app bundle now has **zero** hits for every local term including the provider-registry strings that survived round 10. Runtime: retired routes fail safe, all surviving creative routes render, 0 local requests, 0 console messages. ⚠️ **An Edge `ai-gateway` redeploy will be REQUIRED later — NOT performed here**; nothing deployed, no secret or remote configuration touched. Prior round summaries follow. **(Round 10)** 
 
 ---
 
@@ -848,6 +848,37 @@ contract changed) → Production deploy. None was started; no remote mutation of
 
 Re-verified after the fixes: suite **110 files / 2,980 passed / 0 failed**; build green (`index-C4frcMDi.js`, 608.05 kB);
 artifact still **0** for every local term; hosted runtime **0 local requests, 0 console messages**.
+
+**Codex then reviewed the retirement PROOF itself and raised 2 findings in it. Both were real; both are fixed.**
+This round changed **no product code** — only the proof and its new support module — so no rebuild was required and the
+verified artifact stays `index-C4frcMDi.js`.
+
+| # | Finding | Status |
+|---|---|---|
+| 1 (P1) | The comment stripper was `s.replace(/\/\/[^
+]*/g, '')`. It has no idea what a string is, so it read the `//` inside a URL as a line comment: `fetch('http://127.0.0.1:8188/prompt')` became `fetch('http:` **before either repository-wide assertion looked at it**. The single most common shape of a local-engine call walked straight through my own gate. | **Fixed** — replaced with a **syntax-aware scanner** (`src/lib/__tests__/support/sourceScan.js`) that removes comments while emitting string, template (incl. `${…}`) and regex literals verbatim. Regex handling matters independently: an apostrophe inside a regex used to open a phantom string that swallowed the rest of the file. Design rule: **every ambiguous case preserves text**, so the failure direction is a loud false positive, never a silent miss. |
+| 2 (P2) | The recursive walker matched only `.js/.jsx/.ts/.tsx`; `.mjs`/`.cjs` were recognised **only at the repository root**. A caller added as `src/tool.mjs`, `supabase/functions/tool.mjs` or a nested `.cjs` sat outside both scans. | **Fixed** — one `collectModules()` walks every root recursively over the full extension set (`.js .jsx .mjs .cjs .ts .tsx .cts .mts`), skipping only build/dep directories. `resolveLocal` resolves the same set. |
+
+**Negative controls added — the substantive part.** Every assertion in this suite is a *"nothing found"* assertion, and a
+scan that silently cannot find anything looks identical to one that found nothing. Codex caught exactly that twice, so
+the primitives were extracted into `support/sourceScan.js` and the controls now exercise **the same code the gate runs**:
+- 5 planted local-engine calls (single/double-quoted, template literal, template-with-substitution, object literal) must
+  be DETECTED — and the suite **reproduces the bypass**, asserting the OLD regex stripper loses every one of them while
+  the new one holds all five.
+- 4 comment forms (line, block, trailing, JSDoc) naming a retired address/engine must be IGNORED.
+- A regex-literal-with-apostrophe must not hide the call on the following line; division must not be misread as a regex.
+- 4 modules planted in a temp directory (`tool.mjs`, `nested/deep/probe.cjs`, `nested/adapter.ts`,
+  `nested/deep/legacy.cts`) must all be collected and reported — with the OLD extension filter asserted to miss the
+  `.mjs`/`.cjs` ones.
+
+**Result of re-running the corrected gate over the real repository:** still **0 offenders** across **172 non-test
+executables**. The fixes exposed nothing that the broken gate had been hiding — today the repo contains no `.mjs`/`.cjs`
+module at all — so this is a guard against a future bypass, not the discovery of a live one. Stated plainly rather than
+implied. The stale header comment claiming the deleted Ollama review script "remains as a known exception" was removed;
+there is no remaining exception.
+
+Suite **110 files / 2,997 passed / 0 skipped / 0 failed** (+17 control tests). No build re-run: no executable production
+code changed.
 
 **Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 

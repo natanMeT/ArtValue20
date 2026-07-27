@@ -18,15 +18,25 @@
 //      can re-open a hidden path.
 //   6. Growth stays BetaUnavailable and Auth/schema/Gateway are untouched.
 //
-// The one KNOWN and DISCLOSED exception lives outside src/: the developer
-// review-prep CLI (scripts/local-review-prep.mjs) still calls a local Ollama
-// for an ADVISORY summary. It is local tooling, it is never imported by the
-// application, and it is never bundled — asserted explicitly below so the
-// exception can never silently grow into a product path.
+// There is NO remaining exception. The developer review-prep CLI that used to
+// call a local Ollama (scripts/local-review-prep.mjs) has been DELETED together
+// with the whole scripts/ directory, and the AI Gateway no longer registers a
+// local provider — both are asserted below as ABSENCE, not as an allowance.
+//
+// The scanning primitives live in ./support/sourceScan.js so the NEGATIVE
+// CONTROLS at the bottom exercise the EXACT code these assertions run. Two
+// Codex findings on `1361a84` are why they exist: a regex comment stripper that
+// ate the `//` inside URL string literals, and a walker that only recognised
+// `.mjs`/`.cjs` at the repository root.
 // ===================================================================
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import {
+  collectModules, isModuleFile, MODULE_EXTENSIONS,
+  stripComments, namesEngine, hasLocalAddress,
+} from './support/sourceScan.js';
 
 const SRC = 'src';
 
@@ -55,17 +65,11 @@ const LOCAL_ENV_VARS = [
 
 const isTestPath = (p) => /\.test\.[jt]sx?$/.test(p) || /(^|[\\/])__tests__[\\/]/.test(p);
 
-function walk(dir) {
-  const out = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...walk(full));
-    else if (/\.(js|jsx|ts|tsx)$/.test(entry.name)) out.push(full);
-  }
-  return out;
-}
+// Recursive collection of EVERY executable module extension (incl. .mjs/.cjs at
+// any depth) is owned by support/sourceScan.js and shared with the controls.
+const walk = collectModules;
 
-const runtimeFiles = () => walk(SRC).map((f) => path.normalize(f)).filter((f) => !isTestPath(f));
+const runtimeFiles = () => walk(SRC).filter((f) => !isTestPath(f));
 
 function importSpecifiers(src) {
   const statics = [...src.matchAll(/(?:^|\s)(?:import|export)\b[^'"\n]*?\bfrom\s*['"]([^'"]+)['"]/g)].map((m) => m[1]);
@@ -74,16 +78,17 @@ function importSpecifiers(src) {
   return [...statics, ...bare, ...dynamic];
 }
 
-// Strip comments so documentation that NAMES a retired engine (in order to say
-// it is gone) never counts as executable code.
-const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+// `stripComments` (imported above) removes comments so documentation that NAMES
+// a retired engine — in order to say it is gone — never counts as executable
+// code, WITHOUT touching string, template or regex literals. See its module
+// header for the defect that made syntax-awareness mandatory.
 
 // Resolve a relative specifier to a real file on disk (extension-tolerant).
 function resolveLocal(fromFile, spec) {
   if (!spec.startsWith('.')) return null;
   const base = path.normalize(path.join(path.dirname(fromFile), spec));
-  const candidates = [base, `${base}.js`, `${base}.jsx`, `${base}.ts`, `${base}.tsx`,
-    path.join(base, 'index.js'), path.join(base, 'index.jsx')];
+  const candidates = [base, ...MODULE_EXTENSIONS.map((e) => `${base}${e}`),
+    path.join(base, 'index.js'), path.join(base, 'index.jsx'), path.join(base, 'index.mjs')];
   return candidates.find((c) => fs.existsSync(c) && fs.statSync(c).isFile()) || null;
 }
 
@@ -136,7 +141,7 @@ describe('local-engine retirement · the app import closure is clean', () => {
     const offenders = [];
     for (const file of closure) {
       const code = stripComments(fs.readFileSync(file, 'utf8'));
-      if (/localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]/.test(code)) offenders.push(file);
+      if (hasLocalAddress(code)) offenders.push(file);
     }
     expect(offenders, `local addresses in reachable code: ${offenders.join(', ')}`).toEqual([]);
   });
@@ -149,7 +154,7 @@ describe('local-engine retirement · the app import closure is clean', () => {
     const offenders = [];
     for (const file of closure) {
       const code = stripComments(fs.readFileSync(file, 'utf8'));
-      if (/\b(comfy|comfyui|fooocus|ollama|automatic1111|a1111)\b/i.test(code)) offenders.push(file);
+      if (namesEngine(code)) offenders.push(file);
     }
     expect(offenders, `engine terms in reachable code: ${offenders.join(', ')}`).toEqual([]);
   });
@@ -306,14 +311,15 @@ describe('local-engine retirement · the AI Gateway registers no local provider'
 describe('local-engine retirement · repository-wide executable scan', () => {
   // Every executable file in the repo, not just src/: source, Edge function,
   // tooling. Build output, deps and documentation are excluded by design.
+  // Every root is walked RECURSIVELY with the same full extension set, so a
+  // nested `src/tool.mjs`, `supabase/functions/tool.mjs` or tooling `.cjs`
+  // cannot sit outside the scan (Codex P2 on `1361a84`).
   function repoExecutables() {
-    const roots = ['src', 'supabase'].filter((d) => fs.existsSync(d));
-    const out = roots.flatMap((d) => walk(d));
+    const out = ['src', 'supabase', 'scripts'].flatMap((d) => collectModules(d));
     for (const f of fs.readdirSync('.', { withFileTypes: true })) {
-      if (f.isFile() && /\.(m?js|cjs|ts)$/.test(f.name)) out.push(path.normalize(f.name));
+      if (f.isFile() && isModuleFile(f.name)) out.push(path.normalize(f.name));
     }
-    if (fs.existsSync('scripts')) out.push(...walk('scripts'));
-    return out.map((f) => path.normalize(f));
+    return out;
   }
 
   it('no executable file names a workstation engine outside a comment', () => {
@@ -321,7 +327,7 @@ describe('local-engine retirement · repository-wide executable scan', () => {
     for (const file of repoExecutables()) {
       if (isTestPath(file)) continue; // tests name them to assert their absence
       const code = stripComments(fs.readFileSync(file, 'utf8'));
-      if (/\b(comfy|comfyui|fooocus|ollama|automatic1111|a1111)\b/i.test(code)) offenders.push(file);
+      if (namesEngine(code)) offenders.push(file);
     }
     expect(offenders, `engine names in executable code: ${offenders.join(', ')}`).toEqual([]);
   });
@@ -331,7 +337,7 @@ describe('local-engine retirement · repository-wide executable scan', () => {
     for (const file of repoExecutables()) {
       if (isTestPath(file)) continue;
       const code = stripComments(fs.readFileSync(file, 'utf8'));
-      if (/localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|:8188|:7860|:11434/.test(code)) offenders.push(file);
+      if (hasLocalAddress(code)) offenders.push(file);
     }
     expect(offenders, `local addresses in executable code: ${offenders.join(', ')}`).toEqual([]);
   });
@@ -358,6 +364,129 @@ describe('local-engine retirement · unchanged surfaces', () => {
     const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
     for (const [name, cmd] of Object.entries(pkg.scripts || {})) {
       expect(/ollama|comfy|fooocus|a1111|localhost|127\.0\.0\.1/i.test(`${name} ${cmd}`), `${name}: ${cmd}`).toBe(false);
+    }
+  });
+});
+
+// ===================================================================
+// NEGATIVE CONTROLS — prove the gate CATCHES what it is supposed to catch.
+//
+// Every assertion above is a "nothing found" assertion. On its own that is weak
+// evidence: a scan that silently finds nothing looks identical to a scan that
+// cannot find anything. Codex found exactly that failure twice on `1361a84`.
+// These controls plant each bypass and require the SHARED primitives above
+// (stripComments / collectModules / the detectors) to report it.
+// ===================================================================
+
+describe('negative control · syntax-aware comment stripping (Codex P1)', () => {
+  // THE BYPASS: the old stripper was `s.replace(/\/\/[^\n]*/g, '')`. It saw the
+  // `//` inside `http://` as a line comment and truncated the statement to
+  // `fetch('http:` — deleting the address before the detector ever ran.
+  const CALLS = [
+    ["fetch('http://127.0.0.1:8188/prompt')", 'single-quoted URL'],
+    ['fetch("http://localhost:11434/api/generate")', 'double-quoted URL'],
+    ['const u = `http://127.0.0.1:7860/sdapi/v1/txt2img`;', 'template literal URL'],
+    ['const u = `${base}//127.0.0.1:8188/view`;', 'template literal with substitution'],
+    ["const engines = { comfy: 'http://localhost:8188' };", 'URL in an object literal'],
+  ];
+
+  it.each(CALLS)('detects a local address inside %s', (source) => {
+    const code = stripComments(source);
+    expect(code, 'the literal must survive stripping intact').toContain('//');
+    expect(hasLocalAddress(code), `bypassed: ${JSON.stringify(code)}`).toBe(true);
+  });
+
+  it('the OLD regex stripper demonstrably loses each of those calls', () => {
+    const naive = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    // This is the defect, reproduced: every planted call escapes the old gate.
+    for (const [source] of CALLS) {
+      expect(hasLocalAddress(naive(source)), `unexpectedly survived: ${source}`).toBe(false);
+      expect(hasLocalAddress(stripComments(source)), source).toBe(true); // ...and the new one holds it
+    }
+  });
+
+  const COMMENTS = [
+    ['// legacy: http://127.0.0.1:8188 was the ComfyUI bridge', 'line comment'],
+    ['/* historical: ollama ran at http://localhost:11434 */', 'block comment'],
+    ['const a = 1; // comfyui http://127.0.0.1:8188', 'trailing line comment'],
+    ['/**\n * Fooocus lived at http://127.0.0.1:7860\n */\nconst b = 2;', 'jsdoc block'],
+  ];
+
+  it.each(COMMENTS)('ignores a retired address/name in a %s', (source) => {
+    const code = stripComments(source);
+    expect(hasLocalAddress(code), `comment leaked: ${JSON.stringify(code)}`).toBe(false);
+    expect(namesEngine(code), `comment leaked: ${JSON.stringify(code)}`).toBe(false);
+  });
+
+  it('a regex literal cannot open a phantom string and swallow following code', () => {
+    // An apostrophe inside a regex used to start a "string" that ate the rest
+    // of the file — hiding every later call from the scan.
+    const src = "const re = /it's fine/;\nfetch('http://127.0.0.1:8188/prompt');";
+    const code = stripComments(src);
+    expect(hasLocalAddress(code)).toBe(true);
+    expect(code).toContain('fetch(');
+  });
+
+  it('an engine NAME in executable code is detected while the same name in a comment is not', () => {
+    expect(namesEngine(stripComments("const provider = 'ollama';"))).toBe(true);
+    expect(namesEngine(stripComments('// ollama was removed on 2026-07-27'))).toBe(false);
+  });
+
+  it('division is not mistaken for a regex (no code is lost after it)', () => {
+    const code = stripComments("const half = total / 2;\nfetch('http://localhost:8188/x');");
+    expect(hasLocalAddress(code)).toBe(true);
+  });
+});
+
+describe('negative control · recursive scan of every module extension (Codex P2)', () => {
+  // THE BYPASS: the walker matched only .js/.jsx/.ts/.tsx recursively, and
+  // .mjs/.cjs ONLY at the repository root — so a nested `src/tool.mjs` or
+  // `supabase/functions/tool.cjs` was invisible to both repository-wide scans.
+  const PLANTED = [
+    ['tool.mjs', "fetch('http://127.0.0.1:8188/prompt');"],
+    ['nested/deep/probe.cjs', "require('node:http').get('http://localhost:11434/api/tags');"],
+    ['nested/adapter.ts', "export const url = 'http://127.0.0.1:7860';"],
+    ['nested/deep/legacy.cts', "export const p = 'ollama';"],
+  ];
+
+  let root;
+  beforeAll(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'av-scan-control-'));
+    for (const [rel, body] of PLANTED) {
+      const full = path.join(root, rel);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, body, 'utf8');
+    }
+  });
+  afterAll(() => { fs.rmSync(root, { recursive: true, force: true }); });
+
+  it('collectModules finds every planted module at every depth', () => {
+    const found = collectModules(root).map((f) => path.relative(root, f).split(path.sep).join('/'));
+    for (const [rel] of PLANTED) expect(found, `missed: ${rel}`).toContain(rel);
+    expect(found).toHaveLength(PLANTED.length);
+  });
+
+  it('the OLD extension filter demonstrably missed the .mjs/.cjs modules', () => {
+    const oldFilter = (name) => /\.(js|jsx|ts|tsx)$/.test(name);
+    expect(oldFilter('tool.mjs')).toBe(false);
+    expect(oldFilter('probe.cjs')).toBe(false);
+    // ...and the current one accepts them
+    expect(isModuleFile('tool.mjs')).toBe(true);
+    expect(isModuleFile('probe.cjs')).toBe(true);
+  });
+
+  it('each planted module is reported by the detectors the scans apply', () => {
+    const offenders = [];
+    for (const file of collectModules(root)) {
+      const code = stripComments(fs.readFileSync(file, 'utf8'));
+      if (hasLocalAddress(code) || namesEngine(code)) offenders.push(path.basename(file));
+    }
+    expect(offenders.sort()).toEqual(['adapter.ts', 'legacy.cts', 'probe.cjs', 'tool.mjs']);
+  });
+
+  it('the extension set covers every module form the toolchain executes', () => {
+    for (const ext of ['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx']) {
+      expect(MODULE_EXTENSIONS, ext).toContain(ext);
     }
   });
 });
