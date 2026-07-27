@@ -12,6 +12,8 @@ import Icon from '../components/ui/Icon.jsx';
 import { callAiGateway } from '../lib/aiGatewayClient.js';
 import { generateImage, downloadImage, isImageAiConfigured } from '../lib/hostedImage.js';
 import { createGalleryStore, srcToBlob, GALLERY_MAX, filterGalleryItems } from '../lib/galleryStore.js';
+import { listAssets, createAsset, deleteAsset } from '../lib/api.js';
+import { ASSET_QUOTA } from '../lib/assetLibrary.js';
 import { activeBrandPalette, withBrandPalette } from '../lib/brandPalette.js';
 import { AI_GATEWAY_INPUT_LIMITS } from '../lib/aiGatewayInput.js';
 import { CREATIVE_PRESETS, isTextImagePreset } from '../data/creativePresets.js';
@@ -196,9 +198,43 @@ export function disposeGalleryItems(items, revoke) {
   if (!fn) return 0;
   let n = 0;
   for (const it of Array.isArray(items) ? items : []) {
-    if (it && typeof it.url === 'string' && it.url) { try { fn(it.url); n += 1; } catch { /* ignore */ } }
+    // Only object URLs are ours to release. Asset Library items carry a
+    // short-lived SIGNED https URL, which is not a blob URL and must never be
+    // passed to revokeObjectURL — it expires on the server's schedule.
+    if (it && typeof it.url === 'string' && it.url.startsWith('blob:')) { try { fn(it.url); n += 1; } catch { /* ignore */ } }
   }
   return n;
+}
+
+// Asset Library slice 1 — ONE gallery interface, two backings.
+//
+// Both adapters expose exactly { list, add, remove }, so the page never asks
+// which mode it is in. `add` REJECTS on failure in both: a save is claimed only
+// after the backing store confirms it (persist-first).
+//
+// The cloud adapter is durable (Supabase private bucket + owner-only rows).
+// The device adapter is the UNCHANGED per-account IndexedDB store — it is used
+// in local/demo only, and its database is never touched from cloud mode.
+export function createCloudAssetStore(userId, io = { listAssets, createAsset, deleteAsset }) {
+  return {
+    durable: true,
+    userId,
+    list: () => io.listAssets(),
+    // `currentCount` feeds the truthful pre-refusal only; the 40-asset quota is
+    // enforced by the storage.objects INSERT policy on the server.
+    add: (blob, meta, currentCount) => io.createAsset(userId, blob, meta, currentCount),
+    remove: (item) => io.deleteAsset(item?.storagePath, item?.id),
+  };
+}
+
+export function createDeviceGalleryAdapter(store) {
+  return {
+    durable: false,
+    dbName: store.dbName,
+    list: () => store.list(),
+    add: (blob, meta) => store.add(blob, meta),
+    remove: (item) => store.remove(item?.id),
+  };
 }
 
 // P2 - the hosted Gateway validates the TRIMMED prompt against
@@ -238,11 +274,23 @@ export function presetModelFamily(preset) {
 
 
 export default function ImageStudio() {
-  const { toast, data, session } = useStore();
+  const { toast, data, session, supabaseEnabled } = useStore();
   const location = useLocation();
-  // S0F.1 (D6) — per-account gallery: rebuilt when the account changes, so a
-  // switch reloads the correct namespace and never the previous account's.
-  const galleryStore = useMemo(() => createGalleryStore(session), [session]);
+  // Asset Library slice 1 — in AUTHENTICATED CLOUD the gallery is DURABLE and
+  // lives in Supabase (private bucket + owner-only rows). In local/demo it
+  // stays exactly as it was: the per-account device IndexedDB store.
+  //
+  // NO DATA MIGRATION. The device gallery (`artvalue_gallery_<uid>`) is LEGACY
+  // in cloud mode: it is not read, converted, copied or deleted here — the same
+  // treatment S0F.1 gave the pre-S0F.1 device-global stores.
+  const cloudLibrary = Boolean(supabaseEnabled && session?.user?.id);
+  const galleryStore = useMemo(
+    () => (cloudLibrary
+      ? createCloudAssetStore(session.user.id)
+      : createDeviceGalleryAdapter(createGalleryStore(session))),
+    [cloudLibrary, session],
+  );
+  const galleryMax = cloudLibrary ? ASSET_QUOTA : GALLERY_MAX;
   // S0F.1 (D5) — the account's approved brand palette (S0D). null when the
   // account configured none, or when the stored value is malformed.
   const palette = useMemo(() => activeBrandPalette(data?.businessProfile), [data?.businessProfile]);
@@ -432,7 +480,24 @@ export default function ImageStudio() {
       if (r.demo) toast('נוצר דרך המחולל החינמי');
       // collect the output into the gallery
       if (r && r.src) {
-        try { await galleryStore.add(await srcToBlob(r.src), galleryMeta(r, SOURCE_BY_MODE[mode] || 'unknown')); await refreshGallery(); } catch { /* noop */ }
+        // Asset Library slice 1 — persist-first and TRUTHFUL. A durable save
+        // that failed is never silent: the image is still on screen (it was
+        // generated), but the user is told plainly that it was not saved, so
+        // they can download it instead of losing it on the next device.
+        try {
+          await galleryStore.add(
+            await srcToBlob(r.src),
+            galleryMeta(r, SOURCE_BY_MODE[mode] || 'unknown'),
+            galleryRef.current.length,
+          );
+          await refreshGallery();
+        } catch (e) {
+          if (galleryStore.durable) {
+            toast(userFacingError(e, 'התמונה נוצרה אך לא נשמרה בגלריה'), 'error');
+            await refreshGallery(); // a dangling row must become visible immediately
+          }
+          // device store (local/demo): unchanged pre-existing best-effort behaviour
+        }
       }
     } catch (e) {
       if (token !== runTokenRef.current) return; // stale run — already handled by cancel
@@ -454,8 +519,15 @@ export default function ImageStudio() {
   // Model Album result) straight into the Product Presenter presenter slot.
   // Image-kind items only. Never touches the product slot or the prompt.
 
-  const removeGalleryItem = async (id) => {
-    await galleryStore.remove(id);
+  // Delete removes the OBJECT before the row (see api.js). If the object could
+  // not be removed the row survives on purpose and nothing claims success — so
+  // a failure here is surfaced, never swallowed.
+  const removeGalleryItem = async (item) => {
+    try {
+      await galleryStore.remove(item);
+    } catch (e) {
+      if (galleryStore.durable) toast(userFacingError(e, 'מחיקת הפריט נכשלה'), 'error');
+    }
     refreshGallery();
   };
 
@@ -755,7 +827,7 @@ export default function ImageStudio() {
             </div>
           </div>
           <p className="dim" style={{ fontSize: '0.8rem', margin: '0 0 10px' }}>
-            נשמרות עד {GALLERY_MAX} פריטים
+            נשמרות עד {galleryMax} פריטים{galleryStore.durable ? ' · נשמר בענן בחשבון שלך' : ''}
           </p>
           {/* Render-history filter: all / images / videos (animated WebP) */}
           <div className="gallery-filters">
@@ -777,10 +849,24 @@ export default function ImageStudio() {
           <div className="gallery-grid">
             {filterGalleryItems(gallery, galleryTab).map((g) => (
               <div key={g.id} className="gallery-item">
-                <img src={g.url} alt="" loading="lazy" />
+                {/* A cloud item with no url is a DANGLING record: its row exists
+                    but its file does not (an upload that failed after the row
+                    was written). It is shown — not hidden — so the user can see
+                    it and delete it. Failing toward the visible state is the
+                    rule; an invisible orphan would be the alternative. */}
+                {g.url
+                  ? <img src={g.url} alt="" loading="lazy" />
+                  : (
+                    <span
+                      className="dim"
+                      style={{ display: 'grid', placeItems: 'center', width: '100%', height: '100%', fontSize: '0.72rem', textAlign: 'center', padding: 8 }}
+                    >
+                      הקובץ חסר — מחק ונסה שוב
+                    </span>
+                  )}
                 {g.kind === 'video' && <span className="gallery-kind"><Icon name="spark" size={11} /> וידאו</span>}
                 <div className="gallery-actions" onClick={(e) => e.stopPropagation()}>
-                  <button className="gallery-btn del" title="מחיקה" onClick={() => removeGalleryItem(g.id)}><Icon name="trash" size={13} /></button>
+                  <button className="gallery-btn del" title="מחיקה" onClick={() => removeGalleryItem(g)}><Icon name="trash" size={13} /></button>
                 </div>
               </div>
             ))}

@@ -8,6 +8,9 @@
 // ===================================================================
 import { supabase } from './supabase.js';
 import { validateBusinessProfile, normalizeBusinessProfile } from './businessProfile.js';
+import {
+  validateAssetUpload, sanitizeAssetMeta, normalizeAssetRow, sortAssetsNewestFirst,
+} from './assetLibrary.js';
 
 const uuid = () =>
   (crypto?.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -326,3 +329,126 @@ export async function bulkUpload(userId, data) {
 
 // Pure mapping helpers exported for focused unit tests (S0B + S0D).
 export { uuid, mapToRow, rowToClient, rowToTask, rowToBusinessProfile, CLIENT_FIELDS, TASK_FIELDS, BUSINESS_PROFILE_FIELDS, nullifyBlankDates };
+
+// ===================================================================
+// Asset Library slice 1 — durable cloud gallery images.
+//
+// The ONE ordering rule, applied to both directions:
+//   ALWAYS FAIL TOWARD THE VISIBLE STATE.
+// An orphaned OBJECT is invisible forever — it occupies storage and quota
+// that nothing in the product can show or reclaim. A dangling ROW is visible:
+// it renders as a broken item the user can delete. So:
+//
+//   create: ROW first, then BYTES.
+//     * row insert fails    -> nothing was written anywhere. Visible failure.
+//     * byte upload fails   -> a dangling row remains. Visible failure, and
+//       the row is DELIBERATELY NOT cleaned up: a "failed" upload that
+//       actually landed would leave an invisible orphan object, which is the
+//       one direction this rule forbids.
+//
+//   delete: OBJECT first, then ROW.
+//     * object remove fails -> the row is NOT deleted. Nothing claims success.
+//     * row delete fails    -> a dangling row remains. Visible, retryable.
+//
+// Bytes are reached ONLY through short-lived signed URLs. The bucket is
+// private, and the public-URL helper is never called anywhere in the product —
+// an invariant scanned by assetLibraryMigration.test.js (which is why that
+// helper's name is not spelled out here: the scan would match this comment).
+// ===================================================================
+
+const ASSET_BUCKET = 'assets';
+const ASSET_SIGNED_URL_TTL = 300; // seconds — short-lived by design
+
+// Map the canonical in-memory asset onto its row. Kept inline (not a field map)
+// because every value is derived from the validated upload, not from user input.
+function assetToRow(userId, assetId, v, meta) {
+  return {
+    id: assetId,
+    user_id: userId,
+    ext: v.ext,
+    mime: v.mime,
+    byte_size: v.byteSize,
+    storage_path: v.path,
+    kind: 'image',
+    source: meta.source ?? null,
+    prompt: meta.prompt ?? null,
+    preset: meta.preset ?? null,
+    engine: meta.engine ?? null,
+  };
+}
+
+/**
+ * List the signed-in account's assets, newest first, each with a short-lived
+ * signed URL. RLS scopes the select; the path CHECK guarantees every returned
+ * row describes this account's own object.
+ *
+ * A row whose object is missing (a dangling row) keeps `url: null` and is
+ * still returned — the user must be able to SEE and delete it.
+ */
+export async function listAssets() {
+  const res = await supabase.from('assets').select('*').order('created_at', { ascending: false });
+  guard(res.error);
+  const items = (res.data || []).map(normalizeAssetRow).filter(Boolean);
+  if (!items.length) return [];
+
+  // One signed-URL call for the whole page. A per-path error is NOT fatal:
+  // that item simply has no url and renders as dangling.
+  const { data: signed } = await supabase.storage
+    .from(ASSET_BUCKET)
+    .createSignedUrls(items.map((it) => it.storagePath), ASSET_SIGNED_URL_TTL);
+  const urlByPath = new Map((signed || []).map((s) => [s.path, s.error ? null : s.signedUrl]));
+
+  return sortAssetsNewestFirst(items.map((it) => ({ ...it, url: urlByPath.get(it.storagePath) || null })));
+}
+
+/**
+ * Persist ONE image. `currentCount` is the account's known asset count and is
+ * used only for a truthful pre-refusal — the 40-asset quota is enforced by the
+ * storage.objects INSERT policy, which is what actually stops the write.
+ *
+ * Resolves with the created asset id. Rejects on ANY failure; the caller shows
+ * success only after this resolves (persist-first, no optimistic gallery item).
+ */
+export async function createAsset(userId, blob, meta = {}, currentCount = 0) {
+  const assetId = uuid();
+  const v = validateAssetUpload({
+    userId, assetId, mime: blob?.type, byteSize: blob?.size, currentCount,
+  });
+  if (!v.ok) {
+    const err = new Error(v.error);
+    err.userSafe = true; // already a truthful Hebrew message
+    throw err;
+  }
+
+  // 1) ROW FIRST. If this fails nothing exists anywhere.
+  guard((await supabase.from('assets').insert(assetToRow(userId, assetId, v, sanitizeAssetMeta(meta)))).error);
+
+  // 2) THEN BYTES. `upsert: false` is REQUIRED: there is no UPDATE policy on
+  // storage.objects for this bucket, so an overwrite is rejected by policy
+  // rather than silently accepted.
+  const up = await supabase.storage.from(ASSET_BUCKET).upload(v.path, blob, {
+    contentType: v.mime,
+    upsert: false,
+  });
+  if (up.error) {
+    // The row stays. See the ordering rule above — cleaning it up here risks
+    // deleting the record of an object that actually landed.
+    const err = new Error('הקובץ לא הועלה לענן. הפריט מופיע כשבור בגלריה — אפשר למחוק אותו ולנסות שוב.');
+    err.userSafe = true;
+    err.cause = up.error;
+    err.danglingAssetId = assetId;
+    throw err;
+  }
+  return assetId;
+}
+
+/**
+ * Delete ONE asset: object first, then row. Rejects if the object could not be
+ * removed — in that case the row is untouched and nothing claims success.
+ */
+export async function deleteAsset(storagePath, assetId) {
+  const rm = await supabase.storage.from(ASSET_BUCKET).remove([storagePath]);
+  guard(rm.error); // object still there -> row NOT deleted, no false success
+  guard((await supabase.from('assets').delete().eq('id', assetId)).error);
+  return true;
+}
