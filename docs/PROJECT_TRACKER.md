@@ -1117,6 +1117,49 @@ behalf. That is pre-existing, released behaviour and is unchanged by this PR.
 **Still IN FLIGHT / NOT RELEASED. Not merged, not deployed. P1 remains CLOSED / LIVE. PR #117 remains paused and
 untouched.**
 
+### Round 13 — the retirement MANIFEST (2 Codex P2s on `753ee2e`, both regression coverage only)
+
+**Both findings were valid, and both had one root cause.** The retirement was enforced against two lists that were
+**written, not derived** — so anything nobody happened to type stayed unprotected:
+
+1. the removed-module set omitted implementations this PR actually deleted — `comfyProgress.js`, `geminiImage.js`,
+   `productLock.js`, `ProductPlacer.jsx`, `local-review-prep.mjs`;
+2. the retired-variable set omitted almost the entire removed ComfyUI configuration family — the PuLID, Kontext, Qwen,
+   LTX, SVD and FLUX-tuning variables, plus `VITE_JAKE_CLOUD_MODEL` and `VITE_GEMINI_IMAGE_MODEL`.
+
+**One authoritative source now exists: `src/lib/__tests__/support/retirementManifest.js`.** Its contents were **derived
+mechanically from the PR diff and repository history, not recalled**, and the derivation commands are recorded in its
+header so the next person re-derives rather than re-guesses:
+
+- **modules** — `git diff --diff-filter=D --name-only 5d7506d1..HEAD`, plus the earlier retirement commits `1233034`,
+  `705575a`, `95e70a1`; each entry carries the commit that removed it. **15 modules** (was 7).
+- **environment** — production reads at the PR base **minus** production reads at HEAD, unioned with the `VITE_*`
+  assignments this PR removed from `.env.example`, minus everything production still reads. **29 variables** (was 14).
+- providers, routes and package-script terms moved into the same manifest, so the suite enumerates nothing of its own.
+
+**What the suite now proves:** every manifest-listed file is absent; no production source imports **or recreates** a
+manifest module under its retired path (with a control proving that predicate fires on `./comfyProgress.js` and stays
+quiet on `./hostedImage.js`); no executable production source reads any manifest variable; no retired assignment remains
+in `.env.example`; the manifest contains Codex's named omissions **and is strictly larger than them** (≥18 `VITE_COMFYUI_*`
+entries, so the finding cannot be satisfied by adding five strings); and — the opposite failure direction — it lists
+**none** of the seven variables production still legitimately reads.
+
+**The pre-fix gate is demonstrated to have been permissive, not merely narrower.** Controls reconstruct both `753ee2e`
+lists verbatim and show the old sets reporting **CLEAN** while `src/lib/comfyProgress.js` is back on disk and while
+`import.meta.env.VITE_COMFYUI_PULID` is read — and the manifest rejecting both. A third control shows the gap was
+systematic (≥8 modules and ≥14 variables missed), and a fourth shows **why terminology scanning cannot replace the
+manifest**: the engine regex is word-anchored, so `VITE_COMFYUI_QWEN_VAE` never trips it. Terminology scanning stays as
+**supporting** evidence only.
+
+**Verification.** **Test-only change — no production source was touched, so no build and no browser smoke were run**
+(the artifact remains the already-verified `index-C4frcMDi.js`). Focused proof suites: **2 files / 167 passed / 0
+failed** (`localEngineRetirement.test.js` **115 passed**, up from 103; `studioHostedModeContainment.test.js` 52).
+**Correction to Round 12's count:** the full-suite figure recorded there (110 files / 3,057) predates these 12 added
+assertions and was not re-run in this round; the retirement total is now 115.
+
+**No product behavior changed. The removed network-policy work is not reopened.** Still IN FLIGHT / NOT RELEASED, not
+merged, not deployed. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.
+
 ## Studio / Local-Engine UI Containment — **LIVE IN PRODUCTION** (2026-07-26)
 
 **Status: RELEASED. Live in Production as `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js` (source `03c23c2`)** —

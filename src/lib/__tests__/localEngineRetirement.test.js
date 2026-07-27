@@ -38,31 +38,24 @@ import {
   executableSource, executableSourceOf, parserOptionsFor, UnparseableSourceError,
   namesEngine, hasLocalAddress, isLoopbackHost,
 } from './support/sourceScan.js';
+import {
+  RETIRED_MODULES, RETIRED_MODULE_PATHS, RETIRED_SPECIFIER_FRAGMENTS,
+  RETIRED_ENV_VARS, RETIRED_PROVIDERS, RETIRED_ROUTES, RETIRED_SCRIPT_TERMS,
+} from './support/retirementManifest.js';
 
 const SRC = 'src';
 
-const DELETED_MODULES = [
-  'src/lib/localComfyEngine.js',
-  'src/lib/localEngines.js',
-  'src/lib/comfyPoster.js',
-  'src/creative/v2/poster/comfyPosterPrompt.js',
-  'src/components/ai/posterOverlay.js',
-  'src/components/ai/posterExport.js',
-  'src/pages/AdStudio.jsx',
-];
+// THE MANIFEST IS THE AUTHORITY (see support/retirementManifest.js). Two
+// hand-written lists used to live here and both were incomplete — Codex found
+// exactly that on `753ee2e`. They are gone; nothing in this file may enumerate
+// a retired module or variable of its own.
+const DELETED_MODULES = RETIRED_MODULE_PATHS;
 
-// Basenames that identify a retired local-engine module in an import specifier.
-const RETIRED_SPECIFIER = /(localComfyEngine|localEngines|comfyPoster|comfyPosterPrompt|comfyProgress|geminiImage|posterOverlay|posterExport|AdStudio|WorkflowStudio|Fooocus)/;
+// Import-specifier fragments, DERIVED from the manifest basenames rather than
+// typed, so a new manifest entry extends this automatically.
+const RETIRED_SPECIFIER = new RegExp(`(${RETIRED_SPECIFIER_FRAGMENTS.join('|')})`);
 
-// Env variables that used to configure a workstation engine. Reading ANY of
-// them again would be a hidden re-entry point.
-const LOCAL_ENV_VARS = [
-  'VITE_ENABLE_LOCAL_ENGINES', 'VITE_LOCAL_LLM_URL', 'VITE_LOCAL_LLM_MODEL',
-  'VITE_CREATIVE_LLM_MODEL', 'VITE_JAKE_MODEL', 'VITE_JAKE_BRAIN',
-  'VITE_LOCAL_IMAGE_URL', 'VITE_COMFYUI_URL', 'VITE_COMFYUI_MODEL',
-  'VITE_COMFYUI_FLUX_MODEL', 'VITE_COMFYUI_FLUX_LORA', 'VITE_COMFYUI_FACE_BBOX',
-  'VITE_COMFYUI_UPSCALE_MODEL', 'VITE_FOOOCUS_URL',
-];
+const LOCAL_ENV_VARS = RETIRED_ENV_VARS;
 
 const isTestPath = (p) => /\.test\.[jt]sx?$/.test(p) || /(^|[\\/])__tests__[\\/]/.test(p);
 
@@ -196,7 +189,7 @@ describe('local-engine retirement · routes', () => {
   const app = fs.readFileSync('src/App.jsx', 'utf8');
 
   it('no retired studio route is registered', () => {
-    for (const r of ['/adstudio', '/workflow', '/fooocus']) {
+    for (const r of RETIRED_ROUTES) {
       expect(app.includes(`path="${r}"`), r).toBe(false);
     }
   });
@@ -268,8 +261,7 @@ describe('local-engine retirement · nothing advertises a local-only capability'
 describe('local-engine retirement · the AI Gateway registers no local provider', () => {
   it('the canonical contract offers no local provider name in any vocabulary or chain', async () => {
     const gw = await import('../../../supabase/functions/_shared/aiGateway.js');
-    const LOCAL = ['comfyui', 'ollama', 'fooocus', 'a1111', 'automatic1111'];
-    for (const p of LOCAL) {
+    for (const p of RETIRED_PROVIDERS) {
       expect(gw.AI_PROVIDERS.includes(p), `AI_PROVIDERS: ${p}`).toBe(false);
       expect(gw.API_PROVIDERS.includes(p), `API_PROVIDERS: ${p}`).toBe(false);
       expect(Object.keys(gw.AI_MODELS).includes(p), `AI_MODELS: ${p}`).toBe(false);
@@ -353,7 +345,9 @@ describe('local-engine retirement · repository-wide executable scan', () => {
   it('no package script starts, probes or calls a local model', () => {
     const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
     for (const [name, cmd] of Object.entries(pkg.scripts || {})) {
-      expect(/ollama|comfy|fooocus|a1111|localhost|127\.0\.0\.1/i.test(cmd), `${name}: ${cmd}`).toBe(false);
+      for (const t of RETIRED_SCRIPT_TERMS) {
+        expect(cmd.toLowerCase().includes(t), `${name}: ${cmd} :: ${t}`).toBe(false);
+      }
     }
   });
 });
@@ -726,6 +720,186 @@ describe('negative control · recursive scan of every module extension', () => {
   it('the extension set covers every module form the toolchain executes', () => {
     for (const ext of ['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.cts', '.mts']) {
       expect(MODULE_EXTENSIONS, ext).toContain(ext);
+    }
+  });
+});
+
+// ===================================================================
+// THE MANIFEST IS THE INVARIANT (Codex P2 ×2 on `753ee2e`)
+//
+// Both findings had the same root cause: the retirement was enforced against
+// two lists that were WRITTEN rather than DERIVED, so anything nobody happened
+// to type stayed unprotected. `support/retirementManifest.js` is now the single
+// authoritative source, derived from the PR diff and repository history (the
+// derivation commands are recorded in its header). These assertions prove the
+// manifest is both COMPLETE against the real deletions and HONEST about what is
+// still live.
+// ===================================================================
+describe('retirement manifest · it is the single authoritative source', () => {
+  it('every manifest-listed retired file is absent from disk', () => {
+    const present = RETIRED_MODULE_PATHS.filter((f) => fs.existsSync(f));
+    expect(present, `retired files that came back: ${present.join(', ')}`).toEqual([]);
+  });
+
+  it('no production source imports or recreates a manifest module under its retired path', () => {
+    const offenders = [];
+    for (const file of runtimeFiles()) {
+      for (const spec of importSpecifiers(fs.readFileSync(file, 'utf8'))) {
+        const resolved = resolveLocal(file, spec);
+        const norm = resolved && path.normalize(resolved);
+        for (const retired of RETIRED_MODULE_PATHS) {
+          if (norm === path.normalize(retired)) offenders.push(`${file} -> ${retired}`);
+          // also catch a specifier that NAMES the retired module even if the
+          // file does not exist yet — an importer added ahead of the module
+          const base = retired.split('/').pop().replace(/\.(jsx?|mjs|tsx?)$/, '');
+          if (new RegExp(`(^|/)${base}(\\.[a-z]+)?$`).test(spec)) {
+            offenders.push(`${path.normalize(file)} -> ${spec}`);
+          }
+        }
+      }
+    }
+    expect([...new Set(offenders)], `retired-path imports: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  it('no executable production source reads any manifest-listed env variable', () => {
+    const offenders = [];
+    for (const file of runtimeFiles()) {
+      const code = executableSourceOf(file);
+      for (const v of RETIRED_ENV_VARS) {
+        if (code.includes(v)) offenders.push(`${path.normalize(file)} -> ${v}`);
+      }
+    }
+    expect(offenders, `retired env reads: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  it('no retired environment assignment remains in the shipped environment example', () => {
+    const lines = fs.readFileSync('.env.example', 'utf8').split('\n').map((l) => l.trim());
+    const offenders = [];
+    for (const l of lines) {
+      // commented-out documentation is not a shipped assignment
+      if (!l || l.startsWith('#')) continue;
+      const name = (l.match(/^([A-Z][A-Z0-9_]*)\s*=/) || [])[1];
+      if (name && RETIRED_ENV_VARS.includes(name)) offenders.push(l);
+    }
+    expect(offenders, `retired assignments still shipped: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  // COMPLETENESS, not just correctness: the manifest must cover the specific
+  // omissions Codex named — and it is asserted to be strictly LARGER than those
+  // examples, so nobody can satisfy the finding by adding exactly five strings.
+  it('the manifest covers the omissions Codex identified — and is not limited to them', () => {
+    const CODEX_MODULES = [
+      'src/lib/comfyProgress.js',
+      'src/lib/geminiImage.js',
+      'src/lib/productLock.js',
+      'src/components/studio/ProductPlacer.jsx',
+      'scripts/local-review-prep.mjs',
+    ];
+    const CODEX_ENV = [
+      'VITE_COMFYUI_PULID', 'VITE_COMFYUI_KONTEXT_MODEL', 'VITE_COMFYUI_QWEN_EDIT',
+      'VITE_COMFYUI_SVD_MODEL', 'VITE_GEMINI_IMAGE_MODEL',
+    ];
+    for (const m of CODEX_MODULES) expect(RETIRED_MODULE_PATHS, m).toContain(m);
+    for (const v of CODEX_ENV) expect(RETIRED_ENV_VARS, v).toContain(v);
+    // the whole removed ComfyUI configuration family, not a sample of it
+    const comfy = RETIRED_ENV_VARS.filter((v) => v.startsWith('VITE_COMFYUI_'));
+    expect(comfy.length, `ComfyUI family too small: ${comfy.join(', ')}`).toBeGreaterThanOrEqual(18);
+    expect(RETIRED_MODULE_PATHS.length).toBeGreaterThan(CODEX_MODULES.length);
+    expect(RETIRED_ENV_VARS.length).toBeGreaterThan(CODEX_ENV.length);
+  });
+
+  // The opposite failure direction: over-listing would make the suite lie about
+  // what the product still needs. A manifest variable must be read by NOTHING.
+  it('the manifest lists no variable the product still legitimately reads', () => {
+    const LIVE = ['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY', 'VITE_GEMINI_API_KEY',
+      'VITE_GEMINI_MODEL', 'VITE_POLLINATIONS_TOKEN', 'VITE_POLLINATIONS_MODEL',
+      'VITE_READER_PROXY'];
+    for (const v of LIVE) expect(RETIRED_ENV_VARS, v).not.toContain(v);
+  });
+
+  // The repository-wide assertion above passes because there ARE no offenders.
+  // This proves the predicate it uses is not vacuous: the same shape fires on a
+  // retired specifier and stays quiet on a legitimate neighbour.
+  it('the retired-path specifier predicate fires (and does not over-fire)', () => {
+    const fires = (spec) => RETIRED_MODULE_PATHS.some((r) => {
+      const base = r.split('/').pop().replace(/\.(jsx?|mjs|tsx?)$/, '');
+      return new RegExp(`(^|/)${base}(\\.[a-z]+)?$`).test(spec);
+    });
+    for (const s of ['./comfyProgress.js', '../lib/comfyProgress', './productLock.js',
+      '../studio/ProductPlacer.jsx', './geminiImage.js']) {
+      expect(fires(s), `should fire: ${s}`).toBe(true);
+    }
+    for (const s of ['./hostedImage.js', './userIdentity.js', './productLockUnrelatedThing',
+      './studioModes.js']) {
+      expect(fires(s), `should NOT fire: ${s}`).toBe(false);
+    }
+  });
+
+  it('every manifest module entry records the commit that removed it', () => {
+    for (const m of RETIRED_MODULES) {
+      expect(m.path, JSON.stringify(m)).toMatch(/^(src|scripts)\//);
+      expect(m.since, m.path).toMatch(/^[0-9a-f]{7,40}$/);
+      expect(String(m.what).length, m.path).toBeGreaterThan(3);
+    }
+  });
+});
+
+describe('negative control · the PRE-FIX lists would have let a retirement regress', () => {
+  // The two lists exactly as they stood on `753ee2e`, before the manifest.
+  const PRE_FIX_MODULES = [
+    'src/lib/localComfyEngine.js', 'src/lib/localEngines.js', 'src/lib/comfyPoster.js',
+    'src/creative/v2/poster/comfyPosterPrompt.js', 'src/components/ai/posterOverlay.js',
+    'src/components/ai/posterExport.js', 'src/pages/AdStudio.jsx',
+  ];
+  const PRE_FIX_ENV = [
+    'VITE_ENABLE_LOCAL_ENGINES', 'VITE_LOCAL_LLM_URL', 'VITE_LOCAL_LLM_MODEL',
+    'VITE_CREATIVE_LLM_MODEL', 'VITE_JAKE_MODEL', 'VITE_JAKE_BRAIN',
+    'VITE_LOCAL_IMAGE_URL', 'VITE_COMFYUI_URL', 'VITE_COMFYUI_MODEL',
+    'VITE_COMFYUI_FLUX_MODEL', 'VITE_COMFYUI_FLUX_LORA', 'VITE_COMFYUI_FACE_BBOX',
+    'VITE_COMFYUI_UPSCALE_MODEL', 'VITE_FOOOCUS_URL',
+  ];
+
+  // The SAME predicate shapes the suite applies, with the "does it exist" and
+  // "what is the source" inputs injected — so this exercises the real gate, not
+  // a re-implementation of it.
+  const revivedFiles = (list, present) => list.filter((f) => present.has(path.normalize(f)));
+  const envReads = (list, code) => list.filter((v) => code.includes(v));
+
+  it('a deleted module could return under a path the old list never named', () => {
+    // `comfyProgress.js` was deleted by this PR and was NOT in the old list.
+    const revived = new Set([path.normalize('src/lib/comfyProgress.js')]);
+
+    expect(revivedFiles(PRE_FIX_MODULES, revived),
+      'the pre-fix list reported CLEAN while a retired module was back').toEqual([]);
+    expect(revivedFiles(RETIRED_MODULE_PATHS, revived))
+      .toEqual(['src/lib/comfyProgress.js']);
+  });
+
+  it('a retired variable could be read again without the old list noticing', () => {
+    // `VITE_COMFYUI_PULID` configured the retired PuLID identity lane.
+    const code = "const pulid = import.meta.env.VITE_COMFYUI_PULID || '';";
+
+    expect(envReads(PRE_FIX_ENV, code),
+      'the pre-fix list reported CLEAN while a retired variable was read').toEqual([]);
+    expect(envReads(RETIRED_ENV_VARS, code)).toEqual(['VITE_COMFYUI_PULID']);
+  });
+
+  it('the gap was systematic, not two unlucky omissions', () => {
+    const missedModules = RETIRED_MODULE_PATHS.filter((m) => !PRE_FIX_MODULES.includes(m));
+    const missedEnv = RETIRED_ENV_VARS.filter((v) => !PRE_FIX_ENV.includes(v));
+    expect(missedModules.length, `modules the old list missed: ${missedModules.join(', ')}`)
+      .toBeGreaterThanOrEqual(8);
+    expect(missedEnv.length, `variables the old list missed: ${missedEnv.join(', ')}`)
+      .toBeGreaterThanOrEqual(14);
+  });
+
+  it('word-boundary engine matching alone would NOT have found the retired variables', () => {
+    // Why the manifest cannot be replaced by terminology scanning: the engine
+    // regex is a word-anchored match, so a variable NAME never trips it.
+    for (const v of ['VITE_COMFYUI_QWEN_VAE', 'VITE_COMFYUI_PULID_MODEL', 'VITE_JAKE_CLOUD_MODEL']) {
+      const code = `const x = import.meta.env.${v};`;
+      expect(namesEngine(code), `${v} should NOT be discoverable by word-boundary scan`).toBe(false);
+      expect(RETIRED_ENV_VARS, v).toContain(v);
     }
   });
 });
