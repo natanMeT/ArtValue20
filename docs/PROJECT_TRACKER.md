@@ -1155,7 +1155,37 @@ manifest**: the engine regex is word-anchored, so `VITE_COMFYUI_QWEN_VAE` never 
 (the artifact remains the already-verified `index-C4frcMDi.js`). Focused proof suites: **2 files / 167 passed / 0
 failed** (`localEngineRetirement.test.js` **115 passed**, up from 103; `studioHostedModeContainment.test.js` 52).
 **Correction to Round 12's count:** the full-suite figure recorded there (110 files / 3,057) predates these 12 added
-assertions and was not re-run in this round; the retirement total is now 115.
+assertions and was not re-run in this round. *(Superseded by Round 14 below: the retirement total is now 119.)*
+
+### Round 14 — the retirement invariants now cover the WHOLE repository (1 Codex P2 on `1c6987b`)
+
+**Finding confirmed against the real code.** The retired-environment assertion — and the manifest's retired-path import
+assertion with it — walked `src/` only, via a `runtimeFiles()` helper. The **Supabase Edge function and its shared
+modules under `supabase/functions/` are production code that ships and executes**, so a retired variable read there was
+never inspected. Tooling roots and repository-root modules were equally uncovered.
+
+**Fix, within the existing structure and with no new walker.** The repository-wide collector `repoExecutables()` already
+existed inside the repository-scan describe block; it is **hoisted to module scope** and paired with one
+`productionExecutables()` = repository-wide executables **minus** tests. The `src/`-only helper is **deleted**, so every
+retirement invariant — legacy env reads, manifest env reads, manifest retired-path imports — now shares one set by
+construction and cannot drift apart again. Tests stay excluded in the one place, because a test may legitimately NAME a
+retired module or variable in order to assert nothing reads it (this suite does exactly that).
+
+**Result: no live offender.** Widening the scan to `supabase/` and the repository root found **0** retired variable
+reads. This is a **coverage guard against a future regression, not the discovery of a live one** — stated plainly rather
+than presented as a catch.
+
+**Four controls pin the new coverage:** the production set demonstrably reaches `supabase/functions/`, `src/` and the
+repository root and is strictly larger than the `src/`-only set; it still excludes every test path, including this file;
+the pre-fix `src/`-only scope is shown **not to contain** a real Edge module that the corrected set does contain; and a
+non-vacuity check confirms the scan reads real source (>100 files) and that the predicate fires on a planted
+`import.meta.env.VITE_COMFYUI_QWEN_UNET`.
+
+**Verification.** **Test-only change — no production source touched, so no build and no browser smoke were run**;
+the artifact remains the already-verified `index-C4frcMDi.js`. Focused proof suites: **2 files / 171 passed / 0 failed**
+(`localEngineRetirement.test.js` **119**, up from 115; `studioHostedModeContainment.test.js` 52). The full suite was not
+re-run this round. No product behavior changed; the removed network-policy work is not reopened. Not merged, not
+deployed. PR #117 remains paused and untouched.
 
 **No product behavior changed. The removed network-policy work is not reopened.** Still IN FLIGHT / NOT RELEASED, not
 merged, not deployed. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.

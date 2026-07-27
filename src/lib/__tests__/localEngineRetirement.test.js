@@ -63,7 +63,29 @@ const isTestPath = (p) => /\.test\.[jt]sx?$/.test(p) || /(^|[\\/])__tests__[\\/]
 // any depth) is owned by support/sourceScan.js and shared with the controls.
 const walk = collectModules;
 
-const runtimeFiles = () => walk(SRC).filter((f) => !isTestPath(f));
+// EVERY executable file in the repository, not just src/: application source,
+// the Supabase Edge function and its shared modules, tooling, and any module at
+// the repository root. Build output, dependencies and documentation are excluded
+// by design. Every root is walked RECURSIVELY with the same full extension set,
+// so a nested `supabase/functions/tool.mjs` or a tooling `.cjs` cannot sit
+// outside the scan (Codex P2 on `1361a84`).
+function repoExecutables() {
+  const out = ['src', 'supabase', 'scripts'].flatMap((d) => collectModules(d));
+  for (const f of fs.readdirSync('.', { withFileTypes: true })) {
+    if (f.isFile() && isModuleFile(f.name)) out.push(path.normalize(f.name));
+  }
+  return out;
+}
+
+// The production surface the retirement invariants apply to: the repository-wide
+// executable set MINUS tests. A test may legitimately NAME a retired module or
+// variable in order to assert that nothing reads it — this file does exactly
+// that — so tests are excluded here rather than in each assertion.
+// A src/-only walk is NOT a substitute: it cannot see the Edge function, so a
+// retired variable read in `supabase/functions/` went unchecked until Codex
+// found it on `1c6987b`. That src/-only helper is gone; every retirement
+// invariant now shares this one set.
+const productionExecutables = () => repoExecutables().filter((f) => !isTestPath(f));
 
 function importSpecifiers(src) {
   const statics = [...src.matchAll(/(?:^|\s)(?:import|export)\b[^'"\n]*?\bfrom\s*['"]([^'"]+)['"]/g)].map((m) => m[1]);
@@ -164,9 +186,9 @@ describe('local-engine retirement · the app import closure is clean', () => {
 describe('local-engine retirement · no env setting can re-open a path', () => {
   // Runtime sources only: a test may legitimately NAME a variable in order to
   // assert that nothing reads it (this file does exactly that).
-  it('no runtime file in src/ reads any local-engine env variable', () => {
+  it('no production executable anywhere in the repository reads a local-engine env variable', () => {
     const offenders = [];
-    for (const file of runtimeFiles()) {
+    for (const file of productionExecutables()) {
       const code = executableSourceOf(file);
       for (const v of LOCAL_ENV_VARS) {
         if (code.includes(v)) offenders.push(`${path.normalize(file)} → ${v}`);
@@ -309,18 +331,8 @@ describe('local-engine retirement · the AI Gateway registers no local provider'
 });
 
 describe('local-engine retirement · repository-wide executable scan', () => {
-  // Every executable file in the repo, not just src/: source, Edge function,
-  // tooling. Build output, deps and documentation are excluded by design.
-  // Every root is walked RECURSIVELY with the same full extension set, so a
-  // nested `src/tool.mjs`, `supabase/functions/tool.mjs` or tooling `.cjs`
-  // cannot sit outside the scan (Codex P2 on `1361a84`).
-  function repoExecutables() {
-    const out = ['src', 'supabase', 'scripts'].flatMap((d) => collectModules(d));
-    for (const f of fs.readdirSync('.', { withFileTypes: true })) {
-      if (f.isFile() && isModuleFile(f.name)) out.push(path.normalize(f.name));
-    }
-    return out;
-  }
+  // `repoExecutables()` is defined at module scope and shared with the
+  // manifest invariants, so both scans cover the same set by construction.
 
   it('no executable file names a workstation engine outside a comment', () => {
     const offenders = [];
@@ -743,7 +755,7 @@ describe('retirement manifest · it is the single authoritative source', () => {
 
   it('no production source imports or recreates a manifest module under its retired path', () => {
     const offenders = [];
-    for (const file of runtimeFiles()) {
+    for (const file of productionExecutables()) {
       for (const spec of importSpecifiers(fs.readFileSync(file, 'utf8'))) {
         const resolved = resolveLocal(file, spec);
         const norm = resolved && path.normalize(resolved);
@@ -763,7 +775,9 @@ describe('retirement manifest · it is the single authoritative source', () => {
 
   it('no executable production source reads any manifest-listed env variable', () => {
     const offenders = [];
-    for (const file of runtimeFiles()) {
+    // REPOSITORY-WIDE, not src/: the Supabase Edge function and its shared
+    // modules are production code too (Codex P2 on `1c6987b`).
+    for (const file of productionExecutables()) {
       const code = executableSourceOf(file);
       for (const v of RETIRED_ENV_VARS) {
         if (code.includes(v)) offenders.push(`${path.normalize(file)} -> ${v}`);
@@ -901,5 +915,50 @@ describe('negative control · the PRE-FIX lists would have let a retirement regr
       expect(namesEngine(code), `${v} should NOT be discoverable by word-boundary scan`).toBe(false);
       expect(RETIRED_ENV_VARS, v).toContain(v);
     }
+  });
+});
+
+describe('negative control · the retirement invariants cover the WHOLE repository', () => {
+  // THE BYPASS (Codex P2 on `1c6987b`): the retired-environment assertion walked
+  // `src/` only. The Supabase Edge function and its shared modules are
+  // production code that ships and executes, so a retired variable read in
+  // `supabase/functions/` was never inspected.
+  const SRC_ONLY = () => collectModules('src').filter((f) => !isTestPath(f));
+
+  it('the production set reaches the Edge function, tooling roots and the repo root', () => {
+    const set = productionExecutables().map((f) => path.normalize(f));
+    const hasUnder = (dir) => set.some((f) => f.startsWith(path.normalize(dir) + path.sep));
+    expect(hasUnder('supabase/functions'), 'Edge function not covered').toBe(true);
+    expect(hasUnder('src'), 'src/ not covered').toBe(true);
+    expect(set.length).toBeGreaterThan(SRC_ONLY().length);
+  });
+
+  it('the production set still excludes tests (a test may NAME what it asserts is gone)', () => {
+    const leaked = productionExecutables().filter((f) => isTestPath(f));
+    expect(leaked, `tests leaked into the production set: ${leaked.join(', ')}`).toEqual([]);
+    // …and this very file, which names every retired variable, is one of them
+    expect(productionExecutables().map((f) => path.normalize(f)))
+      .not.toContain(path.normalize('src/lib/__tests__/localEngineRetirement.test.js'));
+  });
+
+  it('the src/-only scope would have missed a retired read in the Edge function', () => {
+    const edgeFile = productionExecutables()
+      .map((f) => path.normalize(f))
+      .find((f) => f.startsWith(path.normalize('supabase/functions') + path.sep));
+    expect(edgeFile, 'no Edge module found to demonstrate against').toBeTruthy();
+
+    // The pre-fix scope simply does not contain it, so no assertion applied.
+    expect(SRC_ONLY().map((f) => path.normalize(f))).not.toContain(edgeFile);
+    expect(productionExecutables().map((f) => path.normalize(f))).toContain(edgeFile);
+  });
+
+  it('every production executable is actually inspected for every manifest variable', () => {
+    // Non-vacuity: the scan reads real source and the predicate fires on a
+    // planted read, so the clean repository result is a measurement, not a skip.
+    const files = productionExecutables();
+    expect(files.length).toBeGreaterThan(100);
+    for (const f of files.slice(0, 5)) expect(typeof executableSourceOf(f)).toBe('string');
+    const planted = "const u = import.meta.env.VITE_COMFYUI_QWEN_UNET;";
+    expect(RETIRED_ENV_VARS.filter((v) => planted.includes(v))).toEqual(['VITE_COMFYUI_QWEN_UNET']);
   });
 });
