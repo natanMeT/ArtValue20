@@ -6,7 +6,7 @@
 **Purpose:** single source of truth for state, so work continues across sessions with no loss.
 Nathan passes this to ChatGPT so it can review/advise **without re-deriving or guessing** state.
 **ChatGPT does NOT edit this document.** Only Claude updates it.
-**Last updated:** 2026-07-27 — session: **COMPLETE LOCAL-ENGINE RETIREMENT (rounds 8–15) — PR [#118](https://github.com/natanMeT/ArtValue20/pull/118) MERGED / NOT RELEASED.** Merge commit `9ecb8ebf023886f32496d3002944a3b092314cfe` (parents `5d7506d1` + the approved head `cd651ea`), 2026-07-27T07:00:34Z, **0 unresolved review threads**, Codex clean on the exact merged head. **The retirement is on `main` and is running NOWHERE:** Production unchanged at **`247ef9ec` / `index-BZ3B-0yd.js` (source `03c23c2`)**, no Preview created, Edge `ai-gateway` still **v35 ACTIVE / `verify_jwt=true`** with its merged contract changes **NOT live**. No migration, schema, Auth or secret change. Rollback tag `pre-local-engine-retirement` @ `5d7506d1`. At the merged head: focused proof 2 files / 172 passed; **full suite 110 files / 3,074 passed / 0 skipped / 0 failed**. **The PR #118 box in the Baseline below is the authoritative state.** Still unverified: authenticated Studio generation and authenticated Jake Gateway calls. ⚠️ **An Edge `ai-gateway` redeploy is REQUIRED before release and has NOT been performed.**
+**Last updated:** 2026-07-27 — session: **COMPLETE LOCAL-ENGINE RETIREMENT (rounds 8–15) — CLOSED / LIVE IN PRODUCTION.** Merge commit `9ecb8ebf023886f32496d3002944a3b092314cfe` (parents `5d7506d1` + the approved head `cd651ea`), 2026-07-27T07:00:34Z, **0 unresolved review threads**, Codex clean on the exact merged head. **The retirement is LIVE:** Production **`b3708cc2` / `index-C4frcMDi.js` (source `2c8b1df`)**, promoted unchanged from the accepted Preview `17bba0b3` (12/12 byte-identical), Edge `ai-gateway` **v36 ACTIVE / `verify_jwt=true`**. Current rollback target **`247ef9ec`**; `476830a2` is a historical fallback. No migration, schema, Auth or secret change. Rollback tag `pre-local-engine-retirement` @ `5d7506d1`. At the merged head: focused proof 2 files / 172 passed; **full suite 110 files / 3,074 passed / 0 skipped / 0 failed**. **The closure box in the Baseline below is the authoritative state.** Authenticated Studio generation and authenticated Jake Gateway calls are now **VERIFIED** (Preview acceptance, Account A). The Edge redeploy has been **performed** (v35 → v36).
 
 > *Everything below in this summary is a **HISTORICAL** account of how the slice was built. Round labels such as "IN FLIGHT" describe the state **at that round**, not today.*
 
@@ -31,44 +31,62 @@ Nathan passes this to ChatGPT so it can review/advise **without re-deriving or g
 
 ## Baseline (current — Studio / Local-Engine UI Containment CLOSED / LIVE in Production)
 
-> ### ⚠️ PR #118 IS **MERGED** BUT **NOT RELEASED** (2026-07-27)
+> ### ✅ COMPLETE LOCAL-ENGINE RETIREMENT — **CLOSED / LIVE IN PRODUCTION** (2026-07-27)
 >
-> The **complete local-engine retirement is on `main`** and is **not running anywhere**. Read this box before any
-> statement below about what is live.
+> ArtValue is now a **cloud-only product in Production**. Every executable ComfyUI / Ollama / Fooocus / A1111
+> integration — and its consumers, routes, provider registrations, configuration, scripts and tooling — is gone from
+> the running application.
 >
 > | | |
 > | --- | --- |
-> | PR [#118](https://github.com/natanMeT/ArtValue20/pull/118) | **MERGED** 2026-07-27T07:00:34Z |
-> | Merge commit | **`9ecb8ebf023886f32496d3002944a3b092314cfe`** (parents `5d7506d1` + `cd651ea`) |
-> | Approved head = merged 2nd parent | **`cd651ead168f728aee50bd8c481df611b7b704f9`** ✅ verified |
-> | **Merged application-code anchor** | **`753ee2ee0b8ed60a262b2bff9396eb1a603f85d1`** — the last commit touching production code; `1c6987b`, `d417d00` and `cd651ea` are **test-only** |
-> | Production | **UNCHANGED — still `247ef9ec` / `index-BZ3B-0yd.js` / source `03c23c2`** |
-> | Preview | **none created for this release** |
-> | Edge `ai-gateway` | **v35 ACTIVE, `verify_jwt=true` — UNCHANGED. Merged contract changes are NOT live and require an approved redeploy** |
-> | Migration / schema / Auth / secrets | **none — 6/6 migrations applied and matching, nothing pending** |
-> | Rollback tag | **`pre-local-engine-retirement` @ `5d7506d1`** (pre-merge `main`), pushed and retained |
-> | Branch | `fix/studio-hosted-mode-containment` retained at `cd651ea` |
+> | **Production deployment** | **`b3708cc2-ab2e-44ee-a557-8cc2ae688635`** (Environment Production, branch `main`, source `2c8b1df`) |
+> | **Bundle** | **`index-C4frcMDi.js`** — SHA256 `3b9872b38ab6f19935f979ecc536a1d0aa3c5d2c682f6aa683e17c2f9470ebbc` (693,452 B) |
+> | Release source | `2c8b1dff2f35d3f7ff7fc6c3d43df01eb8c0189d` (PR #119 merge). Application-code anchor `753ee2e`; later commits are test/docs-only |
+> | Code PRs | [#118](https://github.com/natanMeT/ArtValue20/pull/118) merged `9ecb8eb` · [#119](https://github.com/natanMeT/ArtValue20/pull/119) merged `2c8b1df` |
+> | **Edge** | `ai-gateway` **v36 ACTIVE, `verify_jwt=true`** — deployed from merged main; the only function on the project |
+> | Migration / schema / Auth / secrets | **none** — 6/6 migrations applied and matching |
+> | Preview accepted | **`17bba0b3`** (`retirement-preview-2c8b1df`) — full authenticated acceptance PASS |
 >
-> **Test evidence at the merged head `cd651ea`:** focused retirement proof **2 files / 172 passed / 0 failed**
-> (`localEngineRetirement` 120, `studioHostedModeContainment` 52); **full suite 110 files / 3,074 passed / 0 skipped /
-> 0 failed**. Production build green at the pre-merge application anchor, emitting `index-C4frcMDi.js`; runtime smoke on
-> that build recorded 0 local-engine requests, 0 engine terms and 0 console messages.
+> **Artifact proof — promoted unchanged, never rebuilt.** The deployed `dist/` was proven byte-identical three ways
+> **before** deployment: local `dist/` ≡ the pre-Preview scan manifest (no drift) ≡ the bytes Preview actually served
+> (12/12). Wrangler reported **"Uploaded 0 files (12 already uploaded)"**, and the canonical
+> `artvalue-product.pages.dev` then served **12/12 files HTTP 200 and byte-identical**, with `index.html` referencing
+> `assets/index-C4frcMDi.js`. The one build had already reproduced the previously smoke-verified hash exactly,
+> confirming the intervening commits were test/docs-only.
 >
-> **Codex evidence — CORRECTION TO THE MERGE REPORT.** The merge report stated that no final Codex verdict had returned
-> before merging. **That was wrong.** Verified live in GitHub: Codex posted a clean verdict on the exact approved head —
-> *"Codex Review: Didn't find any major issues. 🚀 — Reviewed commit `cd651ead16`"*
-> ([comment 5088018183](https://github.com/natanMeT/ArtValue20/issues/118#issuecomment-5088018183)) at
-> **2026-07-27T06:27:54Z, 33 minutes BEFORE the 07:00:34Z merge**, and no Codex review was submitted after it.
-> **0 unresolved review threads** at merge. *(Precision: the verdict is a clean-verdict comment carrying a 🚀 emoji in
-> its own text; it carries no 👍 reaction — the comment itself is the evidence.)*
+> **Authenticated Preview acceptance (Account A) — all ten checks PASS.** Studio exposes one creative lane
+> (`טקסט → תמונה`) plus Mockup Studio, Poster Editor, presets and aspect ratios; **zero** retired terms anywhere;
+> Account A's durable brand palette (`#B7FF00 #0E0E0E #00D9FF #05070A #F5F7FA`) loaded, toggle active, and present in
+> the generation payload; **exactly one** `studio.generate_image` call → **200 `ok:true`** through Edge v36, a real
+> image returned with truthful success UI; the asset appeared in the uid-scoped gallery, opened and downloaded;
+> **Jake answered in exactly one Gateway call listing only תמונה מהירה / Image Studio / Growth OS / גלריה — no retired
+> capability** (the previous Production bundle advertised סדרת דמות / אלבום דוגמנית / פרזנטור מוצר); all ten retired
+> routes failed safe to the dashboard; 25 s idle (former poll 15 s) produced **0** requests; **0 local-engine requests
+> and 0 console errors throughout**. The single QA asset (`QA_RETIREMENT_ACCEPTANCE`) was deleted and the store
+> verified back to 0 items, with **no database writes at any point** and business data unchanged (3 clients, 0 tasks,
+> 0 quotes, ₪0 transactions).
 >
-> **Still unverified, carried forward:** authenticated Studio generation and authenticated Jake Gateway calls have
-> **never** been exercised in any session (no credentials). **Unselected follow-up, not implemented:** platform-level
-> egress hardening (CSP `connect-src`, server-side egress policy), including that `fetchSiteText` passes a user-supplied
-> URL to the third-party reader proxy — pre-existing released behaviour.
+> **Production smoke (non-mutating) — PASS.** Canonical URL serves `index-C4frcMDi.js`; the authenticated Account A
+> session loads Clients, Quotes, Finance and Growth OS; Studio shows only supported cloud functionality with the brand
+> palette active; **0** retired terms; retired routes fail safe; 20 s idle → **0** requests; **0** local-engine
+> requests, **0** mutating requests, **0** console errors; Edge re-confirmed v36 / `verify_jwt=true`. No generation,
+> save or delete was performed.
 >
-> **P1 Atomic Quote Persistence remains CLOSED / LIVE.** **PR #117 remains paused and untouched.**
-
+> **Rollback hierarchy — exactly one current target; never collapse these.**
+> 1. **CURRENT rollback target: `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b`** (source `03c23c2`, bundle
+>    `index-BZ3B-0yd.js`) — the immediately previous Production deployment, verified **HTTP 200** and still serving its
+>    own bundle after this release.
+> 2. **HISTORICAL FALLBACK ONLY — not the current target: `476830a2-f8ea-45dc-b0ce-a71876bc48dd`** (source `7e30199`,
+>    `index-BrR14XIC.js`), verified **HTTP 200**. Older deployments are progressively further behind.
+> 3. Git rollback tag **`pre-local-engine-retirement` @ `5d7506d1`**. Edge rollback: redeploy the pre-merge
+>    `supabase/functions/_shared/` to restore the v35 contract.
+>
+> **Remaining unselected follow-up (NOT implemented, NOT scheduled): platform-level egress hardening.** A guarantee
+> that no future code path can construct a private-network request belongs to CSP `connect-src` and server-side egress
+> policy, not to application JavaScript. Named sub-item: `fetchSiteText` passes a user-supplied URL to the third-party
+> reader proxy — pre-existing, released behaviour, unchanged by this release.
+>
+> **P1 Atomic Quote Persistence remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 - Repo: `C:\Users\PC\ArtValue` (origin/main). GitHub repo `natanMeT/ArtValue20`.
 - **Active application release code anchor:** `03c23c23568905cb42e7f154014dd2ddc32bb58f` (repository `main` after docs PR #115; the Studio-containment Production artifact was built from this commit). The prior P1 anchor `7e301993f21a8a56ab1a4dd2d9b7cec6c9793df6` is retained historically as the rollback deployment's source. The prior S0F.1 anchor `983f4899a7c9736669d97b49ed1575129f820653` is retained historically as the rollback deployment's source.
 - **Three DISTINCT anchors — never collapse them.** This tracker records no fixed value for the repository head, because documentation merges advance it continuously and any pinned value would be false within minutes:
@@ -417,7 +435,7 @@ the new predicate, while `console.*`, `userFacingError(...)` and data-contract `
 - **Source/test proxies (labelled as such):** the ImageStudio wiring pins (`studioSubfeature(...)`, `availablePresets(...)`,
   the balanced-region gate containment) are assertions over source text, not runtime observations.
 
-**MERGED / NOT RELEASED.** PR #118 was merged 2026-07-27 (merge `9ecb8eb`); nothing is deployed — Production, Preview and Edge are unchanged (see the PR #118 box in the Baseline). **P1 Atomic Quote Persistence remains
+**Status AT THAT ROUND: merged, not yet deployed** *(historical)*. PR #118 was merged 2026-07-27 (merge `9ecb8eb`); the slice is now **LIVE in Production** as deployment `b3708cc2` — see the closure box in the Baseline. **P1 Atomic Quote Persistence remains
 CLOSED / LIVE.** **PR #117 remains paused and untouched.**
 
 ### Round 5 — ARCHITECTURE REPAIR after an independent review (the enforcement layer was the defect)
@@ -552,7 +570,7 @@ credentials in this session), so provider routing is proven at the resolution se
 completed render on a live ComfyUI rig; the recorded out-of-scope debt (`ProjectDetail` ×3, `jakeAgent` ×1) is
 re-measured and unchanged but still **not fixed**; and no Production or Preview deployment was touched.
 
-**MERGED / NOT RELEASED** (round record). **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+**Status AT THAT ROUND: merged, not yet deployed** *(historical — now LIVE in Production; see the closure box)*. **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 
 ### Round 7 — two final Codex P2 corrections (head `11cf66b`)
 
@@ -660,7 +678,7 @@ String presence in a single-chunk bundle is not proof of reachability — this p
 "no reachable Studio local path" is proven **structurally, by the Studio's import closure**, plus the DOM/network
 evidence above. No authenticated end-to-end generation was run (no credentials this session).
 
-**MERGED / NOT RELEASED** (round record; the slice was merged on 2026-07-27 as PR #118 — nothing deployed). **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+**Status AT THAT ROUND: merged, not yet deployed** *(historical — the slice went LIVE in Production on 2026-07-27 as deployment `b3708cc2`; see the closure box in the Baseline)*. **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 
 ### Round 9 — PRODUCT DECISION: Product Lock removed entirely + 4 Codex findings on `7f9daf8`
 
@@ -705,7 +723,7 @@ attempt renders `יצירת התמונה אינה זמינה כרגע.`.
 ⚠️ **Codex's review of `7f9daf8` is NOT merge-clearance for that head** — it raised 4 findings, all fixed here, and the
 head itself has been superseded. No authenticated end-to-end generation was run (no credentials this session).
 
-**MERGED / NOT RELEASED** (round record; the slice was merged on 2026-07-27 as PR #118 — nothing deployed). **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+**Status AT THAT ROUND: merged, not yet deployed** *(historical — the slice went LIVE in Production on 2026-07-27 as deployment `b3708cc2`; see the closure box in the Baseline)*. **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 
 ### Round 10 — FINAL PRODUCT DECISION: **the whole application is CLOUD-ONLY** (2026-07-27)
 
@@ -795,7 +813,7 @@ subjects and no compatibility scaffolding was retained.
 WARNING — **not verified:** no authenticated end-to-end hosted generation was run (no credentials this session), so the
 authenticated Studio/Jake path is proved structurally and by unauthenticated runtime, not by a signed-in run.
 
-**MERGED / NOT RELEASED** (round record; the slice was merged on 2026-07-27 as PR #118 — nothing deployed). **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+**Status AT THAT ROUND: merged, not yet deployed** *(historical — the slice went LIVE in Production on 2026-07-27 as deployment `b3708cc2`; see the closure box in the Baseline)*. **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 
 ### Round 11 — ABSOLUTE CLOUD-ONLY BOUNDARY: no executable local code anywhere in the repo (2026-07-27)
 
@@ -1077,7 +1095,7 @@ candidate of its own — and layer 2 independently proves it is the sole `fetch`
 (`index-Cb5pUh5g.js`, 610.27 kB — +2.2 kB, the policy module). Runtime smoke: 5-route navigation + 3s idle → 8 requests,
 **0 local requests**, 0 console messages, the only non-origin request being the Google Fonts stylesheet.
 
-**MERGED / NOT RELEASED** (round record; the slice was merged on 2026-07-27 as PR #118 — nothing deployed). **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
+**Status AT THAT ROUND: merged, not yet deployed** *(historical — the slice went LIVE in Production on 2026-07-27 as deployment `b3708cc2`; see the closure box in the Baseline)*. **P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 
 ### Round 12 — SCOPE CORRECTION: the network-egress framework is REMOVED (2026-07-27)
 
@@ -1157,7 +1175,7 @@ egress policy — not application-level JavaScript. One concrete sub-item worth 
 user-supplied URL to the third-party reader proxy, so the proxy can be asked to fetch a private address on the user's
 behalf. That is pre-existing, released behaviour and is unchanged by this PR.
 
-**MERGED / NOT RELEASED** (round record; merged 2026-07-27, nothing deployed). **P1 remains CLOSED / LIVE. PR #117
+**Status AT THAT ROUND: merged, not yet deployed** *(historical — now LIVE in Production; see the closure box)*. **P1 remains CLOSED / LIVE. PR #117
 remains paused and untouched.**
 
 ### Round 13 — the retirement MANIFEST (2 Codex P2s on `753ee2e`, both regression coverage only)
@@ -1270,14 +1288,16 @@ artifact remains the already-verified `index-C4frcMDi.js`. Focused proof: **2 fi
 
 **PROOF SCOPE IS NOW FROZEN.** Any further Codex finding is to be **classified, not auto-patched**: an actual current
 product defect, an invalid release claim, or another hypothetical proof-completeness improvement — and reported for
-Nathan's merge decision. **MERGED 2026-07-27 / NOT RELEASED** — nothing deployed. P1 remains CLOSED / LIVE. PR #117
+Nathan's merge decision. *(Historical: merged 2026-07-27 and since deployed — Production `b3708cc2`.)* P1 remains CLOSED / LIVE. PR #117
 remains paused and untouched.
 
 **No product behavior changed. The removed network-policy work is not reopened.** **Nothing was deployed at this
 round**; the slice was merged later, on 2026-07-27, as PR #118, and is still not released. P1 remains CLOSED / LIVE.
 PR #117 remains paused and untouched.
 
-## PR #118 Release Readiness — **MERGED / NOT RELEASED** (preflight only, 2026-07-27)
+## PR #118 Release Readiness — **SUPERSEDED / EXECUTED** (preflight, 2026-07-27)
+
+> *Historical record of the pre-release preflight. Every gate below has since been executed: the docs PR merged, Edge deployed v36, the frontend built once and accepted on Preview, and Production deployed as `b3708cc2`. See the closure box in the Baseline for the live state.*
 
 Read-only preflight. **Nothing was deployed, no secret or configuration was mutated, no build was run.** Four
 independent approval gates follow; each needs its own explicit authorization.
@@ -1383,8 +1403,10 @@ statement was wrong and is corrected here.
 function share one contract module.
 ## Studio / Local-Engine UI Containment — **LIVE IN PRODUCTION** (2026-07-26)
 
-**Status: RELEASED. Live in Production as `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js` (source `03c23c2`)** —
-with the corrective containment work recorded above **MERGED into `main` on 2026-07-27 (PR #118) but NOT RELEASED**.
+**Status: RELEASED, then SUPERSEDED.** This slice went live as `247ef9ec` / `index-BZ3B-0yd.js` (source `03c23c2`).
+It has since been **superseded in Production by the complete local-engine retirement** — deployment `b3708cc2` /
+`index-C4frcMDi.js` (source `2c8b1df`), which also carries the corrective containment work recorded above.
+`247ef9ec` is now the **current rollback target**.
 
 - **Code:** PR [#114](https://github.com/natanMeT/ArtValue20/pull/114) merged as `29cccddda52e1c546b4ae46be052285ec24d2116`; docs PR [#115](https://github.com/natanMeT/ArtValue20/pull/115) merged as `03c23c23568905cb42e7f154014dd2ddc32bb58f`. Codex round 2 clean (reviewed commit `bb8e955ef2`), 0 unresolved threads.
 - **Build: exactly ONE**, from `main` @ `03c23c2`. The same `dist/` was deployed to Preview and then promoted to Production **without rebuilding** — re-hashed immediately before promotion and confirmed identical, and wrangler reported **"Uploaded 0 files (12 already uploaded)"**.
@@ -1626,7 +1648,7 @@ non-mutating Account A smoke PASS**. **Current rollback target: `476830a2` / `in
 — retained and verified healthy; `e63198b7` (S0F.1) is a **historical fallback only**, never the current target.
 No migration; Edge `ai-gateway` **v35** unchanged.
 
-**MERGED / NOT RELEASED:** the **Studio Hosted Mode Containment Correction** and the complete local-engine retirement (see their sections) — **merged 2026-07-27 as PR #118**, **not deployed**. PR #117 (roadmaps/exports) is **paused** until this work is deployed.
+**CLOSED / LIVE:** the **Studio Hosted Mode Containment Correction** and the complete local-engine retirement (see their sections) — merged 2026-07-27 as PR #118 and **deployed to Production as `b3708cc2`**. PR #117 (roadmaps/exports) is **paused** pending its own review.
 
 **Carried-forward notes — neither is an open release item and neither blocks anything:**
 1. **P1 — an OPTIONAL additional Production-UI validation.** **P1 Atomic Quote Persistence is CLOSED / LIVE**; its
