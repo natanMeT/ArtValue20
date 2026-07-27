@@ -35,7 +35,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   collectModules, isModuleFile, MODULE_EXTENSIONS,
-  stripComments, namesEngine, hasLocalAddress,
+  executableSource, executableSourceOf, parserOptionsFor, UnparseableSourceError,
+  namesEngine, hasLocalAddress,
 } from './support/sourceScan.js';
 
 const SRC = 'src';
@@ -78,18 +79,25 @@ function importSpecifiers(src) {
   return [...statics, ...bare, ...dynamic];
 }
 
-// `stripComments` (imported above) removes comments so documentation that NAMES
-// a retired engine — in order to say it is gone — never counts as executable
-// code, WITHOUT touching string, template or regex literals. See its module
-// header for the defect that made syntax-awareness mandatory.
+// `executableSourceOf` (imported above) parses a file with @babel/parser and
+// blanks ONLY the byte ranges the parser reports as comments. Documentation that
+// NAMES a retired engine — in order to record that it is gone — therefore never
+// counts as executable code, while strings, template literals, JSX text and
+// regex literals survive byte-for-byte. See its module header for the four
+// hand-written-lexer defects that made a real parser mandatory.
 
-// Resolve a relative specifier to a real file on disk (extension-tolerant).
+// Resolve a relative specifier to a real EXECUTABLE module on disk.
+// Non-module assets a component legitimately imports (`./styles/app.css`, an
+// image, a .json) are deliberately NOT resolved: they are not executable code,
+// they carry no import graph, and handing one to the parser would raise the
+// loud UnparseableSourceError this suite reserves for genuinely broken source.
 function resolveLocal(fromFile, spec) {
   if (!spec.startsWith('.')) return null;
   const base = path.normalize(path.join(path.dirname(fromFile), spec));
   const candidates = [base, ...MODULE_EXTENSIONS.map((e) => `${base}${e}`),
     path.join(base, 'index.js'), path.join(base, 'index.jsx'), path.join(base, 'index.mjs')];
-  return candidates.find((c) => fs.existsSync(c) && fs.statSync(c).isFile()) || null;
+  const hit = candidates.find((c) => fs.existsSync(c) && fs.statSync(c).isFile());
+  return hit && isModuleFile(hit) ? hit : null;
 }
 
 // The transitive closure of everything the real app entry can reach.
@@ -140,7 +148,7 @@ describe('local-engine retirement · the app import closure is clean', () => {
   it('no reachable module contains a local address in executable code', () => {
     const offenders = [];
     for (const file of closure) {
-      const code = stripComments(fs.readFileSync(file, 'utf8'));
+      const code = executableSourceOf(file);
       if (hasLocalAddress(code)) offenders.push(file);
     }
     expect(offenders, `local addresses in reachable code: ${offenders.join(', ')}`).toEqual([]);
@@ -153,7 +161,7 @@ describe('local-engine retirement · the app import closure is clean', () => {
   it('no reachable module names a workstation engine in executable code', () => {
     const offenders = [];
     for (const file of closure) {
-      const code = stripComments(fs.readFileSync(file, 'utf8'));
+      const code = executableSourceOf(file);
       if (namesEngine(code)) offenders.push(file);
     }
     expect(offenders, `engine terms in reachable code: ${offenders.join(', ')}`).toEqual([]);
@@ -166,7 +174,7 @@ describe('local-engine retirement · no env setting can re-open a path', () => {
   it('no runtime file in src/ reads any local-engine env variable', () => {
     const offenders = [];
     for (const file of runtimeFiles()) {
-      const code = stripComments(fs.readFileSync(file, 'utf8'));
+      const code = executableSourceOf(file);
       for (const v of LOCAL_ENV_VARS) {
         if (code.includes(v)) offenders.push(`${path.normalize(file)} → ${v}`);
       }
@@ -239,8 +247,8 @@ describe('local-engine retirement · nothing advertises a local-only capability'
   it('no Jake plan step advertises a retired local-only operation', async () => {
     // Comments are stripped: both files DOCUMENT the retired operations by name
     // in order to record that they are gone. Only executable code is scanned.
-    const planner = stripComments(fs.readFileSync('src/lib/jakeExecutionPlanner.js', 'utf8'));
-    const resolver = stripComments(fs.readFileSync('src/lib/jakeHandoffResolver.js', 'utf8'));
+    const planner = executableSourceOf('src/lib/jakeExecutionPlanner.js');
+    const resolver = executableSourceOf('src/lib/jakeHandoffResolver.js');
     for (const term of ['product_lock_flow', 'presenter', 'smart_edit', 'img2img', 'inpaint', 'image_to_video', 'comfy', 'Fooocus', 'Ollama']) {
       expect(planner.includes(term), `planner: ${term}`).toBe(false);
       expect(resolver.includes(term), `resolver: ${term}`).toBe(false);
@@ -300,7 +308,7 @@ describe('local-engine retirement · the AI Gateway registers no local provider'
     ];
     for (const [shim, canonical] of PAIRS) {
       expect(fs.existsSync(canonical), canonical).toBe(true);
-      const code = stripComments(fs.readFileSync(shim, 'utf8')).trim();
+      const code = executableSourceOf(shim).trim();
       // the shim must be nothing but a re-export of the canonical module — so it
       // cannot hold a second, divergent copy of the provider table
       expect(code).toBe(`export * from '../../${canonical}';`);
@@ -326,7 +334,7 @@ describe('local-engine retirement · repository-wide executable scan', () => {
     const offenders = [];
     for (const file of repoExecutables()) {
       if (isTestPath(file)) continue; // tests name them to assert their absence
-      const code = stripComments(fs.readFileSync(file, 'utf8'));
+      const code = executableSourceOf(file);
       if (namesEngine(code)) offenders.push(file);
     }
     expect(offenders, `engine names in executable code: ${offenders.join(', ')}`).toEqual([]);
@@ -336,7 +344,7 @@ describe('local-engine retirement · repository-wide executable scan', () => {
     const offenders = [];
     for (const file of repoExecutables()) {
       if (isTestPath(file)) continue;
-      const code = stripComments(fs.readFileSync(file, 'utf8'));
+      const code = executableSourceOf(file);
       if (hasLocalAddress(code)) offenders.push(file);
     }
     expect(offenders, `local addresses in executable code: ${offenders.join(', ')}`).toEqual([]);
@@ -372,81 +380,201 @@ describe('local-engine retirement · unchanged surfaces', () => {
 // NEGATIVE CONTROLS — prove the gate CATCHES what it is supposed to catch.
 //
 // Every assertion above is a "nothing found" assertion. On its own that is weak
-// evidence: a scan that silently finds nothing looks identical to a scan that
-// cannot find anything. Codex found exactly that failure twice on `1361a84`.
-// These controls plant each bypass and require the SHARED primitives above
-// (stripComments / collectModules / the detectors) to report it.
+// evidence: a scan that silently cannot find anything looks identical to one
+// that found nothing. Codex proved that four times against the hand-written
+// lexer this proof used to carry — each break was a SILENT MISS.
+//
+// The lexer is gone. `executableSource` now parses with @babel/parser and blanks
+// only the parser's own comment ranges, so there is no grammar approximation
+// left to get wrong. These controls plant each historical bypass — including
+// Codex's three exact reproductions — and require the SHARED primitive the
+// assertions above call to report it.
 // ===================================================================
 
-describe('negative control · syntax-aware comment stripping (Codex P1)', () => {
-  // THE BYPASS: the old stripper was `s.replace(/\/\/[^\n]*/g, '')`. It saw the
-  // `//` inside `http://` as a line comment and truncated the statement to
-  // `fetch('http:` — deleting the address before the detector ever ran.
-  const CALLS = [
-    ["fetch('http://127.0.0.1:8188/prompt')", 'single-quoted URL'],
-    ['fetch("http://localhost:11434/api/generate")', 'double-quoted URL'],
-    ['const u = `http://127.0.0.1:7860/sdapi/v1/txt2img`;', 'template literal URL'],
-    ['const u = `${base}//127.0.0.1:8188/view`;', 'template literal with substitution'],
-    ["const engines = { comfy: 'http://localhost:8188' };", 'URL in an object literal'],
+describe('negative control · parser-backed comment removal, Codex exact reproductions', () => {
+  // Each entry is a VERBATIM reproduction from the review of `b6fbd04`.
+  const REPRODUCTIONS = [
+    [
+      'local URL in unquoted JSX text',
+      'export const C = () => <p>Open http://127.0.0.1:8188/prompt</p>;',
+      'Component.jsx',
+    ],
+    [
+      'nested template whose substitution holds an object literal and a nested template',
+      'const u = `${({}).x ? `http://127.0.0.1:8188/prompt` : ``}`;',
+      'nested.js',
+    ],
+    [
+      'regex after `return`, with a forbidden URL later on the SAME line',
+      "function f(){ return /it's fine/; fetch('http://127.0.0.1:8188/prompt'); }",
+      'afterReturn.js',
+    ],
   ];
 
-  it.each(CALLS)('detects a local address inside %s', (source) => {
-    const code = stripComments(source);
-    expect(code, 'the literal must survive stripping intact').toContain('//');
+  it.each(REPRODUCTIONS)('detects the address in: %s', (_label, source, filename) => {
+    const code = executableSource(source, filename);
+    expect(code, 'the literal must survive parsing intact').toContain('127.0.0.1:8188');
     expect(hasLocalAddress(code), `bypassed: ${JSON.stringify(code)}`).toBe(true);
   });
 
-  it('the OLD regex stripper demonstrably loses each of those calls', () => {
-    const naive = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-    // This is the defect, reproduced: every planted call escapes the old gate.
-    for (const [source] of CALLS) {
-      expect(hasLocalAddress(naive(source)), `unexpectedly survived: ${source}`).toBe(false);
-      expect(hasLocalAddress(stripComments(source)), source).toBe(true); // ...and the new one holds it
-    }
-  });
-
-  const COMMENTS = [
-    ['// legacy: http://127.0.0.1:8188 was the ComfyUI bridge', 'line comment'],
-    ['/* historical: ollama ran at http://localhost:11434 */', 'block comment'],
-    ['const a = 1; // comfyui http://127.0.0.1:8188', 'trailing line comment'],
-    ['/**\n * Fooocus lived at http://127.0.0.1:7860\n */\nconst b = 2;', 'jsdoc block'],
+  // Control-flow contexts are their own class: a regex may legally open after
+  // `return`, `typeof`, `case`, `&&`, `,`, `(` and `[`. A character-level guess
+  // misreads these as division, and the regex body then corrupts the scan.
+  const REGEX_CONTEXTS = [
+    ["function f(){ return /a'b/; fetch('http://127.0.0.1:8188/x'); }", 'after return'],
+    ["if (/it's/.test(s)) { fetch('http://127.0.0.1:8188/x'); }", 'inside if(...)'],
+    ["while (/it's/.test(s)) { fetch('http://10.0.0.5:7860/x'); }", 'inside while(...)'],
+    ["switch (k) { case 1: /it's/.test(s); fetch('http://localhost:11434/x'); }", 'after case'],
+    ["const r = [/it's/, /b'c/]; fetch('http://192.168.1.9:8188/x');", 'inside an array'],
+    ["const ok = a && /it's/.test(b); fetch('http://127.0.0.1:8188/x');", 'after &&'],
+    ["f(/it's/, 2); fetch('http://[::1]:11434/x');", 'as a call argument'],
+    ["const t = typeof /it's/; fetch('http://169.254.1.2:8188/x');", 'after typeof'],
   ];
 
-  it.each(COMMENTS)('ignores a retired address/name in a %s', (source) => {
-    const code = stripComments(source);
+  it.each(REGEX_CONTEXTS)('a regex %s cannot corrupt the rest of the scan', (source) => {
+    const code = executableSource(source, 'ctx.js');
+    expect(hasLocalAddress(code), `corrupted: ${JSON.stringify(code)}`).toBe(true);
+  });
+
+  const PLANTED_CALLS = [
+    ["fetch('http://127.0.0.1:8188/prompt')", 'single-quoted URL', 'a.js'],
+    ['fetch("http://localhost:11434/api/generate")', 'double-quoted URL', 'a.js'],
+    ['const u = `http://127.0.0.1:7860/sdapi`;', 'template literal URL', 'a.js'],
+    ['const u = `${base}//127.0.0.1:8188/view`;', 'template with substitution', 'a.js'],
+    ["const e = { comfy: 'http://localhost:8188' };", 'object literal', 'a.js'],
+    ['export const C = () => <div title="x">http://10.1.2.3:7860</div>;', 'JSX text in TSX', 'a.tsx'],
+    ["export const u: string = 'http://192.168.0.7:8188';", 'typed TS declaration', 'a.ts'],
+    ["module.exports = { u: 'http://127.0.0.1:8188' };", 'CommonJS export', 'a.cjs'],
+  ];
+
+  it.each(PLANTED_CALLS)('detects a local address in %s', (source, _label, filename) => {
+    expect(hasLocalAddress(executableSource(source, filename)), source).toBe(true);
+  });
+
+  const COMMENT_FORMS = [
+    ['// legacy: http://127.0.0.1:8188 was the ComfyUI bridge', 'line comment', 'a.js'],
+    ['/* historical: ollama ran at http://localhost:11434 */', 'block comment', 'a.js'],
+    ['const a = 1; // comfyui http://127.0.0.1:8188', 'trailing comment', 'a.js'],
+    ['/**\n * Fooocus lived at http://127.0.0.1:7860\n */\nconst b = 2;', 'JSDoc block', 'a.js'],
+    ['export const C = () => <p>{/* http://127.0.0.1:8188 */}ok</p>;', 'JSX expression comment', 'a.jsx'],
+  ];
+
+  it.each(COMMENT_FORMS)('ignores a retired address/name in a %s', (source, _label, filename) => {
+    const code = executableSource(source, filename);
     expect(hasLocalAddress(code), `comment leaked: ${JSON.stringify(code)}`).toBe(false);
     expect(namesEngine(code), `comment leaked: ${JSON.stringify(code)}`).toBe(false);
   });
 
-  it('a regex literal cannot open a phantom string and swallow following code', () => {
-    // An apostrophe inside a regex used to start a "string" that ate the rest
-    // of the file — hiding every later call from the scan.
-    const src = "const re = /it's fine/;\nfetch('http://127.0.0.1:8188/prompt');";
-    const code = stripComments(src);
-    expect(hasLocalAddress(code)).toBe(true);
-    expect(code).toContain('fetch(');
+  it('an engine NAME in executable code is detected; the same name in a comment is not', () => {
+    expect(namesEngine(executableSource("const provider = 'ollama';", 'a.js'))).toBe(true);
+    expect(namesEngine(executableSource('// ollama was removed on 2026-07-27', 'a.js'))).toBe(false);
   });
 
-  it('an engine NAME in executable code is detected while the same name in a comment is not', () => {
-    expect(namesEngine(stripComments("const provider = 'ollama';"))).toBe(true);
-    expect(namesEngine(stripComments('// ollama was removed on 2026-07-27'))).toBe(false);
-  });
-
-  it('division is not mistaken for a regex (no code is lost after it)', () => {
-    const code = stripComments("const half = total / 2;\nfetch('http://localhost:8188/x');");
-    expect(hasLocalAddress(code)).toBe(true);
+  it('comment blanking preserves length and line structure (offsets stay meaningful)', () => {
+    const src = 'const a = 1; // http://127.0.0.1:8188\nconst b = 2;\n';
+    const code = executableSource(src, 'a.js');
+    expect(code).toHaveLength(src.length);
+    expect(code.split('\n')).toHaveLength(src.split('\n').length);
+    expect(code).toContain('const b = 2;');
   });
 });
 
-describe('negative control · recursive scan of every module extension (Codex P2)', () => {
+describe('negative control · every real syntax parses as itself, or fails LOUDLY', () => {
+  // A `.ts` file reads `<T>x` as a type assertion; a `.tsx` reads it as JSX.
+  // Applying one plugin set uniformly would mis-parse one of them, and a
+  // mis-parse that were swallowed would look exactly like "nothing found".
+  const SYNTAXES = [
+    ['a.js', "const u = 'http://127.0.0.1:8188';"],
+    ['a.jsx', 'export const C = () => <p>http://127.0.0.1:8188</p>;'],
+    ['a.mjs', "export const u = 'http://127.0.0.1:8188';"],
+    ['a.cjs', "module.exports = 'http://127.0.0.1:8188';"],
+    ['a.ts', "const u = <string>'http://127.0.0.1:8188';"],
+    ['a.tsx', 'export const C = (): JSX.Element => <p>http://127.0.0.1:8188</p>;'],
+    ['a.mts', "export const u: string = 'http://127.0.0.1:8188';"],
+    ['a.cts', "const u: string = 'http://127.0.0.1:8188'; export = u;"],
+  ];
+
+  it.each(SYNTAXES)('%s parses with its own grammar and stays inspectable', (filename, source) => {
+    expect(hasLocalAddress(executableSource(source, filename)), filename).toBe(true);
+  });
+
+  it('TS and TSX get different plugin sets (they are not interchangeable)', () => {
+    expect(parserOptionsFor('a.ts').plugins).toEqual(['typescript']);
+    expect(parserOptionsFor('a.tsx').plugins).toEqual(['typescript', 'jsx']);
+    expect(parserOptionsFor('a.jsx').plugins).toEqual(['jsx']);
+    // 'unambiguous' accepts CommonJS AND the TS export-assignment legal in .cts
+    expect(parserOptionsFor('a.cjs').sourceType).toBe('unambiguous');
+    expect(parserOptionsFor('a.cts').plugins).toEqual(['typescript']);
+  });
+
+  it('unparseable executable source THROWS — it is never silently skipped', () => {
+    expect(() => executableSource('const = = ;', 'broken.js')).toThrow(UnparseableSourceError);
+    expect(() => executableSource('function f( {', 'broken.js')).toThrow(UnparseableSourceError);
+    // and the error names the file, so a failure is actionable
+    expect(() => executableSource('const = = ;', 'broken.js')).toThrow(/broken\.js/);
+  });
+
+  it('every file the repository scan covers actually parses (the scan is not silently empty)', () => {
+    const files = ['src', 'supabase', 'scripts'].flatMap((d) => collectModules(d));
+    expect(files.length).toBeGreaterThan(100);
+    for (const f of files) expect(() => executableSourceOf(f), f).not.toThrow();
+  });
+});
+
+describe('negative control · private / workstation address classes', () => {
+  // The cloud-only invariant is about NETWORK DESTINATIONS the product must
+  // never reach. A workstation engine is just as reachable on the studio LAN at
+  // 192.168.x.x or 10.x.x.x as it is on 127.0.0.1, so the detector covers
+  // loopback, RFC1918, link-local and private/link-local IPv6.
+  const FORBIDDEN = [
+    ["const u = 'http://127.0.0.1:8188/prompt';", 'IPv4 loopback'],
+    ["const u = 'http://127.5.6.7:9000/x';", 'IPv4 loopback across the whole /8'],
+    ["const u = 'http://10.0.0.5:7860/x';", 'RFC1918 10.0.0.0/8'],
+    ["const u = 'http://192.168.1.50:8188/x';", 'RFC1918 192.168.0.0/16'],
+    ["const u = 'http://172.16.3.4:8080/x';", 'RFC1918 172.16.0.0/12'],
+    ["const u = 'http://172.31.255.1:8080/x';", 'RFC1918 172.31 upper bound'],
+    ["const u = 'http://169.254.10.20/x';", 'IPv4 link-local'],
+    ["const u = 'http://0.0.0.0:8188/x';", 'the unspecified address'],
+    ["const u = 'ws://localhost:11434/socket';", 'localhost over ws'],
+    ["const u = 'http://[::1]:11434/api';", 'IPv6 loopback'],
+    ["const u = 'http://[fe80::1ff:fe23:4567]:8188/';", 'IPv6 link-local'],
+    ["const u = 'http://[fd00::1]:7860/';", 'IPv6 unique-local'],
+    ["const u = '//192.168.0.9/x';", 'protocol-relative private host'],
+    ["const u = base + ':8188/prompt';", 'a known engine port'],
+  ];
+
+  it.each(FORBIDDEN)('flags %s', (source) => {
+    expect(hasLocalAddress(executableSource(source, 'a.js')), source).toBe(true);
+  });
+
+  // Numeric business data must never be mistaken for an endpoint. Each of these
+  // contains digits overlapping a private range but is not a destination.
+  const ALLOWED = [
+    ['const price = 10.0; const qty = 192168;', 'prices and quantities'],
+    ["const version = '10.0.0.1';", 'a version string with no scheme or port'],
+    ["const ratio = '172.16';", 'a bare decimal pair'],
+    ['const total = 127.0 + 0.1;', 'arithmetic on floats'],
+    ["const sku = '192.168.1.50-BLUE';", 'an SKU that embeds digits'],
+    ["const u = 'https://api.artvalue.example/v1/generate';", 'a real remote endpoint'],
+    ["const u = 'https://8.8.8.8:443/';", 'a PUBLIC IP endpoint'],
+    ["const at = '12:30';", 'a clock time'],
+  ];
+
+  it.each(ALLOWED)('does NOT flag %s', (source) => {
+    expect(hasLocalAddress(executableSource(source, 'a.js')), source).toBe(false);
+  });
+});
+
+describe('negative control · recursive scan of every module extension', () => {
   // THE BYPASS: the walker matched only .js/.jsx/.ts/.tsx recursively, and
   // .mjs/.cjs ONLY at the repository root — so a nested `src/tool.mjs` or
   // `supabase/functions/tool.cjs` was invisible to both repository-wide scans.
   const PLANTED = [
     ['tool.mjs', "fetch('http://127.0.0.1:8188/prompt');"],
     ['nested/deep/probe.cjs', "require('node:http').get('http://localhost:11434/api/tags');"],
-    ['nested/adapter.ts', "export const url = 'http://127.0.0.1:7860';"],
-    ['nested/deep/legacy.cts', "export const p = 'ollama';"],
+    ['nested/adapter.ts', "export const url: string = 'http://192.168.1.9:7860';"],
+    ['nested/deep/legacy.cts', "const p = 'ollama'; export = p;"],
+    ['nested/View.tsx', 'export const V = () => <p>http://10.0.0.5:8188/x</p>;'],
   ];
 
   let root;
@@ -470,7 +598,6 @@ describe('negative control · recursive scan of every module extension (Codex P2
     const oldFilter = (name) => /\.(js|jsx|ts|tsx)$/.test(name);
     expect(oldFilter('tool.mjs')).toBe(false);
     expect(oldFilter('probe.cjs')).toBe(false);
-    // ...and the current one accepts them
     expect(isModuleFile('tool.mjs')).toBe(true);
     expect(isModuleFile('probe.cjs')).toBe(true);
   });
@@ -478,14 +605,14 @@ describe('negative control · recursive scan of every module extension (Codex P2
   it('each planted module is reported by the detectors the scans apply', () => {
     const offenders = [];
     for (const file of collectModules(root)) {
-      const code = stripComments(fs.readFileSync(file, 'utf8'));
+      const code = executableSourceOf(file);
       if (hasLocalAddress(code) || namesEngine(code)) offenders.push(path.basename(file));
     }
-    expect(offenders.sort()).toEqual(['adapter.ts', 'legacy.cts', 'probe.cjs', 'tool.mjs']);
+    expect(offenders.sort()).toEqual(['View.tsx', 'adapter.ts', 'legacy.cts', 'probe.cjs', 'tool.mjs']);
   });
 
   it('the extension set covers every module form the toolchain executes', () => {
-    for (const ext of ['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx']) {
+    for (const ext of ['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.cts', '.mts']) {
       expect(MODULE_EXTENSIONS, ext).toContain(ext);
     }
   });

@@ -6,7 +6,7 @@
 **Purpose:** single source of truth for state, so work continues across sessions with no loss.
 Nathan passes this to ChatGPT so it can review/advise **without re-deriving or guessing** state.
 **ChatGPT does NOT edit this document.** Only Claude updates it.
-**Last updated:** 2026-07-27 — session: **ABSOLUTE CLOUD-ONLY BOUNDARY (ROUND 11) — IN FLIGHT / NOT RELEASED.** Nathan's absolute decision: no executable local-engine code anywhere in the repository, product AND tooling. Round 10's two disclosed exceptions are withdrawn. **The AI Gateway shared contract changed:** `comfyui` / `ollama` / `fooocus` / `a1111` are removed from `AI_PROVIDERS`, `AI_MODELS` and every routing chain, together with the `LOCAL_PROVIDERS` partition, the `localFirst` selection option (and its response metadata) and the local zero-cost branch — the 20-action cloud vocabulary is unchanged and every action still resolves to a non-empty all-API chain. **`scripts/local-review-prep.mjs` (a local-Ollama caller), its test, the whole `scripts/` directory, `comfy_help.txt` and the `local:review-prep` / `dev:local` / `preview:local` npm scripts are DELETED.** Docs corrected where they claimed local engines are still supported. Repo-wide proof scans **172 non-test executables** across `src/`, `supabase/`, root and `scripts/` for engine names and local addresses with comments stripped, and proves the `src/lib` Gateway shims are pure re-exports so no divergent copy can exist. Two further Codex P2s on `1233034` (a DemoMode copy regression of mine, and eval-provenance wording) were confirmed and fixed. Codex then found 2 real defects in the retirement PROOF itself (a comment stripper that ate `//` inside URL string literals, and a walker blind to nested `.mjs`/`.cjs`); both fixed, with negative controls that reproduce each bypass. Suite **110 files / 2,997 passed / 0 skipped / 0 failed**, build green (`index-C4frcMDi.js`, 608.05 kB); the app bundle now has **zero** hits for every local term including the provider-registry strings that survived round 10. Runtime: retired routes fail safe, all surviving creative routes render, 0 local requests, 0 console messages. ⚠️ **An Edge `ai-gateway` redeploy will be REQUIRED later — NOT performed here**; nothing deployed, no secret or remote configuration touched. Prior round summaries follow. **(Round 10)** 
+**Last updated:** 2026-07-27 — session: **ABSOLUTE CLOUD-ONLY BOUNDARY (ROUND 11) — IN FLIGHT / NOT RELEASED.** Nathan's absolute decision: no executable local-engine code anywhere in the repository, product AND tooling. Round 10's two disclosed exceptions are withdrawn. **The AI Gateway shared contract changed:** `comfyui` / `ollama` / `fooocus` / `a1111` are removed from `AI_PROVIDERS`, `AI_MODELS` and every routing chain, together with the `LOCAL_PROVIDERS` partition, the `localFirst` selection option (and its response metadata) and the local zero-cost branch — the 20-action cloud vocabulary is unchanged and every action still resolves to a non-empty all-API chain. **`scripts/local-review-prep.mjs` (a local-Ollama caller), its test, the whole `scripts/` directory, `comfy_help.txt` and the `local:review-prep` / `dev:local` / `preview:local` npm scripts are DELETED.** Docs corrected where they claimed local engines are still supported. Repo-wide proof scans **172 non-test executables** across `src/`, `supabase/`, root and `scripts/` for engine names and local addresses with comments stripped, and proves the `src/lib` Gateway shims are pure re-exports so no divergent copy can exist. Two further Codex P2s on `1233034` (a DemoMode copy regression of mine, and eval-provenance wording) were confirmed and fixed. Codex then broke the proof's hand-written scanner three times (URL `//` in string literals; nested `.mjs`/`.cjs`; then object literals in template substitutions, JSX text and regex after `return`). The approximation WAS the defect, so it is gone: the scanner is now **parser-backed via `@babel/parser`**, blanking only the parser's own comment ranges, and the address classes were widened to RFC1918/link-local/IPv6 private ranges in network context. Suite **110 files / 2,997 passed / 0 skipped / 0 failed**, build green (`index-C4frcMDi.js`, 608.05 kB); the app bundle now has **zero** hits for every local term including the provider-registry strings that survived round 10. Runtime: retired routes fail safe, all surviving creative routes render, 0 local requests, 0 console messages. ⚠️ **An Edge `ai-gateway` redeploy will be REQUIRED later — NOT performed here**; nothing deployed, no secret or remote configuration touched. Prior round summaries follow. **(Round 10)** 
 
 ---
 
@@ -879,6 +879,51 @@ there is no remaining exception.
 
 Suite **110 files / 2,997 passed / 0 skipped / 0 failed** (+17 control tests). No build re-run: no executable production
 code changed.
+
+**Codex broke the hand-written scanner a THIRD time (3 findings on `b6fbd04`). The approximation itself was the
+defect, so it is gone — replaced with parser-backed analysis.** This round changed **no product code**; the verified
+artifact stays `index-C4frcMDi.js`.
+
+| # | Finding | Status |
+|---|---|---|
+| 1 (P1) | A nested template whose substitution held an **object literal** ended the template early: the object's `}` decremented a depth its `{` never incremented, so ``const u = `${({}).x ? `http://127.0.0.1:8188/prompt` : ``}`;`` lost the URL. | **Obsolete by replacement** — the parser tracks substitution and brace nesting. |
+| 2 (P1) | **JSX text had no state at all**, so `<p>Open http://127.0.0.1:8188/prompt</p>` was truncated at `http:`. The scan explicitly covers `.jsx`/`.tsx`, so an address rendered as unquoted JSX text bypassed the boundary. | **Obsolete by replacement** — JSX text is never touched. |
+| 3 (P2) | Regex detection looked only at the previous **character**, so `return /it's fine/;` read as division; the apostrophe opened a phantom string that ate the rest of the line. | **Obsolete by replacement** — the parser tokenizes regex in every expression context. |
+
+**The method now (`support/sourceScan.js`).** `executableSource()` hands the file to **`@babel/parser`** (already a
+declared direct devDependency) and blanks **only the byte ranges the parser reports as comments**, preserving length and
+newlines. Nothing else is altered. That single rule satisfies every invariant structurally rather than heuristically:
+comments excluded; strings, template literals and JSX text left byte-for-byte inspectable; nested substitutions and
+ordinary nested braces handled by the parser; regex literals tokenized in every valid context; per-extension plugin sets
+so **JS / JSX / TS / TSX / MJS / CJS / MTS / CTS each parse as their real syntax** (a `.ts` reads `<T>x` as a type
+assertion, a `.tsx` as an element — they are asserted to get different plugins); and an unparseable executable file
+throws `UnparseableSourceError` naming the file — **never silently skipped**.
+
+**Address-class gap closed** (independently identified, not from the review). The invariant is about network
+DESTINATIONS, and a workstation engine is as reachable at `192.168.x.x` on the studio LAN as at `127.0.0.1`. The
+detector now covers loopback (the whole `127/8`), RFC1918 (`10/8`, `172.16/12`, `192.168/16`), IPv4 link-local
+(`169.254/16`), the unspecified address, and IPv6 loopback / link-local (`fe80::/10`) / unique-local (`fc00::/7`) —
+**only in a network context** (behind a scheme, behind a protocol-relative `//`, or followed by a port), so ordinary
+numeric business data is not mistaken for an endpoint. 8 positive and 8 negative controls pin both directions,
+including a version string `'10.0.0.1'`, an SKU embedding `192.168.1.50`, float arithmetic on `127.0`, a clock time,
+and a **public** IP endpoint `8.8.8.8:443` which must NOT flag.
+
+**Controls include Codex's three exact reproductions verbatim**, plus 8 regex-context cases (`return`, `if`, `while`,
+`case`, array, `&&`, call argument, `typeof`) each followed by a forbidden URL **on the same line**, 8 planted calls
+across quoting/JSX/TS/CJS forms, 5 comment forms (incl. a JSX expression comment), 8 per-extension syntax cases, and
+5 modules planted at depth in a temp directory. They call the **production primitive**, never a parallel copy.
+
+**Two real defects were caught by the new controls themselves, and fixed:** pinning `.cjs`/`.cts` to `sourceType:
+'script'` made valid `.cts` (`export = x`) unparseable — now `'unambiguous'` everywhere; and the import closure was
+resolving `./styles/app.css`, a non-executable asset, into the parser — `resolveLocal` now returns only real modules.
+The loud-failure invariant is what surfaced both.
+
+**Result over the real repository:** 283 files scanned, **all parse**, **0 offenders** across **169 non-test
+executables** (169 not 172 — the closure no longer counts the three non-module assets it used to resolve). The stricter
+address classes exposed nothing that had been hiding. Stated rather than implied.
+
+Suite **110 files / 3,043 passed / 0 skipped / 0 failed** (+46 controls). No build and no runtime re-run: no executable
+production code changed.
 
 **Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 

@@ -3,28 +3,46 @@
 // proof. Extracted so the NEGATIVE CONTROLS exercise the EXACT code the gate
 // runs, rather than a re-implementation that could drift from it.
 //
-// WHY THIS EXISTS (Codex review of `1361a84`, 2 findings — both real):
+// ── WHY THIS IS PARSER-BACKED ──────────────────────────────────────
+// This module used to hand-roll a lexical scanner to remove comments while
+// preserving literals. Codex broke it three times in a row, and each break was
+// a SILENT MISS — a real local-engine call hidden from the gate:
 //
-//   1. P1 — the previous comment stripper was `s.replace(/\/\/[^\n]*/g, '')`.
-//      That regex has no idea what a string is, so it treated the `//` inside
-//      a URL as the start of a line comment: `fetch('http://127.0.0.1:8188')`
-//      became `fetch('http:` BEFORE either assertion looked at it. The single
-//      most common shape of a local-engine call therefore walked straight
-//      through the gate. Stripping must be syntax-aware.
+//   1. `s.replace(/\/\/[^\n]*/g, '')` read the `//` inside a URL as a line
+//      comment: `fetch('http://127.0.0.1:8188/prompt')` → `fetch('http:`.
+//   2. Template-substitution depth counted only `${` and `}`, so an ordinary
+//      object literal inside `${...}` decremented a depth its `{` never
+//      incremented — ending the template early and eating the URL after it.
+//   3. JSX text had no state at all, so `<p>Open http://127.0.0.1:8188/x</p>`
+//      was truncated at `http:`.
+//   4. Regex detection looked only at the previous CHARACTER, so `return /it's
+//      fine/;` was read as division; the apostrophe then opened a phantom
+//      string that swallowed the rest of the line.
 //
-//   2. P2 — the recursive walker only collected `.js/.jsx/.ts/.tsx`, while
-//      `.mjs`/`.cjs` were picked up only at the repository ROOT. A local-engine
-//      caller added as `src/tool.mjs`, `supabase/functions/tool.mjs` or a
-//      nested `.cjs` was silently outside both scans.
+// Every one of those is the same class of bug: a hand-written approximation of
+// JavaScript's grammar. The approximation is the defect, so it is GONE. We now
+// hand the file to `@babel/parser` — a real parser, already a declared direct
+// devDependency — and use its authoritative comment ranges.
 //
-// DESIGN RULE — FAIL OPEN TOWARD DETECTION. Every ambiguous case resolves to
-// PRESERVING text rather than removing it. Under-stripping can only produce a
-// FALSE POSITIVE (a comment counted as code), which fails loudly and gets
-// looked at. Over-stripping produces a FALSE NEGATIVE — a real call hidden
-// from the gate — which is exactly the defect above.
+// ── THE METHOD ─────────────────────────────────────────────────────
+// `executableSource()` parses the file and blanks out ONLY the byte ranges the
+// parser reports as comments, preserving length and newlines. Nothing else is
+// touched. That single rule satisfies every invariant at once, structurally:
+//
+//   • actual comments are excluded                    → their ranges are blanked
+//   • strings and template literals stay inspectable  → never touched
+//   • nested substitutions / nested braces can't hide → the PARSER tracks them
+//   • JSX text stays inspectable                      → never touched
+//   • regex literals can't corrupt the remainder      → the PARSER tokenizes them
+//   • JS/JSX/TS/TSX/MJS/CJS/MTS/CTS parse as themselves → per-extension plugins
+//   • unparseable executable source FAILS LOUDLY      → the parse error rethrows
+//
+// There is no ambiguity left to resolve heuristically, because we no longer
+// decide what a token is — we only ask where the comments are.
 // ===================================================================
 import fs from 'node:fs';
 import path from 'node:path';
+import { parse } from '@babel/parser';
 
 // Every module extension the toolchain can execute. `.mjs`/`.cjs` are included
 // at EVERY depth, not just the repository root.
@@ -50,132 +68,128 @@ export function collectModules(dir) {
   return out.map((f) => path.normalize(f));
 }
 
-// Can a `/` at this position begin a regex literal? It cannot directly follow a
-// value (identifier, literal, closing bracket) — there it is division. When the
-// previous significant character is anything else, a regex is possible.
-function regexCanFollow(prev) {
-  if (prev === '') return true;
-  return !/[\w$)\]]/.test(prev);
+/** Thrown when executable source cannot be parsed. Never swallowed. */
+export class UnparseableSourceError extends Error {
+  constructor(filename, cause) {
+    super(`sourceScan: cannot parse ${filename || '<inline>'} — ${cause && cause.message}`);
+    this.name = 'UnparseableSourceError';
+    this.filename = filename;
+    this.cause = cause;
+  }
+}
+
+// Parser configuration per real file syntax. TS and JSX are NOT interchangeable:
+// in a `.ts` file `<T>x` is a type assertion, in `.tsx` it opens an element, so
+// the plugin set must follow the extension rather than be applied uniformly.
+export function parserOptionsFor(filename = '') {
+  const ext = MODULE_EXTENSIONS.find((e) => filename.endsWith(e)) || '.js';
+  const plugins = [];
+  if (ext === '.ts' || ext === '.mts' || ext === '.cts') plugins.push('typescript');
+  else if (ext === '.tsx') plugins.push('typescript', 'jsx');
+  else plugins.push('jsx'); // .js/.jsx/.mjs/.cjs — harmless for plain JS
+
+  // 'unambiguous' for EVERY extension: it accepts CommonJS (`module.exports`)
+  // and ESM alike, and — unlike 'script' — it also accepts the TypeScript
+  // export-assignment (`export = x`) that is legal in a .cts file. Pinning
+  // .cjs/.cts to 'script' made valid .cts source unparseable, which the
+  // loud-failure control caught.
+  return { sourceType: 'unambiguous', plugins, ranges: true, errorRecovery: false, allowReturnOutsideFunction: true };
 }
 
 /**
- * Remove comments while PRESERVING string, template and regex literals.
+ * Return the source with ONLY its comments blanked out.
  *
- * Comments are replaced by their contained newlines only, so line numbers in an
- * offender report stay meaningful. Everything else is emitted verbatim — a URL
- * inside a string literal survives untouched, which is the entire point.
+ * The parser's own comment ranges are the authority. Comment bytes become
+ * spaces (newlines preserved) so offsets, line numbers and every other byte —
+ * strings, templates, JSX text, regex literals — survive exactly.
  *
  * @param {string} src
- * @returns {string} source with comments removed and all literals intact
+ * @param {string} [filename] drives plugin selection and error messages
+ * @returns {string}
+ * @throws {UnparseableSourceError} if the source is not valid for its extension
  */
-export function stripComments(src) {
+export function executableSource(src, filename = '') {
   const s = String(src == null ? '' : src);
-  const n = s.length;
-  let out = '';
-  let i = 0;
-  let prev = ''; // last significant (non-whitespace) emitted character
-
-  const emit = (text) => {
-    out += text;
-    for (let k = text.length - 1; k >= 0; k -= 1) {
-      if (!/\s/.test(text[k])) { prev = text[k]; break; }
-    }
-  };
-
-  while (i < n) {
-    const c = s[i];
-    const next = s[i + 1];
-
-    // ---- line comment: drop to end of line, keep the newline ----
-    if (c === '/' && next === '/') {
-      while (i < n && s[i] !== '\n') i += 1;
-      continue;
-    }
-
-    // ---- block comment: drop, but keep its newlines ----
-    if (c === '/' && next === '*') {
-      i += 2;
-      while (i < n && !(s[i] === '*' && s[i + 1] === '/')) {
-        if (s[i] === '\n') out += '\n';
-        i += 1;
-      }
-      i += 2; // consume the closing */ (past-end is harmless)
-      continue;
-    }
-
-    // ---- single/double quoted string: emit verbatim, honour escapes ----
-    if (c === "'" || c === '"') {
-      let lit = c;
-      i += 1;
-      while (i < n) {
-        if (s[i] === '\\') { lit += s.slice(i, i + 2); i += 2; continue; }
-        lit += s[i];
-        const done = s[i] === c;
-        i += 1;
-        if (done) break;
-        // An unterminated literal must not swallow the file: stop at the
-        // newline and let the rest be scanned normally (FAIL OPEN).
-        if (s[i - 1] === '\n') break;
-      }
-      emit(lit);
-      continue;
-    }
-
-    // ---- template literal: emit verbatim, including ${...} substitutions ----
-    if (c === '`') {
-      let lit = '`';
-      i += 1;
-      let depth = 0; // ${ } nesting
-      while (i < n) {
-        if (s[i] === '\\') { lit += s.slice(i, i + 2); i += 2; continue; }
-        if (s[i] === '$' && s[i + 1] === '{') { lit += '${'; i += 2; depth += 1; continue; }
-        if (depth > 0 && s[i] === '}') { lit += '}'; i += 1; depth -= 1; continue; }
-        lit += s[i];
-        const done = s[i] === '`' && depth === 0;
-        i += 1;
-        if (done) break;
-      }
-      emit(lit);
-      continue;
-    }
-
-    // ---- regex literal: emit verbatim so an embedded quote cannot open a
-    //      phantom string and swallow the rest of the file ----
-    if (c === '/' && regexCanFollow(prev)) {
-      let j = i + 1;
-      let inClass = false;
-      let closed = false;
-      while (j < n && s[j] !== '\n') {
-        if (s[j] === '\\') { j += 2; continue; }
-        if (s[j] === '[') inClass = true;
-        else if (s[j] === ']') inClass = false;
-        else if (s[j] === '/' && !inClass) { closed = true; break; }
-        j += 1;
-      }
-      if (closed) {
-        j += 1;
-        while (j < n && /[a-z]/.test(s[j])) j += 1; // flags
-        emit(s.slice(i, j));
-        i = j;
-        continue;
-      }
-      // No terminator on this line → it was division after all. Fall through.
-    }
-
-    emit(c);
-    i += 1;
+  let ast;
+  try {
+    ast = parse(s, parserOptionsFor(filename));
+  } catch (e) {
+    // LOUD BY DESIGN: an unparseable executable file must never be treated as
+    // "nothing found". Silence here is exactly how a bypass would hide.
+    throw new UnparseableSourceError(filename, e);
   }
 
-  return out;
+  const comments = ast.comments || [];
+  if (comments.length === 0) return s;
+
+  const chars = [...s];
+  for (const c of comments) {
+    const start = typeof c.start === 'number' ? c.start : (c.range && c.range[0]);
+    const end = typeof c.end === 'number' ? c.end : (c.range && c.range[1]);
+    if (typeof start !== 'number' || typeof end !== 'number') continue;
+    for (let i = start; i < end && i < chars.length; i += 1) {
+      if (chars[i] !== '\n') chars[i] = ' ';
+    }
+  }
+  return chars.join('');
 }
+
+/** Read a file from disk and return its executable (comment-free) source. */
+export function executableSourceOf(file) {
+  return executableSource(fs.readFileSync(file, 'utf8'), file);
+}
+
+// Back-compat alias: the assertions read more naturally as "strip the comments".
+export const stripComments = executableSource;
 
 // ---- the two detectors the repository-wide assertions apply ----
 
 /** A workstation-engine product name appearing as executable code. */
 export const ENGINE_NAME_RE = /\b(comfy|comfyui|fooocus|ollama|automatic1111|a1111)\b/i;
 
-/** A loopback / private-engine address or a known engine port. */
-export const LOCAL_ADDRESS_RE = /localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|:8188|:7860|:11434|:8189/;
+// ── address classes ────────────────────────────────────────────────
+// The cloud-only invariant is about NETWORK DESTINATIONS the product must never
+// reach, which is wider than "localhost and four known ports": a workstation
+// engine is just as reachable at 192.168.x.x or 10.x.x.x on the studio LAN.
+//
+// Every class below is matched ONLY in a network context — behind a scheme,
+// behind a protocol-relative `//`, or followed by a port — so ordinary numeric
+// business data (a price, a version, an id, a quantity) is never mistaken for
+// an endpoint. `localhost` is the one bare-word exception; it is unambiguous.
+const OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
+const V4_LOOPBACK = `127(?:\\.${OCTET}){3}`;                                   // 127.0.0.0/8
+const V4_PRIVATE = `(?:10(?:\\.${OCTET}){3}`                                   // 10.0.0.0/8
+  + `|192\\.168(?:\\.${OCTET}){2}`                                             // 192.168.0.0/16
+  + `|172\\.(?:1[6-9]|2\\d|3[01])(?:\\.${OCTET}){2})`;                         // 172.16.0.0/12
+const V4_LINK_LOCAL = `169\\.254(?:\\.${OCTET}){2}`;                           // 169.254.0.0/16
+const V4_UNSPECIFIED = '0\\.0\\.0\\.0';
+const V4_HOST = `(?:${V4_LOOPBACK}|${V4_PRIVATE}|${V4_LINK_LOCAL}|${V4_UNSPECIFIED})`;
+
+// IPv6 loopback (::1), link-local (fe80::/10) and unique-local (fc00::/7).
+const V6_HOST = '(?:::1|fe80(?::[0-9a-f]{0,4}){1,7}|f[cd][0-9a-f]{2}(?::[0-9a-f]{0,4}){1,7})';
+const V6_BRACKETED = `\\[${V6_HOST}\\]`;
+
+const SCHEME = '(?:https?|wss?|ftp)';
+const PORT = ':\\d{2,5}';
+
+// Engine ports remain a signal on their own — they are specific enough that a
+// bare occurrence is worth failing on.
+const ENGINE_PORTS = ':(?:8188|8189|7860|11434)\\b';
+
+export const LOCAL_ADDRESS_RE = new RegExp([
+  `\\blocalhost\\b`,                              // bare hostname (unambiguous)
+  `(?:${SCHEME}:)?//${V4_HOST}\\b`,               // scheme:// or protocol-relative
+  `\\b${V4_HOST}${PORT}`,                         // host:port
+  `(?:${SCHEME}:)?//${V6_BRACKETED}`,             // bracketed IPv6 in a URL
+  `${V6_BRACKETED}${PORT}`,                       // [ipv6]:port
+  ENGINE_PORTS,                                   // a known engine port anywhere
+].join('|'), 'i');
 
 export const namesEngine = (code) => ENGINE_NAME_RE.test(code);
 export const hasLocalAddress = (code) => LOCAL_ADDRESS_RE.test(code);
+
+/** Convenience for the scans: does this FILE contain a forbidden reference? */
+export function scanFile(file) {
+  const code = executableSourceOf(file);
+  return { engine: namesEngine(code), address: hasLocalAddress(code) };
+}
