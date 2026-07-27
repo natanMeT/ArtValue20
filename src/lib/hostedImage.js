@@ -23,6 +23,7 @@
 import { userError } from './userFacingError.js';
 import { isSupabaseConfigured } from './supabase.js';
 import { callAiGateway } from './aiGatewayClient.js';
+import { guardedFetch } from './networkPolicy.js';
 
 const POLLI_TOKEN = import.meta.env.VITE_POLLINATIONS_TOKEN || '';
 const POLLI_MODEL = import.meta.env.VITE_POLLINATIONS_MODEL || 'flux';
@@ -111,7 +112,9 @@ export async function generateImage(prompt, opts = {}) {
 
 export async function downloadImage(src, name = 'artvalue-image.png') {
   try {
-    const r = await fetch(src);
+    // Runtime destination → network policy boundary (data:/blob: pass; a private
+    // or unparseable address is refused before any request is issued).
+    const r = await guardedFetch(src);
     const blob = await r.blob();
     const u = URL.createObjectURL(blob);
     const a = document.createElement('a');

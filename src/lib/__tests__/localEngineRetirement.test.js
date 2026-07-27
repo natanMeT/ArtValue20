@@ -66,6 +66,14 @@ const LOCAL_ENV_VARS = [
 
 const isTestPath = (p) => /\.test\.[jt]sx?$/.test(p) || /(^|[\\/])__tests__[\\/]/.test(p);
 
+// The network-policy boundary is the AUTHORITY on what a private destination
+// is, so it necessarily NAMES the classes it rejects (`localhost`, the RFC1918
+// octets). Excluding it from the ADDRESS scan is not a hole: the compensating
+// assertion below proves it holds no destination of its own, and the
+// egress-invariant suite proves it is the only module allowed to call fetch.
+const POLICY_BOUNDARY = path.normalize('src/lib/networkPolicy.js');
+const isPolicyBoundary = (f) => path.normalize(f) === POLICY_BOUNDARY;
+
 // Recursive collection of EVERY executable module extension (incl. .mjs/.cjs at
 // any depth) is owned by support/sourceScan.js and shared with the controls.
 const walk = collectModules;
@@ -148,6 +156,7 @@ describe('local-engine retirement · the app import closure is clean', () => {
   it('no reachable module contains a local address in executable code', () => {
     const offenders = [];
     for (const file of closure) {
+      if (isPolicyBoundary(file)) continue; // the classifier names what it rejects
       const code = executableSourceOf(file);
       if (hasLocalAddress(code)) offenders.push(file);
     }
@@ -343,11 +352,20 @@ describe('local-engine retirement · repository-wide executable scan', () => {
   it('no executable file contains a local address outside a comment', () => {
     const offenders = [];
     for (const file of repoExecutables()) {
-      if (isTestPath(file)) continue;
+      if (isTestPath(file) || isPolicyBoundary(file)) continue;
       const code = executableSourceOf(file);
       if (hasLocalAddress(code)) offenders.push(file);
     }
     expect(offenders, `local addresses in executable code: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  // COMPENSATING ASSERTION for the single exemption above: the policy boundary
+  // may NAME address classes, but it must contain no destination of its own —
+  // no URL candidate at all — so the exemption cannot hide a real endpoint.
+  it('the exempt policy boundary contains no destination of its own', () => {
+    const code = executableSourceOf(POLICY_BOUNDARY);
+    const candidates = [...code.matchAll(/(?:https?|wss?|ftp):\/\/[^\s'"`)\]}<>\,;]+/gi)].map((m) => m[0]);
+    expect(candidates, `the policy boundary holds a destination: ${candidates.join(', ')}`).toEqual([]);
   });
 
   it('no package script starts, probes or calls a local model', () => {

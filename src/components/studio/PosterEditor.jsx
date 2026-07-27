@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import Icon from '../ui/Icon.jsx';
 import { userFacingError } from '../../lib/userFacingError.js';
+import { guardedFetch } from '../../lib/networkPolicy.js';
 
 // Real-font text layers on top of an AI image → crisp, clean, perfect text
 // (also in Hebrew). Preview is DOM; export rasterizes to a canvas at the
@@ -54,7 +55,7 @@ export default function PosterEditor({ src, onClose, onApply }) {
     let alive = true;
     (async () => {
       try {
-        const blob = await (await fetch(src)).blob();
+        const blob = await (await guardedFetch(src)).blob();
         const u = URL.createObjectURL(blob);
         revoke = u;
         if (!alive) return;

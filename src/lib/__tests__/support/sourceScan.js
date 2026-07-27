@@ -43,6 +43,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse } from '@babel/parser';
+import { isForbiddenHost } from '../../networkPolicy.js';
 
 // Every module extension the toolchain can execute. `.mjs`/`.cjs` are included
 // at EVERY depth, not just the repository root.
@@ -235,56 +236,12 @@ function normalizedHost(candidate) {
   return '';
 }
 
-const V4_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
-
-/** Expand a normalized IPv6 host (already canonical) to eight 16-bit groups. */
-function ipv6Groups(host) {
-  const inner = host.replace(/^\[|\]$/g, '');
-  if (!inner.includes(':')) return null;
-  const [head, tail = ''] = inner.split('::');
-  const toParts = (t) => (t ? t.split(':').filter((x) => x !== '') : []);
-  const a = toParts(head);
-  const b = toParts(tail);
-  if (a.some((p) => p.includes('.')) || b.some((p) => p.includes('.'))) return null;
-  const fill = inner.includes('::') ? Array(8 - a.length - b.length).fill('0') : [];
-  const all = [...a, ...fill, ...b];
-  if (all.length !== 8) return null;
-  const nums = all.map((p) => parseInt(p || '0', 16));
-  return nums.some((x) => Number.isNaN(x)) ? null : nums;
-}
-
-/**
- * Is this NORMALIZED host a destination the cloud-only product must never reach?
- * Classification is numeric, so it holds for every textual form the URL parser
- * accepts — shorthand, decimal, hexadecimal, compressed IPv6 alike.
- */
-export function isForbiddenHost(host) {
-  if (!host) return false;
-  const h = String(host).toLowerCase();
-  if (h === 'localhost' || h.endsWith('.localhost')) return true;
-
-  const v4 = V4_RE.exec(h);
-  if (v4) {
-    const [a, b] = [Number(v4[1]), Number(v4[2])];
-    if (v4.slice(1).some((o) => Number(o) > 255)) return false;
-    if (a === 127) return true;                              // loopback 127.0.0.0/8
-    if (a === 10) return true;                               // RFC1918 10.0.0.0/8
-    if (a === 192 && b === 168) return true;                 // RFC1918 192.168.0.0/16
-    if (a === 172 && b >= 16 && b <= 31) return true;        // RFC1918 172.16.0.0/12
-    if (a === 169 && b === 254) return true;                 // link-local 169.254.0.0/16
-    if (h === '0.0.0.0') return true;                        // unspecified
-    return false;
-  }
-
-  const g = ipv6Groups(h);
-  if (g) {
-    if (g.every((x, i) => (i < 7 ? x === 0 : x === 1))) return true;  // ::1
-    if ((g[0] & 0xffc0) === 0xfe80) return true;                      // fe80::/10 (fe80–febf)
-    if ((g[0] & 0xfe00) === 0xfc00) return true;                      // fc00::/7  (fc00–fdff)
-    if (g.every((x) => x === 0)) return true;                         // ::
-  }
-  return false;
-}
+// Host classification is NOT reimplemented here. It is the PRODUCTION network
+// policy's job, and `src/lib/networkPolicy.js` owns it — including IPv4-mapped
+// IPv6 (`::ffff:127.0.0.1`), which this file classified incorrectly until the
+// review of `826de90`. Re-exported so the scanner and the real execution
+// boundary can never disagree about what "private" means.
+export { isForbiddenHost };
 
 /**
  * Does this executable source reference a forbidden network destination?

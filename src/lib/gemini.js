@@ -13,6 +13,7 @@
 // on its legacy path.
 import { callAiGateway } from './aiGatewayClient.js';
 import { userError, engineError } from './userFacingError.js';
+import { guardedFetch, assertPublicDestination } from './networkPolicy.js';
 
 // PRODUCT BOUNDARY (2026-07-27, owner decision): ArtValue is a CLOUD-ONLY
 // product. The workstation-engine text lane that used to live here — an
@@ -39,7 +40,7 @@ async function chatJson(sys, user, opts = {}) {
     contents: [{ role: 'user', parts: [{ text: user }] }],
     generationConfig: { responseMimeType: 'application/json', temperature, maxOutputTokens: maxTokens, thinkingConfig: { thinkingBudget: 0 } },
   };
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-goog-api-key': API_KEY }, body: JSON.stringify(body) });
+  const res = await guardedFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-goog-api-key': API_KEY }, body: JSON.stringify(body) });
   if (!res.ok) {
     // The provider's raw text is captured for diagnostics ONLY — it never
     // becomes the thrown message, so it cannot reach any surface that renders
@@ -73,9 +74,13 @@ export async function fetchSiteText(rawUrl) {
   const clean = (rawUrl || '').trim();
   if (!clean) throw userError('הזן כתובת אתר');
   const full = /^https?:\/\//i.test(clean) ? clean : `https://${clean}`;
+  // The TARGET is user-supplied, so it is classified by the network policy
+  // BEFORE it is handed to the reader proxy. Without this the proxy would
+  // happily be asked to fetch a loopback or private-LAN address on our behalf.
+  assertPublicDestination(full);
   let res;
   try {
-    res = await fetch(READER_PROXY + full, { headers: { Accept: 'text/plain' } });
+    res = await guardedFetch(READER_PROXY + full, { headers: { Accept: 'text/plain' } });
   } catch {
     throw userError('לא ניתן לקרוא את האתר (בעיית רשת). בדוק את הכתובת ונסה שוב.');
   }

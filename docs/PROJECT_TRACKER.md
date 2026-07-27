@@ -960,8 +960,74 @@ zone-id retry — swallowing a link-local destination. Exactly one parse shape p
 **Result over the real repository:** 283 files scanned, **all parse**, **0 offenders** across 169 non-test executables.
 The stricter normalization exposed nothing that had been hiding.
 
-Suite **110 files / 3,069 passed / 0 skipped / 0 failed** (+26 controls). No build and no runtime re-run: no executable
-production code changed.
+Suite **110 files / 3,069 passed / 0 skipped / 0 failed** (+26 controls). **Superseded by the round below: Codex then
+showed that a destination assembled at runtime can never be seen by ANY source-text scan, so the text proof was replaced
+by a runtime network-policy boundary plus an AST egress invariant.**
+
+**Codex's review of `826de90` ended the text-scanning approach. 2 P1s; the second is decisive.** The first was another
+missing address form (IPv4-mapped IPv6, `[::ffff:127.0.0.1]` → `[::ffff:7f00:1]`). The second was not a missing form at
+all: a destination assembled at runtime —
+
+    const host = '127.0.0.1'; fetch('http://' + host + ':9000/x');   fetch(`http://${host}:9000/x`);
+
+— **never exists as a URL literal**, so no source-text scan can ever see it. That is proof that a source-level proxy
+cannot decide a runtime property. Both were reproduced before any edit.
+
+**THE PROOF WAS REPLACED, NOT EXTENDED.** The cloud-only claim is now the CONJUNCTION of two layers, and this round
+changed PRODUCTION code to create the first one.
+
+**Layer 1 — RUNTIME (`src/lib/networkPolicy.js`, NEW production module).** The real execution boundary. Every approved
+adapter issues its request through `guardedFetch()`, which normalizes the destination with the platform's **WHATWG URL
+parser** and refuses loopback, RFC1918, link-local, unspecified and **IPv4-mapped IPv6** hosts, on **any port**. However
+the string was assembled, by the time it reaches this function it is concrete — and concrete destinations are decidable.
+Five real sinks were routed through it, behavior-preserving: `gemini.js` ×2 (the Google API call, and `fetchSiteText`,
+where the **user-supplied target** is now classified before the reader proxy is asked to fetch it), `hostedImage.js`,
+`galleryStore.js`, `PosterEditor.jsx`. `data:`/`blob:` pass as NON-EGRESS; unparseable/host-less/unsupported-scheme
+destinations **fail closed**.
+
+**Layer 2 — STRUCTURAL (`support/networkEgress.js` + `networkEgressInvariant.test.js`, NEW).** Network sinks are found
+in the **AST by shape** — `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `Worker`, `sendBeacon`,
+`importScripts`, non-literal `import()`, `element.src=` — never by identifier name or URL text. An explicit
+**ADAPTER_REGISTRY** lists the only 4 modules permitted to hold a sink; every other product module must hold **zero**.
+`src/lib/networkPolicy.js` is asserted to be the **only** module in the product that may call `fetch` at all.
+
+**Neither layer alone is the proof, and the suite says so:** layer 1 without layer 2 is bypassed by adding a second
+sink; layer 2 without layer 1 cannot see an assembled host.
+
+**Controls (47 in the new suite).** Both Codex reproductions; destinations assembled by concatenation, template
+substitution, object field, array join and a concatenated scheme; IPv4-mapped IPv6 forbidden *and* public variants;
+11 disguised sinks including `window.fetch`, `globalThis.fetch` and **`const cloudTransport = fetch`** (aliasing the
+global into a friendly name); a simulated new unapproved `telemetryClient.js` that must fail the registry; five
+sink-free sources that must NOT be falsely accused (a property named `fetch`, a function named `fetchClients`, a JSX
+`src` prop); and approved cloud traffic (Supabase, Gemini, Pollinations, r.jina.ai, fonts, `data:`, `blob:`) still
+allowed. `guardedFetch` is asserted to issue **no request at all** when it refuses.
+
+**Three real defects were caught by these controls while writing them:** the sink detector missed a **global aliased
+into a variable** and missed `import(x)` under Babel's `Import` callee shape (both fixed); and a `0.0.0.0/8` rule was
+too wide — the URL parser normalizes the clock string `12:30` to host `0.0.0.12`, which would have broken the
+business-data boundary, so only the unspecified address itself is rejected.
+
+**ONE narrow, disclosed exemption.** The policy module is the classifier, so it necessarily NAMES `localhost` and the
+RFC1918 octets. It is excluded from the *address text* scans, with a **compensating assertion** that it holds no URL
+candidate of its own — and layer 2 independently proves it is the sole `fetch` holder. In the built bundle the only two
+`localhost` occurrences are that classifier's own comparison: the string is now present **because it is blocked**.
+
+**Evidence quality, stated explicitly**
+- **Enforced at the real execution boundary:** every destination passed to `guardedFetch`/`assertPublicDestination` —
+  including one assembled at runtime — is normalized and classified before a request is issued.
+- **Enforced structurally (AST/registry):** no product module outside the 4 registered adapters may contain any network
+  sink; only the policy module may call `fetch`; a new raw client wrapper cannot enter silently whatever it is named.
+- **Only a source-level proxy now:** the destination-text scanner, explicitly DEMOTED to defence-in-depth. It is no
+  longer presented as proof that assembled local destinations are impossible.
+- **Still NOT provable statically:** a destination reached through a sink the platform adds later; egress from a
+  third-party dependency's own code (Supabase's transport is trusted, not proven); DNS resolving a public name to a
+  private address — a network-layer property this boundary cannot decide; and `element.src=` in the 3 registered image
+  components, which is contained structurally but **not** runtime-validated.
+- **Not verified:** no authenticated end-to-end hosted generation (no credentials in any of these sessions).
+
+**Verification.** Suite **111 files / 3,117 passed / 0 skipped / 0 failed**. One production build green
+(`index-Cb5pUh5g.js`, 610.27 kB — +2.2 kB, the policy module). Runtime smoke: 5-route navigation + 3s idle → 8 requests,
+**0 local requests**, 0 console messages, the only non-origin request being the Google Fonts stylesheet.
 
 **Still IN FLIGHT / NOT RELEASED. P1 remains CLOSED / LIVE. PR #117 remains paused and untouched.**
 
