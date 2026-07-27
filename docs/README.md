@@ -9,8 +9,8 @@ The following **three Markdown files are authoritative**. They are the live sour
 | File | Role | Current version |
 | --- | --- | --- |
 | [`PROJECT_TRACKER.md`](PROJECT_TRACKER.md) | Living cross-session handoff — current state, anchors, status ledger, open decisions. | — (living) |
-| [`roadmaps/BUSINESS_OS_MASTER_ROADMAP.md`](roadmaps/BUSINESS_OS_MASTER_ROADMAP.md) | Product roadmap — vision, modules, customer journey, launch gates, risks. | **Business OS v0.9** |
-| [`roadmaps/AI_GATEWAY_MASTER_ROADMAP.md`](roadmaps/AI_GATEWAY_MASTER_ROADMAP.md) | AI infrastructure roadmap — Gateway contracts, milestones, decision log. | **AI Gateway v5.5** |
+| [`roadmaps/BUSINESS_OS_MASTER_ROADMAP.md`](roadmaps/BUSINESS_OS_MASTER_ROADMAP.md) | Product roadmap — vision, modules, customer journey, launch gates, risks. | **Business OS v0.10** |
+| [`roadmaps/AI_GATEWAY_MASTER_ROADMAP.md`](roadmaps/AI_GATEWAY_MASTER_ROADMAP.md) | AI infrastructure roadmap — Gateway contracts, milestones, decision log. | **AI Gateway v5.6** |
 
 ## Word exports (release artifacts only)
 
@@ -18,14 +18,16 @@ The `.docx` files under `releases/` are **versioned release exports generated fr
 
 | Export | Generated from | Status |
 | --- | --- | --- |
-| [`releases/ArtValue_Business_OS_Master_Product_Roadmap_v0.9_HE.docx`](releases/ArtValue_Business_OS_Master_Product_Roadmap_v0.9_HE.docx) | `roadmaps/BUSINESS_OS_MASTER_ROADMAP.md` | **Current** |
-| [`releases/ArtValue_AI_Gateway_Master_Roadmap_v5.5_HE.docx`](releases/ArtValue_AI_Gateway_Master_Roadmap_v5.5_HE.docx) | `roadmaps/AI_GATEWAY_MASTER_ROADMAP.md` | **Current** |
+| [`releases/ArtValue_Business_OS_Master_Product_Roadmap_v0.10_HE.docx`](releases/ArtValue_Business_OS_Master_Product_Roadmap_v0.10_HE.docx) | `roadmaps/BUSINESS_OS_MASTER_ROADMAP.md` | **Current** |
+| [`releases/ArtValue_AI_Gateway_Master_Roadmap_v5.6_HE.docx`](releases/ArtValue_AI_Gateway_Master_Roadmap_v5.6_HE.docx) | `roadmaps/AI_GATEWAY_MASTER_ROADMAP.md` | **Current** |
+| [`releases/ArtValue_Business_OS_Master_Product_Roadmap_v0.9_HE.docx`](releases/ArtValue_Business_OS_Master_Product_Roadmap_v0.9_HE.docx) | `roadmaps/BUSINESS_OS_MASTER_ROADMAP.md` | Retained historical version |
+| [`releases/ArtValue_AI_Gateway_Master_Roadmap_v5.5_HE.docx`](releases/ArtValue_AI_Gateway_Master_Roadmap_v5.5_HE.docx) | `roadmaps/AI_GATEWAY_MASTER_ROADMAP.md` | Retained historical version |
 | [`releases/ArtValue_Business_OS_Master_Product_Roadmap_v0.8_HE.docx`](releases/ArtValue_Business_OS_Master_Product_Roadmap_v0.8_HE.docx) | `roadmaps/BUSINESS_OS_MASTER_ROADMAP.md` | Retained historical version |
 | [`releases/ArtValue_AI_Gateway_Master_Roadmap_v5.4_HE.docx`](releases/ArtValue_AI_Gateway_Master_Roadmap_v5.4_HE.docx) | `roadmaps/AI_GATEWAY_MASTER_ROADMAP.md` | Retained historical version |
 | [`releases/ArtValue_Business_OS_Master_Product_Roadmap_v0.7_HE.docx`](releases/ArtValue_Business_OS_Master_Product_Roadmap_v0.7_HE.docx) | `roadmaps/BUSINESS_OS_MASTER_ROADMAP.md` | Retained historical version |
 | [`releases/ArtValue_AI_Gateway_Master_Roadmap_v5.3_HE.docx`](releases/ArtValue_AI_Gateway_Master_Roadmap_v5.3_HE.docx) | `roadmaps/AI_GATEWAY_MASTER_ROADMAP.md` | Retained historical version |
 
-Current published versions: **Business OS v0.9** · **AI Gateway v5.5**. Earlier exports (v0.8 / v5.4 and v0.7 / v5.3) are retained as historical versions and must not be edited.
+Current published versions: **Business OS v0.10** · **AI Gateway v5.6**. Earlier exports (v0.9 / v5.5, v0.8 / v5.4 and v0.7 / v5.3) are retained as historical versions and must not be edited. **Version numbering note:** the Business OS roadmap advanced v0.9 → **v0.10**, deliberately not v1.0 — it remains a pre-beta strategic draft with durable Asset Library, durable Campaigns, module durability, organization boundaries and credits/cost controls still open. A v1.0 label would falsely signal launch readiness.
 
 ## Update policy
 
@@ -57,7 +59,7 @@ Verification for a documentation-only change is limited to:
 
 ## Release anchor vs repository HEAD
 
-- **Product/runtime status is anchored to the application commit and the deployment ID** (currently the S0F.1 application release source `983f4899a7c9736669d97b49ed1575129f820653` / Production `e63198b7-ebd6-4b7d-9872-c9bcd1a5ab0a` / bundle `index-lvfFFwEn.js`), never to whatever the repository HEAD happens to be.
+- **Product/runtime status is anchored to the application commit and the deployment ID** (currently the Complete Local-Engine Retirement release source `2c8b1dff2f35d3f7ff7fc6c3d43df01eb8c0189d` / Production `b3708cc2-ab2e-44ee-a557-8cc2ae688635` / bundle `index-C4frcMDi.js`, with Edge `ai-gateway` v36), never to whatever the repository HEAD happens to be. The single current rollback target is `247ef9ec-ad3a-4c15-8b16-25afa1c47f2b` / `index-BZ3B-0yd.js` (Studio containment); `476830a2` and older deployments are historical fallbacks only.
 - **Repository main may advance through documentation-only commits** (like this canonical-docs work). Such commits change the repo HEAD but not the deployed application.
 - **Every future task resolves the current repository HEAD live** (e.g. `git rev-parse origin/main`) at its own preflight, rather than trusting a SHA written into a committed file.
 - **A docs-only advance of main does not require a build, Preview, or Production deployment, and must not be reported as application/deployment drift.**
