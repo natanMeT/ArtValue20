@@ -144,6 +144,23 @@ begin
         (select column_default from information_schema.columns
           where table_schema = 'public' and table_name = 'tasks' and column_name = 'campaign_id');
     end if;
+
+    -- A GENERATED ALWAYS column reports uuid / nullable / NO default, so every
+    -- check above passes and the FK installs cleanly on an empty table. It is
+    -- still wrong twice over: the value is DERIVED, so inserts compute a
+    -- campaign id nobody chose (which then fails the FK), and a client can
+    -- never assign the link explicitly, which is the only thing the column is
+    -- for. `column_default` does not cover this -- a generated column's
+    -- expression lives in `generation_expression`, not `column_default`.
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'tasks'
+        and column_name = 'campaign_id' and is_generated <> 'NEVER'
+    ) then
+      raise exception 'Campaigns slice 2 SAFE STOP: public.tasks.campaign_id already exists as a GENERATED column (%). The link must be client-assignable; a generated column can never be set explicitly.',
+        (select generation_expression from information_schema.columns
+          where table_schema = 'public' and table_name = 'tasks' and column_name = 'campaign_id');
+    end if;
   end if;
 end;
 $$;
@@ -208,12 +225,23 @@ end;
 $$;
 
 -- ===================================================================
--- VERIFICATION (read-only -- run AFTER the migration; none of these modify data)
+-- VERIFICATION -- run AFTER the migration. TWO PARTS, AND THEY ARE NOT THE
+-- SAME KIND OF THING. Read PART B's warning before running any of it.
+--
+--   PART A (1-3): READ-ONLY catalog checks. Pure SELECTs. Safe on any database,
+--                 including Production, at any time. They modify nothing.
+--   PART B (4-8): MUTATING two-account acceptance controls. Every one of these
+--                 WRITES, and control 7 DELETES A CAMPAIGN ROW. They are not
+--                 verification in the same sense as PART A -- they are an
+--                 acceptance run that changes data.
 -- ===================================================================
--- 1. Column exists and is nullable:
---      select column_name, data_type, is_nullable from information_schema.columns
+--
+-- ---------------- PART A -- READ-ONLY (modifies nothing) ----------------
+-- 1. Column exists, is nullable, has no default, and is not generated:
+--      select column_name, data_type, is_nullable, column_default, is_generated
+--        from information_schema.columns
 --       where table_schema='public' and table_name='tasks' and column_name='campaign_id';
---    -- expect uuid / YES
+--    -- expect uuid / YES / NULL / NEVER
 -- 2. The FK definition, in full:
 --      select conname, pg_get_constraintdef(oid) from pg_constraint
 --       where conrelid='public.tasks'::regclass and conname='tasks_campaign_same_owner_fk';
@@ -222,21 +250,56 @@ $$;
 -- 3. Existing tasks are untouched and still valid:
 --      select count(*) from public.tasks where campaign_id is not null;  -- expect 0
 --
--- --- The controls below need TWO signed-in accounts (A and B). ---
--- 4. POSITIVE CONTROL (own campaign links) -- as A, with campaign CA and task TA:
+-- ---------------- PART B -- MUTATING ACCEPTANCE CONTROLS ----------------
+--
+--   ⚠️ THESE STATEMENTS WRITE TO THE DATABASE. CONTROL 7 IS DESTRUCTIVE: it
+--   DELETES a campaign row, and that delete is not undoable from the app.
+--
+--   MANDATORY PRECONDITIONS -- all three, before running anything in PART B:
+--     (i)   Use DISPOSABLE QA RECORDS ONLY. Create campaigns CA and CB and task
+--           TA specifically for this run, on QA accounts. NEVER point these
+--           controls at a real campaign, a real task, or a real client's data.
+--           Control 7 destroys whatever CA names.
+--     (ii)  Record the ids you created, so cleanup can be verified afterwards
+--           rather than assumed.
+--     (iii) Two signed-in accounts, A and B. Run each statement as the account
+--           named -- running control 5 as B instead of A inverts its meaning
+--           and it would pass while proving nothing.
+--
+-- 4. POSITIVE CONTROL (own campaign links) -- as A, with QA campaign CA and QA
+--    task TA:                                                        [WRITES]
 --      update public.tasks set campaign_id='<CA>' where id='<TA>';   -- expect 1 row
--- 5. NEGATIVE CONTROL (THE ONE THIS SLICE EXISTS FOR) -- as A, using B's
+-- 5. NEGATIVE CONTROL (THE ONE THIS SLICE EXISTS FOR) -- as A, using B's QA
 --    campaign id CB (A cannot SELECT it, but can still name it):
+--                                              [attempts a write; must FAIL]
 --      update public.tasks set campaign_id='<CB>' where id='<TA>';
 --    -- expect ERROR 23503 foreign key violation on tasks_campaign_same_owner_fk.
 --    -- If this SUCCEEDS, the key is single-column and the slice has failed.
--- 6. POSITIVE CONTROL (unlink is always allowed):
---      update public.tasks set campaign_id=null where id='<TA>';      -- expect 1 row
+--    -- A failed statement writes nothing, so this control leaves no residue.
+-- 6. POSITIVE CONTROL (unlink is always allowed):                    [WRITES]
+--      update public.tasks set campaign_id=null where id='<TA>';     -- expect 1 row
 -- 7. DELETION SEMANTICS -- as A, with TA linked to CA:
---      delete from public.campaigns where id='<CA>';                  -- expect 1 row
+--                              [⚠️ DESTRUCTIVE -- PERMANENTLY DELETES CA ⚠️]
+--      update public.tasks set campaign_id='<CA>' where id='<TA>';   -- relink first
+--      delete from public.campaigns where id='<CA>';                 -- expect 1 row
 --      select id, campaign_id, user_id from public.tasks where id='<TA>';
 --    -- expect the task still present, campaign_id NULL, user_id UNCHANGED.
 --    -- A failure here ("null value in column user_id") is the bare-SET-NULL bug.
 -- 8. NEGATIVE CONTROL (a nonexistent campaign is refused too):
+--                                              [attempts a write; must FAIL]
 --      update public.tasks set campaign_id=gen_random_uuid() where id='<TA>';
 --    -- expect ERROR 23503
+--
+-- ---------------- PART B CLEANUP -- required, and VERIFIED not assumed -------
+-- CA is already gone (control 7 deleted it). Remove the remaining QA records
+-- created for this run, then PROVE the removal rather than trusting it:
+--      delete from public.tasks     where id='<TA>';        -- as A
+--      delete from public.campaigns where id='<CB>';        -- as B
+-- Verification query -- run as EACH account; expect 0 from every row:
+--      select 'task TA'     as record, count(*) from public.tasks     where id='<TA>'
+--      union all
+--      select 'campaign CA', count(*) from public.campaigns where id='<CA>'
+--      union all
+--      select 'campaign CB', count(*) from public.campaigns where id='<CB>';
+-- A non-zero count means QA residue is still in the database -- finish the
+-- cleanup before calling this acceptance run complete.

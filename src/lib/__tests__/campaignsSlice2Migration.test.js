@@ -196,6 +196,66 @@ describe('migration · additive, idempotent, and narrow', () => {
   });
 });
 
+// The verification block is a COMMENT, so it is read from `raw`, not `code`.
+// It is still worth testing: an operator follows it against a live database
+// with real account ids, and the previous version claimed "none of these
+// modify data" while controls 3-8 wrote and one deleted a campaign row.
+// (Codex P2 on PR #131, second round.)
+describe('verification section · tells the truth about what mutates', () => {
+  const verification = raw.slice(raw.indexOf('-- VERIFICATION'));
+
+  it('exists and is the last block in the file', () => {
+    expect(verification.length).toBeGreaterThan(1000);
+  });
+
+  it('never claims the whole section is read-only or non-mutating', () => {
+    // The exact false claim that was there before.
+    expect(verification).not.toMatch(/none of these modify data/i);
+    expect(verification).not.toMatch(/^-- VERIFICATION \(read-only/m);
+  });
+
+  it('separates read-only catalog checks from mutating acceptance controls', () => {
+    expect(verification).toMatch(/PART A -- READ-ONLY \(modifies nothing\)/);
+    expect(verification).toMatch(/PART B -- MUTATING ACCEPTANCE CONTROLS/);
+  });
+
+  it('marks the campaign deletion as DESTRUCTIVE, in the control itself', () => {
+    expect(verification).toMatch(/DESTRUCTIVE -- PERMANENTLY DELETES CA/);
+    // ...and not merely in a distant preamble the operator may have scrolled past
+    const control7 = verification.slice(verification.indexOf('-- 7. DELETION SEMANTICS'));
+    expect(control7.slice(0, 400)).toMatch(/DESTRUCTIVE/);
+  });
+
+  it('requires disposable QA records and forbids pointing at real data', () => {
+    expect(verification).toMatch(/DISPOSABLE QA RECORDS ONLY/);
+    expect(verification).toMatch(/NEVER point these\s*\n?--\s*controls at a real campaign/);
+  });
+
+  it('requires cleanup that is VERIFIED, not assumed', () => {
+    expect(verification).toMatch(/PART B CLEANUP/);
+    expect(verification).toMatch(/VERIFIED not assumed/);
+    // a query whose expected result proves the residue is gone
+    expect(verification).toMatch(/expect 0 from every row/);
+    expect(verification).toMatch(/non-zero count means QA residue/);
+  });
+
+  it('labels each mutating control at the point of use', () => {
+    // Controls 4 and 6 write; 5 and 8 attempt a write that must fail.
+    expect((verification.match(/\[WRITES\]/g) || []).length).toBeGreaterThanOrEqual(2);
+    expect((verification.match(/attempts a write; must FAIL/g) || []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('keeps PART A genuinely read-only — no write verb among checks 1-3', () => {
+    const partA = verification.slice(
+      verification.indexOf('PART A -- READ-ONLY'),
+      verification.indexOf('PART B -- MUTATING'),
+    );
+    for (const verb of [/\bupdate\s+public\./i, /\bdelete\s+from\b/i, /\binsert\s+into\b/i]) {
+      expect(verb.test(partA), `PART A must contain no ${verb}`).toBe(false);
+    }
+  });
+});
+
 describe('migration · fail-loud preflight', () => {
   it('SAFE STOPs on every precondition instead of silently continuing', () => {
     expect(raw).toContain('Campaigns slice 2 SAFE STOP');
@@ -248,9 +308,26 @@ describe('migration · fail-loud preflight', () => {
       expect(guard).toMatch(/campaign_id already exists with a default/i);
     });
 
-    it('reports the three failures SEPARATELY, so the operator is not left guessing', () => {
+    // A GENERATED ALWAYS column reports uuid / nullable / NO default, so it
+    // passes every other check here and the FK installs cleanly on an empty
+    // table. Its expression lives in `generation_expression`, NOT
+    // `column_default`, which is why the default check does not catch it.
+    // (Codex P2 on PR #131, second round.)
+    it('rejects a GENERATED column — the link must be client-assignable', () => {
+      expect(guard).toMatch(/is_generated <> 'never'/);
+      expect(guard).toMatch(/campaign_id already exists as a generated column/i);
+    });
+
+    it('does not rely on column_default to catch a generated column', () => {
+      // The two checks are independent: a generated column has a NULL
+      // column_default, so conflating them would let it through.
+      expect(guard).toContain('column_default is not null');
+      expect(guard).toContain("is_generated <> 'never'");
+    });
+
+    it('reports the four failures SEPARATELY, so the operator is not left guessing', () => {
       const raises = (guard.match(/raise exception 'campaigns slice 2 safe stop: public\.tasks\.campaign_id/g) || []);
-      expect(raises).toHaveLength(3);
+      expect(raises).toHaveLength(4);
     });
 
     // The shape asserted here must be the shape the migration actually creates,
