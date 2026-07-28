@@ -6,9 +6,39 @@
 **Purpose:** single source of truth for state, so work continues across sessions with no loss.
 Nathan passes this to ChatGPT so it can review/advise **without re-deriving or guessing** state.
 **ChatGPT does NOT edit this document.** Only Claude updates it.
-**Last updated:** 2026-07-29 — session: **REVOKE `anon` EXECUTE ON THE QUOTA COUNTERS — CLOSED (migration-only).** Merge `a8501c3da902cc37c4ad52b701ad25dceae91f6e` (PR [#129](https://github.com/natanMeT/ArtValue20/pull/129), parents `c2a076b` + the owner-gated head `3c4f432`). Migration **`20260728130000` APPLIED and verified live — 9/9**; checker CLEAN. **`anon` → EXECUTE denied on all three counters; `authenticated` → retained.** Behavioural proof, not just the ACL flag: an `anon` call to `campaign_row_count()` returned **`0`** before and raises **`42501 permission denied`** after. **NO frontend change, therefore NO build and NO deployment: Production remains `90a7dc15-1ed1-4d2a-ad6e-9044c786334c` / `index-9FYipeQ9.js` (source `97b4229`), current rollback target remains `5bcf1ef0`, Edge `ai-gateway` v36 untouched.** Full suite 118 files / 3,227 passed / 0 failed. Rollback tag `pre-revoke-anon-counter-execute` @ `c2a076b`. **The closure box in the Baseline below remains the authoritative RELEASE state — this slice did not change it.**
+**Last updated:** 2026-07-29 — session: **CAMPAIGNS SLICE 2 (`tasks.campaign_id`) — IN FLIGHT / NOT RELEASED (see the box directly below).** Previous session: **REVOKE `anon` EXECUTE ON THE QUOTA COUNTERS — CLOSED (migration-only).** Merge `a8501c3da902cc37c4ad52b701ad25dceae91f6e` (PR [#129](https://github.com/natanMeT/ArtValue20/pull/129), parents `c2a076b` + the owner-gated head `3c4f432`). Migration **`20260728130000` APPLIED and verified live — 9/9**; checker CLEAN. **`anon` → EXECUTE denied on all three counters; `authenticated` → retained.** Behavioural proof, not just the ACL flag: an `anon` call to `campaign_row_count()` returned **`0`** before and raises **`42501 permission denied`** after. **NO frontend change, therefore NO build and NO deployment: Production remains `90a7dc15-1ed1-4d2a-ad6e-9044c786334c` / `index-9FYipeQ9.js` (source `97b4229`), current rollback target remains `5bcf1ef0`, Edge `ai-gateway` v36 untouched.** Full suite 118 files / 3,227 passed / 0 failed. Rollback tag `pre-revoke-anon-counter-execute` @ `c2a076b`. **The closure box in the Baseline below remains the authoritative RELEASE state — this slice did not change it.**
 
-> *The paragraph below describes the release that is running in Production. This session changed database grants only and did not produce a new release.*
+> ### 🚧 CAMPAIGNS SLICE 2 — **IN FLIGHT / NOT RELEASED** (opened 2026-07-29)
+>
+> The optional **task → campaign** link: one nullable `public.tasks.campaign_id` plus the composite foreign key
+> `(campaign_id, user_id) → public.campaigns (id, user_id)`, so a task can **never** reference another account's
+> campaign. A single-column FK would not do this: a foreign key is checked **by the system, not through RLS**, so RLS
+> hiding account B's campaign from account A does not stop A from referencing it. Carrying `user_id` into the key is
+> what makes cross-account linking structurally impossible.
+>
+> **STATE — nothing is live and nothing is applied.** Migration **authored and NOT applied**; PR **open, not merged**;
+> **no build, no deployment, no Edge change**. The Production release, bundle, rollback target and Edge version in the
+> boxes below are **UNCHANGED** by this slice and remain authoritative.
+>
+> | | |
+> | --- | --- |
+> | Migration | `20260729120000_campaigns_slice2_task_link.sql` — **AUTHORED, NOT APPLIED.** Linked `db push --dry-run` lists it as the **only** pending file (project is at 9/9 applied; this would be the 10th) |
+> | PR | [#131](https://github.com/natanMeT/ArtValue20/pull/131) — **OPEN, non-draft, NOT merged** |
+> | Branch | `slice/campaigns-2-task-campaign-link` |
+> | Frontend | **UNTOUCHED.** `TASK_FIELDS` in `src/lib/api.js` is an allow-list, so the new column is never written and `select('*')` simply ignores it. Wiring `campaignId` is a later, separate slice |
+> | Deletion semantics | `on delete set null (campaign_id)` — the **column list is load-bearing**: a bare `SET NULL` would also null `tasks.user_id` (NOT NULL) and make every delete of a campaign that has tasks fail. PG15+ syntax; live project is **17.6** |
+> | Backfill | **None, and none needed.** Existing tasks keep `campaign_id` NULL and stay valid (a composite FK is MATCH SIMPLE — a NULL key column skips the check) |
+> | Tests | `src/lib/__tests__/campaignsSlice2Migration.test.js` — 23 focused DDL-contract tests |
+>
+> ⚠️ **This is the first migration to touch a table that holds real user data**, and it makes Campaigns slice 1
+> **non-rollback-able in isolation**: once the FK exists, it must be dropped before `campaigns_id_user_unique` or the
+> `campaigns` table could be. That ordering was known and accepted when slice 1 was planned.
+>
+> **Owner gates untaken (all of them):** apply the migration; run the two-account SQL controls in the PR body
+> (a cross-account link must be **refused** with `23503`; a campaign delete must leave the task present with
+> `campaign_id` NULL and `user_id` unchanged); merge; and — only if a later slice adds UI — build and deploy.
+
+> *The paragraph below describes the release that is running in Production. The IN-FLIGHT slice above has not changed it; the previous session changed database grants only and did not produce a new release.*
 
 **(RELEASE IN PRODUCTION)** **CAMPAIGNS SLICE 1 (durable per-account business campaigns) — CLOSED / LIVE IN PRODUCTION.** Merge `97b4229c0b1d600646c53e04364647d9ab9401fb` (PR [#127](https://github.com/natanMeT/ArtValue20/pull/127), parents `a548518` + the owner-gated head `8510cd1`). Production **`90a7dc15-1ed1-4d2a-ad6e-9044c786334c` / `index-9FYipeQ9.js` (source `97b4229`)**, promoted unchanged from the accepted Preview `19a58ba9` (wrangler "Uploaded 0 files (12 already uploaded)"). **Current rollback target `5bcf1ef0`**; `b3708cc2` is now a **historical fallback only**. Migration **`20260728120000` APPLIED and verified live — 8/8 *at that release*; the project is at 9/9 today**. Edge `ai-gateway` **v36 ACTIVE / `verify_jwt=true`, untouched**; no secret change. Full suite 117 files / 3,219 passed / 0 failed. Rollback tag `pre-campaigns-slice-1` @ `a548518`. **The closure box in the Baseline below is the authoritative state.**
 
@@ -483,7 +513,7 @@ Recorded here only as a **planned future product slice / candidate**, not as an 
 ## Open decisions awaiting Nathan
 - [x] **Next product slice — Studio / local-engine UI containment: DONE, CLOSED / LIVE** *(shipped as deployment `247ef9ec`, now the rollback target; superseded in Production by the complete local-engine retirement, `b3708cc2`)* — see its section below. The candidate list below is preserved for the slice AFTER this one.
 - [x] **Asset Library slice 1 (durable cloud gallery images): DONE, CLOSED / LIVE** *(Production `5bcf1ef0`, now the current rollback target)*.
-- [x] **Campaigns slice 1 (durable per-account business campaigns): DONE, CLOSED / LIVE** *(Production `90a7dc15`)*. **Slice 2 — `tasks.campaign_id` + composite-FK cross-account ownership enforcement — was planned alongside it and is NOT started.**
+- [x] **Campaigns slice 1 (durable per-account business campaigns): DONE, CLOSED / LIVE** *(Production `90a7dc15`)*. **Slice 2 — `tasks.campaign_id` + composite-FK cross-account ownership enforcement — is now IN FLIGHT / NOT RELEASED (PR [#131](https://github.com/natanMeT/ArtValue20/pull/131) open, migration authored and NOT applied); see the in-flight box at the top.**
 - [x] **Revoke `anon` EXECUTE on the quota counters: DONE, CLOSED** *(migration `20260728130000` applied 2026-07-29; migration-only, no release)*. Closed the **class** as well as the three instances.
 - [ ] **Slice after this one — PENDING NATHAN DECISION.** Do NOT begin/design/invent the next slice until Nathan selects one and approves a spec. Candidate open items: **Campaigns slice 2** (`tasks.campaign_id` with a composite FK `(campaign_id, user_id) → campaigns(id, user_id)` so a task can never reference another account's campaign — **planned in full, not started; note it makes slice 1 non-rollback-able in isolation and is the first migration to touch a table holding real user data**); **account-aware Growth data model** (the last of the three Growth reopening prerequisites); **Asset Library beyond gallery images** (favourites, approve/reject, usage rights, versions, campaign association, logo/brand assets, video); **a schema-provenance audit** (`supabase/schema.sql` vs `supabase/migrations/**` — two sources of truth for the live schema; see the Baseline note); **Products / Projects / Inventory / Templates / Activity durability**; **organization boundaries**; **credits / cost controls**; **Website Scanner** (per the section above); Jake conversation-refresh UX. **NOT a candidate: the Quote cloud-save source-label correction — it is already RESOLVED and LIVE in Production (implemented in merged PR #108, shipped in deployment `476830a2`), so it must never be selected or re-implemented as a new slice.**
 
@@ -1872,9 +1902,11 @@ Every stage below is **done**; nothing here is an outstanding instruction.
 10. ✅ **Documentation closure** — this section.
 
 ## Next action
-**No slice is in flight.** S0A + S0B + S0C + S0D + S0E + S0F.1 + P1 Atomic Quote Persistence + Studio / Local-Engine
-UI Containment + Asset Library slice 1 + **Campaigns slice 1 are all CLOSED / LIVE.** Campaigns **slice 2** is
-planned in full but **not started** and requires its own owner-approved spec.
+**Campaigns slice 2 IS in flight — see the 🚧 box at the top of this file.** Its migration is authored and **NOT
+applied**, its PR ([#131](https://github.com/natanMeT/ArtValue20/pull/131)) is **open and NOT merged**, and it has
+produced **no build and no deployment**. Everything else — S0A + S0B + S0C + S0D + S0E + S0F.1 + P1 Atomic Quote
+Persistence + Studio / Local-Engine UI Containment + Asset Library slice 1 + **Campaigns slice 1 — is CLOSED / LIVE.**
+The next owner gate is applying the slice 2 migration and running its two-account SQL controls.
 
 > ⚠️ **(HISTORICAL, at that moment) `main` carried merged, undeployed work.** The complete local-engine retirement (PR
 > [#118](https://github.com/natanMeT/ArtValue20/pull/118), merged 2026-07-27 as `9ecb8eb`) was on `main` and running
