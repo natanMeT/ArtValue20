@@ -23,6 +23,7 @@ import Pipeline from './pages/Pipeline.jsx';
 import Assets from './pages/Assets.jsx';
 import Templates from './pages/Templates.jsx';
 import Quotes from './pages/Quotes.jsx';
+import Campaigns from './pages/Campaigns.jsx';
 import Diagnose from './pages/Diagnose.jsx';
 import ImageStudio from './pages/ImageStudio.jsx';
 import Finance from './pages/Finance.jsx';
@@ -126,6 +127,11 @@ function MainRoutes() {
         <Route path="/assets" element={<Assets />} />
         <Route path="/templates" element={<Templates />} />
         <Route path="/quotes" element={<Quotes />} />
+        {/* Campaigns slice 1 — durable per-account business campaigns. NOT gated:
+            the module IS durable in the cloud, so a beta gate here would be false.
+            It is cloud-only, so the page itself renders a truthful unavailable
+            state in local/demo mode (see Campaigns.jsx). */}
+        <Route path="/campaigns" element={<Campaigns />} />
         <Route path="/diagnose" element={<Diagnose />} />
         <Route path="/studio" element={<ImageStudio />} />
         <Route path="/finance" element={<Finance />} />

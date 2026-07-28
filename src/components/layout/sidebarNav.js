@@ -29,6 +29,11 @@ export const NAV_SECTIONS = [
     label: 'צמיחה ולידים',
     items: [
       { to: '/outreach', label: 'מחקר לידים', icon: 'send' },
+      // Campaigns slice 1 — durable cloud module, so it is the INVERSE of
+      // `betaHidden`: shown in cloud mode, hidden in the local demo where it has
+      // no durable storage. The route stays registered either way and renders a
+      // truthful unavailable state locally.
+      { to: '/campaigns', label: 'קמפיינים', icon: 'target', cloudOnly: true },
       ...GROWTH_NAV,
     ],
   },
@@ -46,14 +51,21 @@ export const NAV_SECTIONS = [
 // Flat list of every sectioned nav item (test + tooling convenience).
 export const SIDEBAR_ROUTE_ITEMS = NAV_SECTIONS.flatMap((s) => s.items);
 
-// Beta false-success containment (S0A): items flagged `betaHidden` point at
-// Memory-Only modules (Projects, Inventory, Templates) that can't durably persist
-// in authenticated cloud mode. Hide them from the nav there so they aren't
-// presented as usable capabilities. In local/demo mode everything is shown.
-// The routes stay registered (App.jsx) and render a restrained unavailable state.
+// Two opposite containment flags, both about NOT presenting a capability the
+// current mode cannot deliver:
+//
+//   betaHidden (S0A) — Memory-Only modules (Projects, Inventory, Templates,
+//     Activity) that cannot durably persist in authenticated cloud mode.
+//     Hidden in CLOUD, shown locally.
+//   cloudOnly (Campaigns slice 1) — durable cloud modules with no local
+//     storage at all. Hidden in the LOCAL demo, shown in cloud.
+//
+// In both cases the route stays registered (App.jsx) and the page renders its
+// own truthful unavailable state, so a direct link or old shortcut never
+// reaches a form that would persist nothing.
 export function visibleNavSections(isCloudBeta) {
-  if (!isCloudBeta) return NAV_SECTIONS;
+  const drop = isCloudBeta ? (i) => i.betaHidden : (i) => i.cloudOnly;
   return NAV_SECTIONS
-    .map((s) => ({ ...s, items: s.items.filter((i) => !i.betaHidden) }))
+    .map((s) => ({ ...s, items: s.items.filter((i) => !drop(i)) }))
     .filter((s) => s.items.length > 0);
 }

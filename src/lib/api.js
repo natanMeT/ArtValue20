@@ -11,6 +11,10 @@ import { validateBusinessProfile, normalizeBusinessProfile } from './businessPro
 import {
   validateAssetUpload, sanitizeAssetMeta, normalizeAssetRow, sortAssetsNewestFirst,
 } from './assetLibrary.js';
+import {
+  validateCampaign, canCreateWithin, canTransition,
+  normalizeCampaignRow, sortCampaignsNewestFirst, CAMPAIGN_QUOTA,
+} from './campaigns.js';
 
 const uuid = () =>
   (crypto?.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -450,5 +454,104 @@ export async function deleteAsset(storagePath, assetId) {
   const rm = await supabase.storage.from(ASSET_BUCKET).remove([storagePath]);
   guard(rm.error); // object still there -> row NOT deleted, no false success
   guard((await supabase.from('assets').delete().eq('id', assetId)).error);
+  return true;
+}
+
+// ===================================================================
+// Campaigns slice 1 — the durable per-account BUSINESS campaign.
+//
+// NAMING BOUNDARY: this is public.campaigns, NOT the device-local creative
+// session in `src/creative/v2/campaignStore.js`. See src/lib/campaigns.js.
+//
+// There is no Storage side and no second write, so none of the Asset Library's
+// ordering rules apply here: every operation below is ONE statement whose
+// success or failure is the whole truth. Nothing reports success on a rejected
+// write — `guard()` rethrows and the caller surfaces the failure.
+//
+// Every client-side rule invoked here is ADVISORY (a truthful pre-refusal).
+// The server is the authority: RLS for ownership, the WITH CHECK for the
+// 200-row quota, trg_campaigns_status_transition for the lifecycle.
+// ===================================================================
+
+/** The signed-in account's campaigns, newest first. RLS scopes the select. */
+export async function listCampaigns() {
+  const res = await supabase.from('campaigns').select('*').order('created_at', { ascending: false });
+  guard(res.error);
+  return sortCampaignsNewestFirst((res.data || []).map(normalizeCampaignRow).filter(Boolean));
+}
+
+/**
+ * Create ONE campaign in status 'draft'. `currentCount` is the account's known
+ * campaign count, used ONLY for a truthful pre-refusal — the 200-row quota is
+ * enforced by the INSERT policy's WITH CHECK.
+ * Resolves with the created campaign id. Rejects on ANY failure.
+ */
+export async function createCampaign(userId, input = {}, currentCount = 0) {
+  if (!canCreateWithin(currentCount)) {
+    const err = new Error(`הגעת למכסת ${CAMPAIGN_QUOTA} הקמפיינים לחשבון. אפשר למחוק קמפיין קיים ולנסות שוב.`);
+    err.userSafe = true;
+    throw err;
+  }
+  const v = validateCampaign(input);
+  if (!v.ok) {
+    const err = new Error(v.errors[0]);
+    err.userSafe = true;
+    err.validationErrors = v.errors;
+    throw err;
+  }
+  const id = uuid();
+  guard((await supabase.from('campaigns').insert({
+    id,
+    user_id: userId,
+    title: v.value.title,
+    objective: v.value.objective,
+    status: 'draft',
+    start_date: v.value.startDate,
+    end_date: v.value.endDate,
+  })).error);
+  return id;
+}
+
+/**
+ * Update the editable fields of ONE campaign. Status is NOT changed here —
+ * a lifecycle move goes through setCampaignStatus so the transition rule has
+ * exactly one client-side entry point.
+ */
+export async function updateCampaign(campaignId, input = {}) {
+  const v = validateCampaign(input);
+  if (!v.ok) {
+    const err = new Error(v.errors[0]);
+    err.userSafe = true;
+    err.validationErrors = v.errors;
+    throw err;
+  }
+  guard((await supabase.from('campaigns').update({
+    title: v.value.title,
+    objective: v.value.objective,
+    start_date: v.value.startDate,
+    end_date: v.value.endDate,
+  }).eq('id', campaignId)).error);
+  return true;
+}
+
+/**
+ * Move ONE campaign to `to`. The pre-check is advisory and exists so an
+ * illegal move fails with a readable message instead of a raw 23514; the
+ * trigger refuses it server-side either way, including when this check is
+ * wrong or bypassed.
+ */
+export async function setCampaignStatus(campaignId, from, to) {
+  if (!canTransition(from, to)) {
+    const err = new Error('לא ניתן לעבור למצב הזה מהמצב הנוכחי.');
+    err.userSafe = true;
+    throw err;
+  }
+  guard((await supabase.from('campaigns').update({ status: to }).eq('id', campaignId)).error);
+  return true;
+}
+
+/** Delete ONE campaign. RLS scopes it to the owner. */
+export async function deleteCampaign(campaignId) {
+  guard((await supabase.from('campaigns').delete().eq('id', campaignId)).error);
   return true;
 }
