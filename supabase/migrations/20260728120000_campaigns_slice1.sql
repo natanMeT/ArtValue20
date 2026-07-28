@@ -14,8 +14,9 @@
 --   * status TRANSITIONS -- a BEFORE UPDATE trigger. A CHECK cannot do this:
 --     a CHECK sees one row, never the (OLD -> NEW) pair. This is the repo's
 --     FIRST transition trigger; every earlier migration used CHECK/RLS only.
---   * 200-row quota      -- WITH CHECK of the INSERT and UPDATE policies,
---     counted by a SECURITY DEFINER function (see the recursion note below).
+--   * 200-row quota      -- WITH CHECK of the INSERT policy ONLY, counted by a
+--     SECURITY DEFINER function (see the recursion note below). INSERT is the
+--     only command that can raise the row count.
 --   * ownership          -- RLS, own-row only, one policy per command.
 --
 -- SLICE 2 PREPARATION (deliberate, inert here): `unique (id, user_id)` exists
@@ -40,17 +41,9 @@
 --      so two simultaneous inserts at 199 can both pass and reach 201. It
 --      bounds growth; it is not a security boundary. (Same shape as the
 --      Asset Library's declared L1.)
---   L2 Quota operator is INTENTIONALLY asymmetric between the two policies:
---      INSERT uses `< 200`, UPDATE uses `<= 200`. Using `< 200` on UPDATE too
---      would lock an account that is exactly AT 200 out of editing OR
---      cancelling ANY campaign -- the state from which the only recovery is
---      editing or deleting. An UPDATE cannot raise the row count, and RLS
---      already forbids moving a row between accounts, so the UPDATE predicate
---      adds no bypass protection; it is present so the quota cannot be
---      removed from one policy without the other being noticed.
---   L3 Terminal states are final. completed/cancelled -> anything is refused.
+--   L2 Terminal states are final. completed/cancelled -> anything is refused.
 --      Reopening is out of scope for this slice, by design, not by omission.
---   L4 No account-deletion cleanup beyond `on delete cascade` on user_id.
+--   L3 No account-deletion cleanup beyond `on delete cascade` on user_id.
 -- ===================================================================
 
 -- ---------------- fail-loud compatibility preflight ----------------
@@ -211,7 +204,7 @@ create trigger trg_campaigns_updated before update on public.campaigns
 --     |          |
 --     +--> cancelled <-----+
 --
--- completed and cancelled are TERMINAL (L3). status unchanged is always
+-- completed and cancelled are TERMINAL (L2). status unchanged is always
 -- allowed, so editing a title never trips this.
 --
 -- SECURITY INVOKER: this must NOT run with elevated rights. It reads only OLD
@@ -278,9 +271,19 @@ revoke all on function public.campaign_row_count() from public;
 grant execute on function public.campaign_row_count() to authenticated;
 
 -- ---------------- policies (one per command) ----------------
--- Split by command rather than a single FOR ALL, because a FOR ALL WITH CHECK
--- would apply the INSERT quota to UPDATE as well -- see L2. SELECT and DELETE
--- must never be gated by the quota: deleting is how a full account recovers.
+-- Split by command rather than a single FOR ALL. A FOR ALL policy has ONE
+-- WITH CHECK, so the quota would necessarily apply to UPDATE as well -- and an
+-- account at exactly 200 would be unable to edit or cancel anything, which is
+-- the only way back down. Per command, the quota can live where it belongs.
+--
+-- THE QUOTA IS ON INSERT ALONE, and the other three policies carry no trace of
+-- it. INSERT is the only command that can raise the row count: UPDATE cannot
+-- create a row, and its WITH CHECK already forbids moving one to another
+-- account, so a quota predicate there could never fail. A condition that can
+-- never fire is not defence in depth -- it is a second copy of a rule, free to
+-- drift from the first, and it would have to be kept in step by whoever next
+-- changes the cap. SELECT and DELETE are likewise never gated: deleting is
+-- precisely how a full account recovers.
 drop policy if exists "campaigns_own" on public.campaigns;
 drop policy if exists "campaigns_select_own" on public.campaigns;
 drop policy if exists "campaigns_insert_own" on public.campaigns;
@@ -301,15 +304,13 @@ create policy "campaigns_insert_own" on public.campaigns
     and public.campaign_row_count() < 200
   );
 
+-- Ownership on both sides and nothing else. USING scopes which rows may be
+-- updated; WITH CHECK stops the updated row from landing in another account.
+-- No quota predicate -- see the note above.
 create policy "campaigns_update_own" on public.campaigns
   for update to authenticated
   using (auth.uid() = user_id)
-  with check (
-    auth.uid() = user_id
-    -- `<=` not `<` -- see declared limitation L2. An account at exactly 200
-    -- must still be able to edit and cancel; that is the only way out.
-    and public.campaign_row_count() <= 200
-  );
+  with check (auth.uid() = user_id);
 
 create policy "campaigns_delete_own" on public.campaigns
   for delete to authenticated
@@ -326,7 +327,8 @@ grant select, insert, update, delete on public.campaigns to authenticated;
 -- 3. Policies:          select policyname, cmd, qual, with_check from pg_policies
 --                        where schemaname='public' and tablename='campaigns';
 --    -- expect 4 rows: select/insert/update/delete, each own-row; insert
---    --   with_check contains campaign_row_count() < 200; update contains <= 200
+--    -- expect ONLY the insert with_check to contain campaign_row_count() < 200;
+--    --   select/update/delete must show no campaign_row_count at all
 -- 4. Composite unique:  select conname, pg_get_constraintdef(oid)
 --                        from pg_constraint where conrelid='public.campaigns'::regclass
 --                          and conname='campaigns_id_user_unique';   -- expect UNIQUE (id, user_id)
@@ -341,10 +343,11 @@ grant select, insert, update, delete on public.campaigns to authenticated;
 --      update public.campaigns set status='active' where id='<X>';   -- expect 1 row
 -- 8. NEGATIVE CONTROL (quota) -- with 200 rows owned, insert one more:
 --    -- expect ERROR 42501 new row violates row-level security policy
--- 9. POSITIVE CONTROL (quota does NOT lock editing at the cap) -- with exactly
---    200 rows owned:
+-- 9. POSITIVE CONTROL (the cap gates creation, never recovery) -- with exactly
+--    200 rows owned, editing and cancelling must still work:
 --      update public.campaigns set title = title where id='<any owned>';
---    -- expect 1 row. This is the control that proves L2 was implemented and
---    -- not merely described.
+--      update public.campaigns set status='cancelled' where id='<a draft one>';
+--    -- expect 1 row each. An account at the cap that cannot edit or cancel has
+--    -- no way back down, so this is the control that matters most after (8).
 -- 10. NEGATIVE CONTROL (isolation) -- as account A:
 --      select count(*) from public.campaigns where user_id='<B uuid>';  -- expect 0

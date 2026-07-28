@@ -116,16 +116,22 @@ describe('migration · RLS + the 200-row quota', () => {
     expect(insert).toMatch(new RegExp(`public\\.campaign_row_count\\(\\)\\s*<\\s*${CAMPAIGN_QUOTA}`));
   });
 
-  // The control that proves declared limitation L2 was IMPLEMENTED and not
-  // merely described: `< 200` on UPDATE would lock an account at exactly the
-  // cap out of editing or cancelling anything — the only way back down.
-  it('uses <= (not <) in the UPDATE policy, so an account AT the cap can still edit', () => {
+  // The quota lives in ONE place. An UPDATE cannot raise the row count and its
+  // WITH CHECK already forbids moving a row to another account, so a quota
+  // predicate there could never fail — and a condition that can never fire is
+  // a second copy of the rule, free to drift from the first when the cap
+  // changes. It is absent by design, not by oversight.
+  it('puts the quota on INSERT ALONE — UPDATE carries ownership and nothing else', () => {
     const update = code.slice(
       code.indexOf('create policy "campaigns_update_own"'),
       code.indexOf('create policy "campaigns_delete_own"'),
     );
-    expect(update).toMatch(new RegExp(`public\\.campaign_row_count\\(\\)\\s*<=\\s*${CAMPAIGN_QUOTA}`));
-    expect(update).not.toMatch(new RegExp(`campaign_row_count\\(\\)\\s*<\\s*${CAMPAIGN_QUOTA}[^=]`));
+    expect(update).not.toContain('campaign_row_count');
+    expect(update).not.toContain(String(CAMPAIGN_QUOTA));
+    // both sides still pinned to the owner: USING scopes which rows may be
+    // updated, WITH CHECK stops the row landing in another account.
+    expect(update).toMatch(/using \(auth\.uid\(\) = user_id\)/);
+    expect(update).toMatch(/with check \(auth\.uid\(\) = user_id\)/);
   });
 
   it('never gates SELECT or DELETE by the quota — deleting is how a full account recovers', () => {
@@ -136,6 +142,17 @@ describe('migration · RLS + the 200-row quota', () => {
     const del = code.slice(code.indexOf('create policy "campaigns_delete_own"'));
     expect(select).not.toContain('campaign_row_count');
     expect(del.slice(0, 300)).not.toContain('campaign_row_count');
+  });
+
+  // Counting rule: occurrences of the counter call in live SQL, excluding its
+  // own definition and the grant/revoke lines. Exactly one — the INSERT policy.
+  it('calls the counter exactly once in a policy predicate', () => {
+    const calls = code
+      .split('\n')
+      .filter((l) => l.includes('campaign_row_count()'))
+      .filter((l) => !/create or replace function|revoke all|grant execute/.test(l));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatch(new RegExp(`<\\s*${CAMPAIGN_QUOTA}`));
   });
 });
 
@@ -171,7 +188,11 @@ describe('migration · additive and idempotent only', () => {
     expect(raw).toContain('campaignStore.js');
   });
 
-  it('declares its limitations rather than leaving them implicit', () => {
-    for (const l of ['L1', 'L2', 'L3', 'L4']) expect(raw).toContain(l);
+  it('declares its limitations rather than leaving them implicit, with no gap in the numbering', () => {
+    for (const l of ['L1', 'L2', 'L3']) expect(raw).toContain(l);
+    // L4 was removed when the UPDATE quota predicate was deleted: that was
+    // never a limitation, it was redundant code. A dangling L4 would imply a
+    // fourth caveat nobody can find.
+    expect(raw).not.toContain('L4');
   });
 });

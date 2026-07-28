@@ -59,7 +59,7 @@ export const CAMPAIGN_STATUS_CLASS = Object.freeze({
 });
 
 // Byte-for-byte mirror of the trigger's graph. `completed` and `cancelled` are
-// TERMINAL (declared limitation L3 in the migration): reopening is out of scope
+// TERMINAL (declared limitation L2 in the migration): reopening is out of scope
 // for this slice, by design, not by omission.
 export const CAMPAIGN_TRANSITIONS = Object.freeze({
   draft: Object.freeze(['active', 'cancelled']),
