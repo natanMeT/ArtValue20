@@ -213,10 +213,54 @@ describe('migration · fail-loud preflight', () => {
     expect(code).toMatch(/column_name = 'user_id' and data_type = 'uuid' and is_nullable = 'no'/);
   });
 
-  it('refuses a pre-existing campaign_id of the wrong type', () => {
-    // ADD COLUMN IF NOT EXISTS would silently no-op, leaving the FK on a
-    // wrong-typed column.
-    expect(code).toMatch(/campaign_id already exists and is not uuid/);
+  // A PRE-EXISTING campaign_id is validated in FULL, not just by type.
+  // `add column if not exists` silently no-ops, so whatever shape is already
+  // there is the shape the FK gets built on. Codex P2 on PR #131: checking only
+  // the type accepts a NOT NULL column (which breaks every task insert, since
+  // TASK_FIELDS never sends campaign_id) and a defaulted one (which silently
+  // populates campaigns nobody chose, then fails the FK).
+  describe('a pre-existing campaign_id must match the approved optional column', () => {
+    // The preflight branch that guards the pre-existing case, isolated so these
+    // assertions cannot be satisfied by the ADD COLUMN statement further down.
+    const guard = (() => {
+      const start = code.indexOf("column_name = 'campaign_id'");
+      return start === -1 ? '' : code.slice(start, code.indexOf('$$;', start));
+    })();
+
+    // POSITIVE CONTROL for the extractor — a miss would make the rest vacuous.
+    it('locates the pre-existing-column guard', () => {
+      expect(guard.length).toBeGreaterThan(200);
+      expect(guard).toContain('raise exception');
+    });
+
+    it('rejects a WRONG TYPE', () => {
+      expect(guard).toMatch(/data_type = 'uuid'/);
+      expect(guard).toMatch(/campaign_id already exists and is not uuid/);
+    });
+
+    it('rejects NOT NULL — the link is optional, and the frontend never sends it', () => {
+      expect(guard).toMatch(/is_nullable = 'no'/);
+      expect(guard).toMatch(/campaign_id already exists and is not null/i);
+    });
+
+    it('rejects a DEFAULT — it would populate campaigns nobody chose', () => {
+      expect(guard).toMatch(/column_default is not null/);
+      expect(guard).toMatch(/campaign_id already exists with a default/i);
+    });
+
+    it('reports the three failures SEPARATELY, so the operator is not left guessing', () => {
+      const raises = (guard.match(/raise exception 'campaigns slice 2 safe stop: public\.tasks\.campaign_id/g) || []);
+      expect(raises).toHaveLength(3);
+    });
+
+    // The shape asserted here must be the shape the migration actually creates,
+    // or the preflight would refuse its own output on a re-run.
+    it('demands exactly the shape ADD COLUMN creates — so a re-run is never refused', () => {
+      const add = code.split('\n').find((l) => l.includes('add column if not exists campaign_id'));
+      expect(add).toMatch(/campaign_id uuid\s*;/);   // uuid, no NOT NULL, no DEFAULT
+      expect(add).not.toContain('not null');
+      expect(add).not.toContain('default');
+    });
   });
 
   it('declares its limitations rather than leaving them implicit', () => {

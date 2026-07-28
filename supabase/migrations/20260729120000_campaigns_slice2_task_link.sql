@@ -102,18 +102,48 @@ begin
       coalesce(array_to_string(ukey_cols, ', '), '<missing>');
   end if;
 
-  -- (e) If campaign_id somehow already exists, it must be uuid -- otherwise the
-  -- ADD COLUMN below silently no-ops and the FK is built on a wrong-typed
-  -- column.
+  -- (e) A PRE-EXISTING campaign_id must match the approved optional column in
+  -- FULL -- uuid, NULLABLE, and NO DEFAULT -- because `add column if not
+  -- exists` below silently no-ops and would then build the FK on whatever
+  -- shape is already there. Checking only the TYPE is not enough:
+  --   * NOT NULL  -> every task insert from the untouched frontend fails, since
+  --     TASK_FIELDS is an allow-list that never sends campaign_id.
+  --   * DEFAULT   -> new tasks silently acquire a campaign_id nobody asked for,
+  --     which then fails the composite FK (or, worse, succeeds and links the
+  --     task to a campaign by accident).
+  -- Each is reported separately: "wrong shape" would leave the operator
+  -- guessing which of the three it is.
   if exists (
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'tasks' and column_name = 'campaign_id'
-  ) and not exists (
-    select 1 from information_schema.columns
-    where table_schema = 'public' and table_name = 'tasks'
-      and column_name = 'campaign_id' and data_type = 'uuid'
   ) then
-    raise exception 'Campaigns slice 2 SAFE STOP: public.tasks.campaign_id already exists and is not uuid.';
+    if not exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'tasks'
+        and column_name = 'campaign_id' and data_type = 'uuid'
+    ) then
+      raise exception 'Campaigns slice 2 SAFE STOP: public.tasks.campaign_id already exists and is not uuid (found %).',
+        (select data_type from information_schema.columns
+          where table_schema = 'public' and table_name = 'tasks' and column_name = 'campaign_id');
+    end if;
+
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'tasks'
+        and column_name = 'campaign_id' and is_nullable = 'NO'
+    ) then
+      raise exception 'Campaigns slice 2 SAFE STOP: public.tasks.campaign_id already exists and is NOT NULL. The link is OPTIONAL; a required column breaks every task insert, because the frontend never sends campaign_id.';
+    end if;
+
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'tasks'
+        and column_name = 'campaign_id' and column_default is not null
+    ) then
+      raise exception 'Campaigns slice 2 SAFE STOP: public.tasks.campaign_id already exists with a DEFAULT (%). A defaulted link silently populates campaigns nobody chose.',
+        (select column_default from information_schema.columns
+          where table_schema = 'public' and table_name = 'tasks' and column_name = 'campaign_id');
+    end if;
   end if;
 end;
 $$;
