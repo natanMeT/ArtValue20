@@ -16,9 +16,12 @@ const isRegisteredRoute = (to) => appSrc.includes(`path="${to}"`);
 // The full pre-regrouping sidebar surface: every one of these routes must
 // still appear EXACTLY ONCE across the sections (nothing dropped, nothing
 // duplicated by the regrouping). /settings is footer-only by design.
+// Campaigns slice 1 added '/campaigns' — a durable CLOUD-ONLY module, so it is
+// the first item carrying `cloudOnly` (hidden in the local demo) rather than
+// `betaHidden` (hidden in cloud).
 const EXPECTED_MAIN_ROUTES = [
   '/', '/clients', '/outreach', '/projects', '/tasks', '/pipeline',
-  '/quotes', '/diagnose', '/studio',
+  '/quotes', '/diagnose', '/studio', '/campaigns',
   '/finance', '/activity', '/inventory', '/assets', '/templates',
 ];
 
@@ -139,8 +142,18 @@ describe('sidebarNav — beta false-success containment (S0A)', () => {
     expect(flagged).toEqual(expected);
   });
 
-  it('local/demo mode shows every section unchanged', () => {
-    expect(visibleNavSections(false)).toBe(NAV_SECTIONS);
+  // Was `toBe(NAV_SECTIONS)` — an identity check that encoded "local mode
+  // filters nothing at all". Campaigns slice 1 made that literally false: a
+  // cloudOnly item has no local storage, so local mode now drops it. The
+  // intent this test protects — local mode never hides a betaHidden module —
+  // is asserted directly instead of through object identity, which makes it
+  // stronger, not weaker.
+  it('local/demo mode hides only cloudOnly items — every betaHidden module stays visible', () => {
+    const local = visibleNavSections(false).flatMap((s) => s.items.map((i) => i.to));
+    const expected = SIDEBAR_ROUTE_ITEMS.filter((i) => !i.cloudOnly).map((i) => i.to);
+    expect(local).toEqual(expected);
+    for (const to of BETA_HIDDEN) expect(local, `${to} must stay visible locally`).toContain(to);
+    expect(visibleNavSections(false).map((s) => s.label)).toEqual(EXPECTED_SECTION_LABELS);
   });
 
   it('cloud beta mode hides Projects, Inventory and Templates from the nav', () => {
