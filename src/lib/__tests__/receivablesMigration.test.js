@@ -304,10 +304,18 @@ describe('the unique keys the composite FKs point at', () => {
     // scan silently becomes a sequential scan while the postflight reports the
     // index present.
     expect(code).toContain('already exists with a different definition');
-    expect(code).toContain('is missing or is not over %');
-    expect(code).toContain('exists but is not valid and would never be used');
+    expect(code).toContain('is missing, is not over %, or is not a btree');
+    expect(code).toContain('exists but is not valid or is not a btree');
     expect(code).toMatch(/position\(r\.cols in i\.indexdef\) > 0/);
     expect(code).toContain('x.indisvalid');
+    // Codex round 16, P2: a brin or hash index over the same columns matches
+    // every substring check and is a different object — brin cannot serve the
+    // ordered due-date read. The access method is part of the definition, and is
+    // required both in the text check and from the catalog (pg_am.amname).
+    expect((code.match(/position\('using btree ' in /g) || []).length).toBe(2);
+    expect(code).toContain("am.amname = 'btree'");
+    expect(code).toContain('join pg_am am on am.oid = c.relam');
+    expect(code).toContain('is not a btree');
     // ...and the shapes are declared, not implied.
     expect(code).toContain("'(user_id, paid_at desc)'".replace('desc', 'DESC').toLowerCase());
     expect(code).toContain('where (client_id is not null)');

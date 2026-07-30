@@ -1111,9 +1111,14 @@ begin
       continue; -- created below
     end if;
 
-    if position(r.cols in def) = 0 or (r.pred <> '' and position(r.pred in def) = 0)
+    -- The ACCESS METHOD too. A brin or hash index over the same columns matches
+    -- every substring above and is a different object: brin cannot serve the
+    -- ordered due-date read, and neither serves the ON DELETE lookups the way a
+    -- btree does. So the method is part of the definition, not a detail.
+    if position('USING btree ' in def) = 0
+       or position(r.cols in def) = 0 or (r.pred <> '' and position(r.pred in def) = 0)
        or (r.pred = '' and position(' WHERE ' in def) > 0) then
-      raise exception 'Receivables SAFE STOP: index % already exists with a different definition (%). Expected % %. Not replaced.',
+      raise exception 'Receivables SAFE STOP: index % already exists with a different definition (%). Expected USING btree % %. Not replaced.',
         r.idx, def, r.cols, r.pred;
     end if;
   end loop;
@@ -1400,16 +1405,19 @@ begin
       select 1 from pg_indexes i
       where i.schemaname = 'public' and i.tablename = r.tbl and i.indexname = r.idx
         and position(r.cols in i.indexdef) > 0
+        and position('USING btree ' in i.indexdef) > 0
     ) then
-      raise exception 'Receivables FAILED: index %.% is missing or is not over %.', r.tbl, r.idx, r.cols;
+      raise exception 'Receivables FAILED: index %.% is missing, is not over %, or is not a btree.', r.tbl, r.idx, r.cols;
     end if;
+    -- ...and the access method read from the catalog, not only from the text.
     if not exists (
       select 1 from pg_index x
       join pg_class c on c.oid = x.indexrelid
       join pg_namespace n on n.oid = c.relnamespace
-      where n.nspname = 'public' and c.relname = r.idx and x.indisvalid
+      join pg_am am on am.oid = c.relam
+      where n.nspname = 'public' and c.relname = r.idx and x.indisvalid and am.amname = 'btree'
     ) then
-      raise exception 'Receivables FAILED: index %.% exists but is NOT VALID and would never be used.', r.tbl, r.idx;
+      raise exception 'Receivables FAILED: index %.% exists but is NOT VALID or is not a btree -- it would never serve the ordered due-date read or the ON DELETE lookups.', r.tbl, r.idx;
     end if;
   end loop;
 
