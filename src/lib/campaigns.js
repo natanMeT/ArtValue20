@@ -189,3 +189,28 @@ export function sortCampaignsNewestFirst(items) {
     .filter(Boolean)
     .sort((a, b) => str(b.createdAt).localeCompare(str(a.createdAt)));
 }
+
+// ===================================================================
+// Campaign delete safety — how many of the tasks WE CURRENTLY HOLD point at
+// this campaign.
+//
+// READ THE WORD "KNOWN". This counts `data.tasks`, the client's hydrated
+// snapshot, so it can UNDER-report: a task linked in another tab, device or
+// session after the last `fetchAll` is not in it. That is the same "SUM over
+// rows the client happens to hold" weakness the Finance charge-delete slice
+// documented — and the reason THAT slice put the rule in the database.
+//
+// The difference here is decisive and deliberate: this number is a WARNING,
+// never a GATE. Deleting a campaign is allowed whatever it returns. A client
+// count cannot enforce anything, so it must not be wired to a disabled button
+// or an early return — if it ever is, the guard is a lie the moment the
+// snapshot is stale. The confirmation copy says "ידועות N", not "בדיוק N",
+// so the sentence stays true even when N is short.
+//
+// Made pure and exported so it is EXECUTED in tests rather than source-pinned.
+// Returns 0 for a missing/blank id and for a missing/malformed task list.
+export function countTasksForCampaign(tasks, campaignId) {
+  const id = str(campaignId);
+  if (!id) return 0;
+  return (Array.isArray(tasks) ? tasks : []).filter((t) => t && str(t.campaignId) === id).length;
+}
