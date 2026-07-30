@@ -102,9 +102,32 @@ describe('same-owner ownership is enforced by the KEY, not by a policy', () => {
     for (const fk of FKS) expect(code).toContain(`add constraint ${fk.name}`);
   });
 
-  it('and the migration asserts, in the database, that the old single-column keys are gone', () => {
-    expect(code).toContain('still carries a single-column foreign key on client_id');
+  it('drops EVERY legacy single-column FK on the new link columns, not one fixed name', () => {
+    // Codex round 10, P1: `drop constraint if exists <the name we chose>` leaves
+    // a conventional `charges_client_id_fkey ... ON DELETE CASCADE` alive beside
+    // the composite SET NULL key. BOTH are then enforced, so deleting a client
+    // still cascades the charge away — destroying the ledger-survival contract
+    // this migration states.
+    expect(code).toContain('dropped legacy single-column foreign key'.replace('foreign key', 'fk'));
+    expect(code).toMatch(/\('charges',\s*'client_id',\s*'charges_client_same_owner_fk'\)/);
+    expect(code).toMatch(/\('charges',\s*'quote_id',\s*'charges_quote_same_owner_fk'\)/);
+    expect(code).toMatch(/\('payments',\s*'charge_id',\s*'payments_charge_same_owner_fk'\)/);
+    // ...and a multi-column key it did not create is a SAFE STOP, not a drop.
+    expect(code).toContain('already carries a multi-column foreign key');
+    // The sweep must run BEFORE the composite keys are added.
+    expect(code.indexOf('dropped legacy single-column fk'))
+      .toBeLessThan(code.indexOf('add constraint charges_client_same_owner_fk'));
+  });
+
+  it('asserts NO single-column key survives on ANY of the five link columns', () => {
+    expect(code).toContain('still carries a single-column foreign key');
     expect(code).toMatch(/array_length\(con\.conkey,\s*1\)\s*=\s*1/);
+    for (const [tbl, col] of [['quotes', 'client_id'], ['transactions', 'client_id'],
+      ['charges', 'client_id'], ['charges', 'quote_id'], ['payments', 'charge_id']]) {
+      expect(code, `${tbl}.${col} must be in the postflight sweep`).toMatch(
+        new RegExp(String.raw`\('${tbl}',\s+'${col}'\)`),
+      );
+    }
   });
 });
 
@@ -480,6 +503,14 @@ describe('columns, bounds and defaults', () => {
     expect(code).toContain("is_generated = 'never'");
     expect(code).toContain('column_default is not distinct from r.def');
     expect(code).toContain('numeric_precision = 14');
+    // Codex round 10, P2: `data_type = 'numeric'` accepts numeric(10,2) and
+    // numeric(14,3) alike, and the exact check ran only in the postflight —
+    // after constraints and functions had already been altered. It now runs
+    // pre-DDL too, so the SAFE STOP is where the block promises it is.
+    expect((code.match(/numeric_precision = 14 and numeric_scale = 2/g) || []).length).toBe(2);
+    expect(code).toContain('expected numeric(14,2)');
+    expect(code.indexOf('expected numeric(14,2)'))
+      .toBeLessThan(code.indexOf('alter table public.charges add column if not exists'));
   });
 });
 

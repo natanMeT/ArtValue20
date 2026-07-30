@@ -323,7 +323,35 @@ begin
     end if;
   end loop;
 
-  -- (g) THE PRIMARY KEY, on a table that already exists.
+  -- (g) NUMERIC PRECISION AND SCALE, on a pre-existing money column.
+  -- `data_type = 'numeric'` accepts numeric(10,2) and numeric(14,3) alike. The
+  -- postflight does check the exact precision, but only after the migration has
+  -- altered constraints and installed functions -- mid-DDL, instead of at the
+  -- pre-DDL SAFE STOP. A too-small precision silently caps what can be billed;
+  -- a different scale rounds money differently from the client's grid. Altering
+  -- the type of a column holding real amounts is a data decision, so this is a
+  -- SAFE STOP rather than a repair.
+  for r in
+    select * from (values ('charges', 'amount_total'), ('payments', 'amount')) as t(tbl, col)
+  loop
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = r.tbl and column_name = r.col
+    ) and not exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = r.tbl and column_name = r.col
+        and numeric_precision = 14 and numeric_scale = 2
+    ) then
+      raise exception 'Receivables SAFE STOP: public.%.% already exists as numeric(%,%), expected numeric(14,2). Nothing was changed -- altering the type of a column holding real amounts is a data decision.',
+        r.tbl, r.col,
+        coalesce((select numeric_precision::text from information_schema.columns
+                   where table_schema = 'public' and table_name = r.tbl and column_name = r.col), '?'),
+        coalesce((select numeric_scale::text from information_schema.columns
+                   where table_schema = 'public' and table_name = r.tbl and column_name = r.col), '?');
+    end if;
+  end loop;
+
+  -- (h) THE PRIMARY KEY, on a table that already exists.
   -- `create table if not exists` leaves an existing table untouched, PK and all
   -- — so one carrying a uuid `id` with NO primary key would pass every column
   -- check above and reach the end of this migration with duplicate ids still
@@ -356,7 +384,7 @@ begin
     end if;
   end loop;
 
-  -- (h) THE TIMESTAMP COLUMNS THE updated_at TRIGGER WRITES.
+  -- (i) THE TIMESTAMP COLUMNS THE updated_at TRIGGER WRITES.
   -- `add column if not exists updated_at` no-ops on a pre-existing table, so an
   -- `updated_at` of an incompatible type — or a GENERATED one — would survive
   -- this migration untouched. The migration would then SUCCEED, install
@@ -417,7 +445,7 @@ begin
     end if;
   end loop;
 
-  -- (i) PAYMENT STATUS MUST NOT BE A COLUMN. If some earlier hand-run left one
+  -- (j) PAYMENT STATUS MUST NOT BE A COLUMN. If some earlier hand-run left one
   -- behind, this migration will not quietly adopt it -- the whole design is that
   -- status is derived from the amounts and cannot be written.
   if exists (
@@ -858,6 +886,65 @@ begin
      ) then
     raise exception 'Receivables SAFE STOP: public.clients has no UNIQUE (id, user_id) for the composite keys to reference.';
   end if;
+end;
+$$;
+
+-- ---- LEGACY single-column FKs on the new link columns ----
+-- `drop constraint if exists <the name we chose>` is not enough on a
+-- PRE-EXISTING table. A conventional `charges_client_id_fkey ... ON DELETE
+-- CASCADE` would survive beside the composite SET NULL key added below, and both
+-- would be enforced -- so deleting a client would still cascade the charge away,
+-- destroying the ledger-survival contract this migration states. The
+-- conventional name even sorts first.
+--
+-- So: inspect every FK on each new link column. A single-column one is
+-- superseded by the composite key and is dropped; anything else (a multi-column
+-- key that is not the one we are about to create) is a SAFE STOP, because
+-- replacing a composite decision made elsewhere is not this migration's call.
+do $$
+declare
+  r record;
+  con record;
+  keycols name[];
+begin
+  for r in
+    select * from (values
+      ('charges',  'client_id', 'charges_client_same_owner_fk'),
+      ('charges',  'quote_id',  'charges_quote_same_owner_fk'),
+      ('payments', 'charge_id', 'payments_charge_same_owner_fk')
+    ) as t(tbl, col, keep)
+  loop
+    if to_regclass('public.' || r.tbl) is null then
+      continue; -- created fresh below/above; nothing legacy can exist
+    end if;
+
+    for con in
+      select c.oid, c.conname, c.conkey
+        from pg_constraint c
+        join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+       where c.conrelid = ('public.' || r.tbl)::regclass
+         and c.contype = 'f'
+         and a.attname = r.col
+    loop
+      if con.conname = r.keep then
+        continue; -- ours; recreated idempotently just below
+      end if;
+
+      select coalesce(array_agg(a.attname order by k.ord), array[]::name[])
+        into keycols
+        from unnest(con.conkey) with ordinality as k(attnum, ord)
+        join pg_attribute a on a.attrelid = ('public.' || r.tbl)::regclass and a.attnum = k.attnum;
+
+      if array_length(keycols, 1) = 1 then
+        execute format('alter table public.%I drop constraint %I', r.tbl, con.conname);
+        raise notice 'Receivables: dropped legacy single-column FK %.% (%) -- superseded by the composite same-owner key.',
+          r.tbl, r.col, con.conname;
+      else
+        raise exception 'Receivables SAFE STOP: public.%.% already carries a multi-column foreign key % over (%). Replacing a composite decision made elsewhere is not this migration''s call.',
+          r.tbl, r.col, con.conname, array_to_string(keycols, ', ');
+      end if;
+    end loop;
+  end loop;
 end;
 $$;
 
@@ -1358,17 +1445,29 @@ begin
     end if;
   end loop;
 
-  -- ---- the OLD single-column client FKs are gone ----
-  for r in select unnest(array['quotes', 'transactions']) as tbl loop
+  -- ---- NO single-column FK survives on ANY user-owned link column ----
+  -- All five, not just the two replaced ones: a legacy single-column key left
+  -- beside a composite one is still enforced, and its delete action wins where
+  -- it is stricter.
+  for r in
+    select * from (values
+      ('quotes',       'client_id'),
+      ('transactions', 'client_id'),
+      ('charges',      'client_id'),
+      ('charges',      'quote_id'),
+      ('payments',     'charge_id')
+    ) as t(tbl, col)
+  loop
     if exists (
       select 1 from pg_constraint con
        where con.conrelid = ('public.' || r.tbl)::regclass
          and con.contype = 'f'
          and array_length(con.conkey, 1) = 1
          and con.conkey[1] = (select attnum from pg_attribute
-                               where attrelid = ('public.' || r.tbl)::regclass and attname = 'client_id')
+                               where attrelid = ('public.' || r.tbl)::regclass and attname = r.col)
     ) then
-      raise exception 'Receivables FAILED: public.% still carries a SINGLE-COLUMN foreign key on client_id. It must be the composite same-owner key.', r.tbl;
+      raise exception 'Receivables FAILED: public.%.% still carries a SINGLE-COLUMN foreign key. It must be the composite same-owner key alone -- a surviving single-column key is enforced beside it and its delete action wins where it is stricter.',
+        r.tbl, r.col;
     end if;
   end loop;
 end;
