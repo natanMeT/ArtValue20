@@ -666,7 +666,7 @@ describe('PaymentModal · suggests the BALANCE, and is honest about overpayment'
 const settings = read('../Settings.jsx');
 
 const importResultToast = (() => {
-  const start = settings.indexOf('export function importResultToast(counts) {');
+  const start = settings.indexOf('export function importResultToast(');
   if (start === -1) throw new Error('importResultToast not found in Settings.jsx');
   // The first line that is a bare `}` closes it. (`\r?\n` — the repo checks out
   // with CRLF on Windows and a `\n}` search finds nothing.)
@@ -710,7 +710,7 @@ describe('Settings.importResultToast · BEHAVIOURAL (real shipped builder)', () 
   it('THE DEFECT: skipped charges are stated, and success is NOT declared', () => {
     const { message, kind } = importResultToast({ ...FULL, charges: 5, chargesSkipped: 2 });
     expect(message).toContain('דולגו 2 חיובים');
-    expect(message).toContain('ייבוא חלקי');
+    expect(message).toContain('· חלקי:');
     // 'error' is the only kind Toaster does not render with a success check.
     expect(kind).toBe('error');
     // ...and it still says what DID land, so the user knows the balance.
@@ -751,6 +751,60 @@ describe('Settings.importResultToast · BEHAVIOURAL (real shipped builder)', () 
       expect(message).toBe('הנתונים יובאו בהצלחה');
       expect(kind).toBe('success');
     }
+  });
+
+  it('the LEAD is the only thing the two writers may differ on', () => {
+    // Same counts, both writers: identical figures, identical kind, different
+    // opening word — because the two are reached from different buttons and the
+    // toast still has to say WHICH action ran.
+    const imported = importResultToast(FULL);
+    const uploaded = importResultToast(FULL, 'הועלו לענן:');
+    expect(imported.message.startsWith('יובאו ')).toBe(true);
+    expect(uploaded.message.startsWith('הועלו לענן: ')).toBe(true);
+    expect(uploaded.kind).toBe(imported.kind);
+    // Everything after the lead is byte-identical — one rule, not two.
+    expect(uploaded.message.replace('הועלו לענן:', 'יובאו')).toBe(imported.message);
+  });
+
+  it('runMigrate reports skipped rows too — the SAME false-success defect', () => {
+    // Codex round 21 follow-up: importData was fixed and runMigrate was not,
+    // although both call api.bulkUpload. An unqualified "uploaded to cloud" over
+    // a lossy upload is the identical failure, one button away.
+    const { message, kind } = importResultToast(
+      { ...FULL, charges: 4, payments: 2, chargesSkipped: 3, paymentsSkipped: 4 },
+      'הועלו לענן:',
+    );
+    expect(message).toContain('הועלו לענן:');
+    expect(message).toContain('4 חיובים');
+    expect(message).toContain('2 תשלומים');
+    expect(message).toContain('דולגו 3 חיובים ו-4 תשלומים');
+    expect(kind).toBe('error');
+  });
+
+  it('a CLEAN cloud upload is still a plain success', () => {
+    const { message, kind } = importResultToast(FULL, 'הועלו לענן:');
+    expect(kind).toBe('success');
+    expect(message).not.toContain('דולגו');
+  });
+
+  it('runMigrate really calls the shared builder, KIND included', () => {
+    expect(settings).toContain("const result = importResultToast(counts, 'הועלו לענן:');");
+    // BOTH call sites must pass the kind through. A single `toContain` here was
+    // satisfied by importData's line and said nothing about runMigrate — a
+    // measured negative control (dropping runMigrate's `result.kind`) passed
+    // against it. Counting is what makes the assertion cover both writers.
+    expect((settings.match(/toast\(result\.message, result\.kind\);/g) || []).length).toBe(2);
+    expect(settings).not.toMatch(/toast\(result\.message\);/);
+    // The old hand-rolled message — no charges, no payments, no skipped counts,
+    // and unconditionally a success — is gone.
+    expect(settings).not.toContain('toast(`הועלו לענן:');
+    // ...and there is exactly ONE summary template in the file: two would be two
+    // rules, free to drift, which is the whole reason this was shared.
+    expect(settings.match(/לקוחות, \$\{counts\.quotes/g) || []).toHaveLength(1);
+    // Both CALL SITES (`const result = ...`), one builder — the declaration
+    // itself also matches `importResultToast(counts`, so it is excluded.
+    expect((settings.match(/= importResultToast\(counts/g) || []).length).toBe(2);
+    expect((settings.match(/export function importResultToast\(/g) || []).length).toBe(1);
   });
 
   it('the page really uses this builder, and passes the KIND through', () => {

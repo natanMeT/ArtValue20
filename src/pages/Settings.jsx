@@ -26,15 +26,25 @@ import { computeHydrationReady } from '../lib/onboarding.js';
  *
  * `counts` is null in local/demo mode, where the parsed file REPLACES the store
  * wholesale and nothing can be skipped.
+ *
+ * BOTH WRITERS SHARE THIS. `importData` (a backup file) and `runMigrate` (the
+ * local → cloud upload) call the SAME `api.bulkUpload`, so they had the same
+ * false-success defect; `runMigrate` reported an unqualified "uploaded to cloud"
+ * while its receivables were silently dropped. One builder means the skipped-row
+ * rule cannot be fixed in one path and left broken in the other. `lead` is the
+ * only thing that differs — which ACTION ran — and the toast has to keep saying
+ * that, because the two are reached from different buttons.
  */
-export function importResultToast(counts) {
+export function importResultToast(counts, lead = 'יובאו') {
   if (!counts) return { message: 'הנתונים יובאו בהצלחה', kind: 'success' };
   const chargesSkipped = counts.chargesSkipped || 0;
   const paymentsSkipped = counts.paymentsSkipped || 0;
-  const summary = `יובאו ${counts.clients || 0} לקוחות, ${counts.quotes || 0} הצעות, ${counts.transactions || 0} תנועות, ${counts.leads || 0} פניות, ${counts.charges || 0} חיובים, ${counts.payments || 0} תשלומים`;
+  const summary = `${lead} ${counts.clients || 0} לקוחות, ${counts.quotes || 0} הצעות, ${counts.transactions || 0} תנועות, ${counts.leads || 0} פניות, ${counts.charges || 0} חיובים, ${counts.payments || 0} תשלומים`;
   if (chargesSkipped > 0 || paymentsSkipped > 0) {
     return {
-      message: `${summary} · ייבוא חלקי: דולגו ${chargesSkipped} חיובים ו-${paymentsSkipped} תשלומים שלא ניתן היה לייבא`,
+      // `חלקי` rather than `ייבוא חלקי`: the same sentence now serves the cloud
+      // upload, where "import" would be the wrong word for what just happened.
+      message: `${summary} · חלקי: דולגו ${chargesSkipped} חיובים ו-${paymentsSkipped} תשלומים שלא ניתן היה לייבא`,
       kind: 'error',
     };
   }
@@ -102,7 +112,10 @@ export default function Settings() {
     setBusy(true);
     try {
       const counts = await migrateFromLocal();
-      toast(`הועלו לענן: ${counts.clients} לקוחות, ${counts.quotes} הצעות, ${counts.transactions} תנועות, ${counts.leads || 0} פניות`);
+      // The SAME builder as importData — same api.bulkUpload underneath, so the
+      // same skipped charges/payments have to reach the user here too.
+      const result = importResultToast(counts, 'הועלו לענן:');
+      toast(result.message, result.kind);
     } catch (err) {
       toast(err.message === 'אין נתונים מקומיים לייבוא' ? err.message : 'שגיאה בהעלאה לענן', 'error');
     } finally {
