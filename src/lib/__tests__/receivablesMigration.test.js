@@ -247,6 +247,21 @@ describe('deletion semantics — preserved exactly, and never a bare SET NULL', 
     // are COUNTED before anything else.
     expect(code).toContain('foreign keys, expected at most 1');
     expect(code).toContain('select count(*) into n_fk');
+    // Codex round 19, P2: the count must live in PART 1, not beside the repair
+    // in PART 3 — PART 3 runs after set_updated_at() has been replaced and after
+    // the table/additive-column DDL, so on the documented statement-by-statement
+    // path a SAFE STOP raised there leaves those changes applied. PART 1 is
+    // where the "nothing was altered" promise is made.
+    // On `sql`, not `code`: the section header is a comment, and `code` strips
+    // comments on purpose so prose can never satisfy a statement assertion.
+    expect(sql).toContain('-- (k) the ownership foreign keys on a pre-existing table.');
+    expect(code).toContain('carries % foreign keys, expected at most 1. nothing was changed.');
+    expect(code).toContain('is not a validated references auth.users(id) on delete cascade. nothing was changed.');
+    // ...and it really is before the first DDL statement in the file.
+    expect(code.indexOf('carries % foreign keys, expected at most 1. nothing was changed.'))
+      .toBeLessThan(code.indexOf('create or replace function public.set_updated_at'));
+    expect(code.indexOf('carries % foreign keys, expected at most 1. nothing was changed.'))
+      .toBeLessThan(code.indexOf('create table if not exists public.charges'));
     expect(code.indexOf('foreign keys, expected at most 1'))
       .toBeLessThan(code.indexOf('whether it is the only one or an extra beside the correct one'));
   });

@@ -455,6 +455,65 @@ begin
   ) then
     raise exception 'Receivables SAFE STOP: public.charges already has a stored payment-status column. Payment status is DERIVED from amount_total and the sum of payments; a stored copy is free to drift and must not exist.';
   end if;
+
+  -- (k) THE OWNERSHIP FOREIGN KEYS ON A PRE-EXISTING TABLE.
+  -- This VALIDATION belongs here and not beside the repair in PART 3. PART 3
+  -- runs after set_updated_at() has been replaced and after the table/additive
+  -- column DDL -- so if this file is executed statement by statement (the
+  -- documented "paste into the SQL Editor" path, where each statement commits on
+  -- its own rather than inside one transaction), a SAFE STOP raised down there
+  -- would leave those earlier changes applied. PART 1 promises that a mismatch
+  -- aborts before ANY object is created or altered, and that promise has to be
+  -- kept where the promise is made.
+  --
+  -- The REPAIR (adding a missing key) necessarily stays in PART 3, because the
+  -- table may not exist yet at this point. Validation here, repair there.
+  for r in
+    select * from (values ('charges'), ('payments')) as t(tbl)
+  loop
+    if to_regclass('public.' || r.tbl) is null then
+      continue; -- created fresh in PART 3; nothing pre-existing to judge
+    end if;
+
+    -- How many keys cover user_id at all. Even correctly shaped duplicates are
+    -- enforced twice on every write, and removing one is a decision someone
+    -- else made deliberately.
+    select count(*) into n_bad
+      from pg_constraint c
+     where c.conrelid = ('public.' || r.tbl)::regclass
+       and c.contype = 'f'
+       and (select array_agg(a.attname order by k.ord)
+              from unnest(c.conkey) with ordinality as k(attnum, ord)
+              join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
+           = array['user_id']::name[];
+    if n_bad > 1 then
+      raise exception 'Receivables SAFE STOP: public.%.user_id carries % foreign keys, expected at most 1. Nothing was changed.',
+        r.tbl, n_bad;
+    end if;
+
+    -- ...and the one that exists must be the declared ownership key.
+    select count(*) into n_bad
+      from pg_constraint c
+     where c.conrelid = ('public.' || r.tbl)::regclass
+       and c.contype = 'f'
+       and (select array_agg(a.attname order by k.ord)
+              from unnest(c.conkey) with ordinality as k(attnum, ord)
+              join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
+           = array['user_id']::name[]
+       and not (
+         c.confrelid = 'auth.users'::regclass
+         and (select array_agg(a.attname order by k.ord)
+                from unnest(c.confkey) with ordinality as k(attnum, ord)
+                join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum)
+             = array['id']::name[]
+         and c.confdeltype = 'c'
+         and c.convalidated
+       );
+    if n_bad > 0 then
+      raise exception 'Receivables SAFE STOP: public.%.user_id carries a foreign key that is not a validated REFERENCES auth.users(id) ON DELETE CASCADE. Nothing was changed.',
+        r.tbl;
+    end if;
+  end loop;
 end;
 $$;
 
@@ -629,6 +688,11 @@ declare
   n_fk int;
 begin
   foreach t in array array['charges', 'payments'] loop
+    -- These two checks are the SAME expectations PART 1 (k) already enforced
+    -- pre-DDL, repeated here where the repair happens. PART 1 is what keeps the
+    -- "nothing was altered" promise; this is what keeps the repair honest if the
+    -- table came into existence between them (the fresh-create path above).
+    --
     -- HOW MANY keys cover user_id, before anything else. The scan below rejects
     -- wrongly-shaped ones, but TWO CORRECTLY shaped keys under different names
     -- would both be excluded by it and the presence check would then skip on
