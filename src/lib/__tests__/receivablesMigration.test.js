@@ -265,6 +265,18 @@ describe('the unique keys the composite FKs point at', () => {
     expect(code).toContain('already exists but is not unique (id, user_id)');
   });
 
+  it('refuses a DEFERRABLE unique key instead of reusing it', () => {
+    // Codex round 13, P2: PostgreSQL cannot reference a deferrable unique or
+    // primary key from a foreign key ("cannot use a deferrable unique constraint
+    // for referenced table"), so reusing one would abort the composite-FK ALTER
+    // much later — after other statements had already run. Checked in all three
+    // places: the named match, the alternate-name lookup, and the charges block.
+    expect(code).toContain('is deferrable. postgresql cannot reference a deferrable unique key');
+    expect((code.match(/if cdeferrable then/g) || []).length).toBe(2);
+    expect((code.match(/and not c\.condeferrable/g) || []).length).toBe(2);
+    expect((code.match(/select c\.contype, c\.condeferrable,/g) || []).length).toBe(2);
+  });
+
   it('verifies the key by CONSTRAINT and columns, not by name alone', () => {
     // A same-named NON-unique index would not satisfy a composite FK.
     expect(code).toContain("c.contype in ('u', 'p')");

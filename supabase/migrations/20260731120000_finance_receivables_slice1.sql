@@ -478,18 +478,19 @@ declare
   target_name text;
   cols name[];
   ctype "char";
+  cdeferrable boolean;
   other_name text;
 begin
   foreach t in array array['clients', 'quotes'] loop
     target_name := t || '_id_user_unique';
 
-    select c.contype,
+    select c.contype, c.condeferrable,
            coalesce((
              select array_agg(a.attname order by k.ord)
                from unnest(c.conkey) with ordinality as k(attnum, ord)
                join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum
            ), array[]::name[])
-      into ctype, cols
+      into ctype, cdeferrable, cols
       from pg_constraint c
      where c.conrelid = ('public.' || t)::regclass
        and c.conname = target_name;
@@ -502,6 +503,15 @@ begin
         raise exception 'Receivables SAFE STOP: constraint %.% already exists but is not UNIQUE (id, user_id) -- contype=%, columns=(%). Not replaced.',
           t, target_name, ctype, coalesce(array_to_string(cols, ', '), '<none>');
       end if;
+      -- A DEFERRABLE key cannot be the target of a foreign key at all
+      -- ("cannot use a deferrable unique constraint for referenced table"), so
+      -- reusing one would abort the composite-FK ALTER much later, after other
+      -- statements have already run. Making it non-deferrable is a schema
+      -- decision with its own consequences, so this is a SAFE STOP.
+      if cdeferrable then
+        raise exception 'Receivables SAFE STOP: constraint %.% is DEFERRABLE. PostgreSQL cannot reference a deferrable unique key from a foreign key, so the composite keys below would fail. Not replaced.',
+          t, target_name;
+      end if;
       raise notice 'Receivables: %.% already present and correct -- left untouched.', t, target_name;
     else
       -- Is there an EQUIVALENT unique key under a different name? A composite FK
@@ -511,6 +521,11 @@ begin
         from pg_constraint c
        where c.conrelid = ('public.' || t)::regclass
          and c.contype in ('u', 'p')
+         -- non-deferrable ONLY: a deferrable key cannot be an FK target, so
+         -- reusing one would abort the composite-FK ALTER later. If a deferrable
+         -- equivalent is all that exists, this finds nothing and the constraint
+         -- is created under its own name instead.
+         and not c.condeferrable
          and (
            select array_agg(a.attname order by k.ord)
              from unnest(c.conkey) with ordinality as k(attnum, ord)
@@ -716,15 +731,16 @@ do $$
 declare
   cols name[];
   ctype "char";
+  cdeferrable boolean;
   other_name text;
 begin
-  select c.contype,
+  select c.contype, c.condeferrable,
          coalesce((
            select array_agg(a.attname order by k.ord)
              from unnest(c.conkey) with ordinality as k(attnum, ord)
              join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum
          ), array[]::name[])
-    into ctype, cols
+    into ctype, cdeferrable, cols
     from pg_constraint c
    where c.conrelid = 'public.charges'::regclass
      and c.conname = 'charges_id_user_unique';
@@ -734,12 +750,16 @@ begin
       raise exception 'Receivables SAFE STOP: charges_id_user_unique already exists but is not UNIQUE (id, user_id) -- contype=%, columns=(%). Not replaced.',
         ctype, coalesce(array_to_string(cols, ', '), '<none>');
     end if;
+    if cdeferrable then
+      raise exception 'Receivables SAFE STOP: charges_id_user_unique is DEFERRABLE. PostgreSQL cannot reference a deferrable unique key from a foreign key, so payments_charge_same_owner_fk would fail. Not replaced.';
+    end if;
     raise notice 'Receivables: charges_id_user_unique already present and correct -- left untouched.';
   else
     select c.conname into other_name
       from pg_constraint c
      where c.conrelid = 'public.charges'::regclass
        and c.contype in ('u', 'p')
+       and not c.condeferrable   -- see the note in the clients/quotes block
        and (
          select array_agg(a.attname order by k.ord)
            from unnest(c.conkey) with ordinality as k(attnum, ord)
