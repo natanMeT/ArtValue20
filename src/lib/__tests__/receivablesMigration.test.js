@@ -965,6 +965,84 @@ describe('scope — additive, idempotent, and no next-slice bleed', () => {
   });
 });
 
+// ===================================================================
+// The precondition loop's column alias must not be a RESERVED WORD.
+//
+// Measured, not hypothetical: the first apply of this migration against the
+// live project (PostgreSQL 17.6) aborted with
+//   ERROR: syntax error at or near "notnull" (SQLSTATE 42601)
+// because check (c) named its fourth VALUES column `notnull`. `NOTNULL` is a
+// PostgreSQL keyword and cannot be an unquoted alias, so the DO block failed to
+// PARSE — before any DDL, and before its own `raise exception` guards could run.
+// Nothing was created and the migration stayed pending; the failure was silent
+// about its real cause, pointing at the precondition block that exists to make
+// failures legible.
+//
+// Every assertion below reads the STATEMENT text (`code`), so a keyword named in
+// a comment cannot satisfy or break it.
+// ===================================================================
+
+/** The `for r in select * from (values ...) as t(...)` alias list of check (c). */
+const SHAPE_LOOP_ALIAS = /as\s+t\(\s*tbl\s*,\s*col\s*,\s*typ\s*,\s*(\w+)\s*\)/;
+
+/**
+ * The real check, extracted so the negative control can run THIS function
+ * against a deliberately broken source rather than a re-typed approximation.
+ */
+function shapeLoopAliasFindings(source) {
+  const alias = (source.match(SHAPE_LOOP_ALIAS) || [])[1] ?? null;
+  return {
+    alias,
+    // `\bnotnull\b` cannot match `requires_not_null` — the underscore splits it.
+    reservedWordOccurrences: (source.match(/\bnotnull\b/g) || []).length,
+    aliasReferences: alias ? (source.match(new RegExp(`\\br\\.${alias}\\b`, 'g')) || []).length : 0,
+  };
+}
+
+describe('precondition check (c) · the column-shape alias is not a reserved word', () => {
+  it('the reserved word `notnull` appears NOWHERE in the statements', () => {
+    expect(shapeLoopAliasFindings(code).reservedWordOccurrences).toBe(0);
+  });
+
+  it('the alias is the explicit, non-reserved `requires_not_null`', () => {
+    expect(shapeLoopAliasFindings(code).alias).toBe('requires_not_null');
+    expect(code).toContain('as t(tbl, col, typ, requires_not_null)');
+  });
+
+  it('all THREE occurrences are present: the alias and its two references', () => {
+    const found = shapeLoopAliasFindings(code);
+    // 1 declaration + 2 `r.requires_not_null` reads (the is_nullable predicate
+    // and the SAFE STOP message) = the complete rename, with nothing left behind.
+    expect(found.aliasReferences).toBe(2);
+    expect((code.match(/\brequires_not_null\b/g) || []).length).toBe(3);
+  });
+
+  it('the two references still drive the SAME logic — rename only, no behaviour change', () => {
+    // `code` is lower-cased (see the top of this file), so the SQL literals read
+    // 'no'/'yes' and 'not null'/'nullable' here.
+    expect(code).toContain(
+      "and is_nullable = case when r.requires_not_null then 'no' else 'yes' end",
+    );
+    expect(code).toContain(
+      "r.tbl, r.col, r.typ, case when r.requires_not_null then 'not null' else 'nullable' end",
+    );
+  });
+
+  it('NEGATIVE CONTROL · restoring `notnull` makes this check fail, for the right reason', () => {
+    // Put the defect back, exactly as it was on the merged head, and prove the
+    // check reports it. A check that has never failed is not known to be a check.
+    const broken = code.replace(/\brequires_not_null\b/g, 'notnull');
+    const found = shapeLoopAliasFindings(broken);
+
+    expect(found.alias).toBe('notnull');
+    expect(found.reservedWordOccurrences).toBe(3);
+    // ...and the positive assertions above genuinely reject it:
+    expect(found.alias).not.toBe('requires_not_null');
+    expect(broken).not.toContain('as t(tbl, col, typ, requires_not_null)');
+    expect((broken.match(/\brequires_not_null\b/g) || []).length).toBe(0);
+  });
+});
+
 describe('the PART B acceptance script is runnable in its numbered order', () => {
   it('the cancelled-charge control runs BEFORE the destructive deletes', () => {
     // Codex round 11, P2: placed after the charge delete, the UPDATE would
