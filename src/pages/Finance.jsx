@@ -93,6 +93,7 @@ export default function Finance() {
   const [chargeEditing, setChargeEditing] = useState(null); // 'new' | charge
   const [payingCharge, setPayingCharge] = useState(null);
   const [toCancel, setToCancel] = useState(null);
+  const [toDeleteCharge, setToDeleteCharge] = useState(null);
   const [toDeletePayment, setToDeletePayment] = useState(null);
   const chargeSavingRef = useRef(false);
   const [chargeSaving, setChargeSaving] = useState(false);
@@ -143,6 +144,21 @@ export default function Finance() {
       .map((c) => decorateCharge(c, payments)),
     [charges, payments],
   );
+  // WHICH CHARGES HOLD A PAYMENT ROW — by EXISTENCE, never by `received === 0`.
+  // The sum is a different question and a weaker one: `received` is 0 for a
+  // charge whose payment row was dropped by normalizePaymentRow, and it would
+  // stay 0 if the amount rules ever changed. What gates a destructive control
+  // must be "is there a row", not "does the money add up to nothing".
+  //
+  // This is still only CONVENIENCE. The store can be stale, and a payment can
+  // land between this render and the DELETE. The rule is enforced server-side by
+  // public.delete_charge_if_unpaid, which locks the charge and refuses if any
+  // payment row exists; this just avoids offering a button that would be refused.
+  const chargeIdsWithPayments = useMemo(
+    () => new Set(payments.map((p) => p.chargeId)),
+    [payments],
+  );
+  const hasPaymentRow = (charge) => chargeIdsWithPayments.has(charge.id);
   const recTotals = useMemo(() => receivablesTotals(charges, payments), [charges, payments]);
   const revenue = useMemo(() => actualRevenue(payments, data.transactions), [payments, data.transactions]);
   const clientName = (id) => data.clients.find((c) => c.id === id)?.name || '—';
@@ -208,6 +224,20 @@ export default function Finance() {
     if (!charge) return;
     const res = await dispatch({ type: 'REOPEN_CHARGE', id: charge.id });
     if (res?.ok !== false) toast('החיוב הוחזר לפעיל');
+  };
+
+  // The only receivables action that removes a durable row outright. It is
+  // offered ONLY for a charge with no payment row, and the server refuses it
+  // anyway if that is not true at the moment the write lands — a refusal leaves
+  // the charge on screen with no success toast, like every other failed write
+  // on this page. Cancelling remains the non-destructive option and is what a
+  // charge holding payments gets instead.
+  const deleteChargeConfirmed = async () => {
+    const charge = toDeleteCharge;
+    setToDeleteCharge(null);
+    if (!charge) return;
+    const res = await dispatch({ type: 'DELETE_CHARGE', id: charge.id });
+    if (res?.ok !== false) toast('החיוב נמחק');
   };
 
   const cancelCharge = async () => {
@@ -379,6 +409,12 @@ export default function Finance() {
                   <div className="sub">
                     כסף שהתקבל עבור חיוב נרשם כאן בלבד, דרך ״רישום תשלום״. רישום של אותו כסף גם כתנועת הכנסה יופיע פעמיים בהכנסה בפועל.
                   </div>
+                  {/* Gap 2, stated where the number is. The behaviour is
+                      UNCHANGED and deliberate: cancelling a claim does not
+                      un-receive money. Only the explanation was missing. */}
+                  <div className="sub">
+                    הכנסה בפועל כוללת גם תשלומים שהתקבלו על חיובים שבוטלו — ביטול חיוב מפסיק את התביעה, אך כסף שכבר התקבל נשאר הכנסה.
+                  </div>
                 </div>
                 <button className="btn btn-primary" onClick={() => setChargeEditing('new')}>
                   <Icon name="plus" size={18} /> חיוב חדש
@@ -445,6 +481,12 @@ export default function Finance() {
                               <button className="btn btn-ghost" onClick={() => setPayingCharge(c)}>רישום תשלום</button>
                               <button className="icon-action" onClick={() => setChargeEditing(c)} aria-label="עריכה"><Icon name="edit" size={15} /></button>
                               <button className="icon-action del" onClick={() => setToCancel(c)} aria-label="ביטול חיוב"><Icon name="x" size={15} /></button>
+                              {/* Delete is offered ONLY for a charge with no
+                                  payment row. A charge that holds money is
+                                  cancelled, never deleted — see hasPaymentRow. */}
+                              {!hasPaymentRow(c) && (
+                                <button className="icon-action del" onClick={() => setToDeleteCharge(c)} aria-label="מחיקת חיוב"><Icon name="trash" size={15} /></button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -480,6 +522,13 @@ export default function Finance() {
                                 <button className="btn btn-ghost" onClick={() => reopenCharge(c)}>החזרה לפעיל</button>
                                 {c.received > 0 && (
                                   <button className="btn btn-ghost" onClick={() => setPayingCharge(c)}>תשלומים</button>
+                                )}
+                                {/* Same rule here: a cancelled charge that
+                                    holds no payment row is just a durable row
+                                    nobody wants, and may be removed. One that
+                                    holds money may not. */}
+                                {!hasPaymentRow(c) && (
+                                  <button className="icon-action del" onClick={() => setToDeleteCharge(c)} aria-label="מחיקת חיוב"><Icon name="trash" size={15} /></button>
                                 )}
                               </div>
                             </td>
@@ -524,6 +573,12 @@ export default function Finance() {
             onClose={() => setToDeletePayment(null)}
             onConfirm={deletePayment}
             message={`למחוק את התשלום על סך ${formatCurrency(toDeletePayment?.amount || 0)}? הסכום ירד מההכנסה בפועל ומהיתרה של החיוב.`}
+          />
+          <ConfirmDialog
+            open={!!toDeleteCharge}
+            onClose={() => setToDeleteCharge(null)}
+            onConfirm={deleteChargeConfirmed}
+            message={`למחוק את החיוב על סך ${formatCurrency(toDeleteCharge?.amountTotal || 0)}? לא רשומים עליו תשלומים, ולכן לא ייגרע כסף שהתקבל. הפעולה אינה הפיכה.`}
           />
           <ConfirmDialog
             open={!!toCancel}

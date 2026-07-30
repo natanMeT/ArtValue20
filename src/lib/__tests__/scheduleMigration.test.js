@@ -455,7 +455,15 @@ describe('hygiene · the migration is the only new SQL file in this slice', () =
   it('supabase/migrations gains exactly one file, timestamped after F1', () => {
     const dir = fileURLToPath(new URL('../../../supabase/migrations', import.meta.url));
     const files = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
-    expect(files[files.length - 1]).toBe('20260801120000_schedule_core_slice1.sql');
+    // NOT `files[files.length - 1]`. That asserted this slice's migration is the
+    // LAST file in the directory FOREVER, so the next slice to add any migration
+    // fails a Schedule test that has nothing to do with it (measured: the charge
+    // delete guard, 20260802120000). What this test actually guards is that
+    // SCHEDULE contributed exactly one file and that it sorts after F1 — both
+    // still asserted, and neither depends on nothing ever being added again.
+    expect(files).toContain('20260801120000_schedule_core_slice1.sql');
     expect(files.filter((f) => f.includes('schedule'))).toHaveLength(1);
+    expect(files.indexOf('20260801120000_schedule_core_slice1.sql'))
+      .toBeGreaterThan(files.indexOf('20260731120000_finance_receivables_slice1.sql'));
   });
 });
