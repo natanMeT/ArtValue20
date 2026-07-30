@@ -28,6 +28,10 @@ export default function PaymentModal({
   const [form, setForm] = useState({ amount: '', paidAt: '' });
   const [errors, setErrors] = useState([]);
 
+  // A cancelled charge is not a claim, so no NEW payment may be recorded against
+  // it. The modal still opens on one — it is the only surface that can delete a
+  // payment, and a cancelled charge's payments are still in actual revenue.
+  const cancelled = charge?.lifecycle === 'cancelled';
   const balance = openBalance(charge?.amountTotal, received);
   const status = chargePaymentStatus(charge?.amountTotal, received);
   // The payments of THIS charge, newest first — the correction list below.
@@ -51,6 +55,7 @@ export default function PaymentModal({
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const submit = () => {
+    if (cancelled) return; // the disabled button is the UI; this is the rule
     const payload = { chargeId: charge?.id || '', amount: form.amount, paidAt: form.paidAt };
     const v = validatePayment(payload);
     if (!v.ok) {
@@ -80,8 +85,8 @@ export default function PaymentModal({
           <button
             className="btn btn-primary"
             onClick={submit}
-            disabled={saving}
-            style={saving ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
+            disabled={saving || cancelled}
+            style={(saving || cancelled) ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
           >
             {saving ? 'שומר…' : 'רישום'}
           </button>
@@ -92,6 +97,12 @@ export default function PaymentModal({
         {errors.length > 0 && (
           <div className="card" style={{ padding: 12, borderColor: '#ef6f6f' }}>
             {errors.map((e) => <div key={e} style={{ color: '#ef7a7a' }}>{e}</div>)}
+          </div>
+        )}
+
+        {cancelled && (
+          <div className="sub">
+            החיוב בוטל, ולכן לא ניתן לרשום עליו תשלום חדש. התשלומים שנרשמו נשארים רשומים ונכללים בהכנסה בפועל — כאן אפשר למחוק תשלום שנרשם בטעות.
           </div>
         )}
 

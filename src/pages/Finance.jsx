@@ -53,9 +53,11 @@ function StatCard({ label, value, icon, tone }) {
 // (actualRevenue) and shows both of its parts, so the relationship between the
 // two areas is visible rather than implied.
 //
-// NO DOUBLE COUNTING, BY CONSTRUCTION: recording a payment writes one row in
-// `payments` and never an income `transaction` (store.jsx / api.js), so the two
-// sums below have no overlap to reconcile.
+// THE SYSTEM never records one receipt twice: a payment writes one `payments`
+// row and never an income `transaction` (store.jsx / api.js). It cannot stop a
+// PERSON entering the same receipt on both paths — nothing links a transaction
+// to a charge — so the two parts are shown SEPARATELY and the screen says which
+// path charge money belongs on. See actualRevenue() in receivables.js and L6.
 //
 // CLOUD-ONLY: receivables have no local reducer, no seed and no localStorage
 // fallback. In local/demo mode the block renders a truthful unavailable state
@@ -91,6 +93,7 @@ export default function Finance() {
   const [chargeEditing, setChargeEditing] = useState(null); // 'new' | charge
   const [payingCharge, setPayingCharge] = useState(null);
   const [toCancel, setToCancel] = useState(null);
+  const [toDeletePayment, setToDeletePayment] = useState(null);
   const chargeSavingRef = useRef(false);
   const [chargeSaving, setChargeSaving] = useState(false);
   const paymentSavingRef = useRef(false);
@@ -118,10 +121,21 @@ export default function Finance() {
   const charges = data.charges || [];
   const payments = data.payments || [];
   // Open charges only. A cancelled charge is not a claim, so it appears in no
-  // total and in no list — its payments stay recorded and stay visible through
-  // actual revenue, because the money did arrive.
+  // total and not in THIS list — its payments stay recorded and stay visible
+  // through actual revenue, because the money did arrive. (A cancelled charge
+  // that still holds payments gets its own reachable row below.)
   const openCharges = useMemo(
     () => sortChargesByDueDate(charges.filter(isChargeOpen)).map((c) => decorateCharge(c, payments)),
+    [charges, payments],
+  );
+  // A cancelled charge leaves the KPIs and the open list — but its payments are
+  // still counted in actual revenue, so if it holds any, it must stay REACHABLE:
+  // PaymentModal is the only correction surface, and a charge nothing can open
+  // is a mistyped payment nobody can fix.
+  const cancelledWithPayments = useMemo(
+    () => sortChargesByDueDate(charges.filter((c) => !isChargeOpen(c)))
+      .map((c) => decorateCharge(c, payments))
+      .filter((c) => c.received > 0),
     [charges, payments],
   );
   const recTotals = useMemo(() => receivablesTotals(charges, payments), [charges, payments]);
@@ -172,7 +186,12 @@ export default function Finance() {
   // design, so a wrong one is DELETED and re-recorded — without this the error
   // is permanent through the UI and permanently distorts actual revenue
   // (cancelling the charge deliberately keeps its payments).
-  const deletePayment = async (payment) => {
+  // Routed through a confirmation, like every other destructive control on this
+  // page. Deleting a payment removes a durable record of real money and moves
+  // every aggregate, so a stray click must not be enough.
+  const deletePayment = async () => {
+    const payment = toDeletePayment;
+    setToDeletePayment(null);
     if (!payment) return;
     const res = await dispatch({ type: 'DELETE_PAYMENT', id: payment.id });
     if (res?.ok !== false) toast('התשלום נמחק');
@@ -416,6 +435,36 @@ export default function Finance() {
                   </table>
                 </div>
               )}
+
+              {/* Cancelled charges that still hold payments. They are out of
+                  every KPI, but their money is still in actual revenue — so a
+                  mistyped payment on one must remain correctable. Without this
+                  row, cancelling a charge would hide the only surface that can
+                  delete its payments. */}
+              {cancelledWithPayments.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <div className="panel-title" style={{ fontSize: '0.95rem' }}>חיובים שבוטלו עם תשלומים שנרשמו</div>
+                  <div className="sub" style={{ marginBottom: 8 }}>
+                    החיובים האלה אינם נספרים בצפוי, בהתקבל או ביתרה — אבל הכסף שהתקבל עליהם נשאר בהכנסה בפועל. אפשר לפתוח אותם כדי לתקן תשלום שנרשם בטעות.
+                  </div>
+                  <div className="table-wrap">
+                    <table className="tbl">
+                      <tbody>
+                        {cancelledWithPayments.map((c) => (
+                          <tr key={c.id}>
+                            <td style={{ fontWeight: 500 }}>{clientName(c.clientId)}</td>
+                            <td><span className="badge badge-lost">בוטל</span></td>
+                            <td className="tnum">{formatCurrency(c.received)}</td>
+                            <td style={{ textAlign: 'end' }}>
+                              <button className="btn btn-ghost" onClick={() => setPayingCharge(c)}>תשלומים</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           </ScrollReveal>
         </>
@@ -439,11 +488,17 @@ export default function Finance() {
             open={!!payingCharge}
             onClose={() => setPayingCharge(null)}
             onSave={savePayment}
-            onDelete={deletePayment}
+            onDelete={setToDeletePayment}
             charge={payingCharge}
             received={payingCharge ? chargeReceived(payingCharge.id, payments) : 0}
             payments={payments}
             saving={paymentSaving}
+          />
+          <ConfirmDialog
+            open={!!toDeletePayment}
+            onClose={() => setToDeletePayment(null)}
+            onConfirm={deletePayment}
+            message={`למחוק את התשלום על סך ${formatCurrency(toDeletePayment?.amount || 0)}? הסכום ירד מההכנסה בפועל ומהיתרה של החיוב.`}
           />
           <ConfirmDialog
             open={!!toCancel}

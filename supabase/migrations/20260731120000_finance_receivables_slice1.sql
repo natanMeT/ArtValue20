@@ -434,6 +434,62 @@ create table if not exists public.payments (
 alter table public.payments add column if not exists created_at timestamptz not null default now();
 alter table public.payments add column if not exists updated_at timestamptz not null default now();
 
+-- ---------------- ownership FK on a PRE-EXISTING table ----------------
+-- `create table if not exists` adds nothing to a table that already exists, so
+-- a charges/payments table carrying a correctly typed NOT NULL `user_id` WITHOUT
+-- `references auth.users (id) on delete cascade` would satisfy every column
+-- check above and still leave declared limitation L4 unmet: deleting an auth
+-- user would orphan its financial rows instead of removing them.
+--
+-- This is REPAIRED rather than refused, because unlike a missing NOT NULL column
+-- a missing constraint needs no backfill decision. It is added only when absent,
+-- and if existing rows violate it the ALTER fails loudly — which is the correct
+-- outcome, not something to work around.
+do $$
+declare
+  t text;
+  con_name text;
+begin
+  foreach t in array array['charges', 'payments'] loop
+    if exists (
+      select 1 from pg_constraint c
+       where c.conrelid = ('public.' || t)::regclass
+         and c.contype = 'f'
+         and c.confrelid = 'auth.users'::regclass
+         and (select array_agg(a.attname order by k.ord)
+                from unnest(c.conkey) with ordinality as k(attnum, ord)
+                join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
+             = array['user_id']::name[]
+         and c.confdeltype = 'c'
+    ) then
+      continue; -- already correct (the fresh-install path)
+    end if;
+
+    -- A user_id FK that exists but points elsewhere, or does not cascade, is a
+    -- different decision than the one declared here. SAFE STOP rather than
+    -- silently replace it.
+    select c.conname into con_name
+      from pg_constraint c
+     where c.conrelid = ('public.' || t)::regclass
+       and c.contype = 'f'
+       and (select array_agg(a.attname order by k.ord)
+              from unnest(c.conkey) with ordinality as k(attnum, ord)
+              join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
+           = array['user_id']::name[]
+     limit 1;
+    if con_name is not null then
+      raise exception 'Receivables SAFE STOP: public.%.user_id already has a foreign key (%) that is not REFERENCES auth.users(id) ON DELETE CASCADE. Not replaced.', t, con_name;
+    end if;
+
+    execute format(
+      'alter table public.%I add constraint %I foreign key (user_id) references auth.users (id) on delete cascade',
+      t, t || '_user_id_fkey'
+    );
+    raise notice 'Receivables: added the missing ownership FK on public.%.user_id.', t;
+  end loop;
+end;
+$$;
+
 -- ---------------- domain + bound constraints (idempotent) ----------------
 -- These are plain CHECKs and are never the target of a foreign key, so the
 -- drop-then-add form is safe for them (unlike the unique keys in PART 2).
@@ -1013,6 +1069,23 @@ begin
           r.child, r.con, r.setcol,
           coalesce(nullif(array_to_string(setcols, ', '), ''), '<all key columns>'), r.child;
       end if;
+    end if;
+  end loop;
+
+  -- ---- ownership cascades to auth.users (declared limitation L4) ----
+  for r in select unnest(array['charges', 'payments']) as tbl loop
+    if not exists (
+      select 1 from pg_constraint c
+       where c.conrelid = ('public.' || r.tbl)::regclass
+         and c.contype = 'f'
+         and c.confrelid = 'auth.users'::regclass
+         and (select array_agg(a.attname order by k.ord)
+                from unnest(c.conkey) with ordinality as k(attnum, ord)
+                join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
+             = array['user_id']::name[]
+         and c.confdeltype = 'c'
+    ) then
+      raise exception 'Receivables FAILED: public.%.user_id does not REFERENCE auth.users(id) ON DELETE CASCADE. Deleting an account would orphan its financial rows.', r.tbl;
     end if;
   end loop;
 

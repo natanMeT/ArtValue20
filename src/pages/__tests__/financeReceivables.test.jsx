@@ -500,6 +500,39 @@ describe('PaymentModal · suggests the BALANCE, and is honest about overpayment'
     expect(paymentModal).not.toMatch(/willOverpay = [^;]*balance > 0/);
   });
 
+  it('a payment delete goes through a CONFIRMATION, like every other destructive control', () => {
+    // Codex round 3, P2: the trash control dispatched immediately, unlike
+    // transaction deletion and charge cancellation on the same page — a stray
+    // click permanently removed real received revenue and moved every aggregate.
+    expect(paymentModal).toContain('onDelete(p)');
+    expect(finance).toContain('onDelete={setToDeletePayment}');   // opens the dialog
+    expect(finance).toContain('open={!!toDeletePayment}');
+    expect(finance).toContain('onConfirm={deletePayment}');
+    expect(finance).toContain('הסכום ירד מההכנסה בפועל');
+    // The dispatch is reachable ONLY from the confirmed handler.
+    const handler = finance.slice(finance.indexOf('const deletePayment = async'), finance.indexOf('const cancelCharge'));
+    expect(handler).toContain("dispatch({ type: 'DELETE_PAYMENT', id: payment.id })");
+    expect(handler).toContain('const payment = toDeletePayment;');
+  });
+
+  it('a CANCELLED charge that holds payments stays reachable for correction', () => {
+    // Codex round 3, P2: the open-charge filter was the only way into
+    // PaymentModal, so cancelling a charge hid the only surface that can delete
+    // its payments — while those payments stayed in actual revenue.
+    expect(finance).toContain('cancelledWithPayments');
+    expect(finance).toContain('charges.filter((c) => !isChargeOpen(c))');
+    expect(finance).toContain('.filter((c) => c.received > 0)');
+    expect(finance).toContain('חיובים שבוטלו עם תשלומים שנרשמו');
+    expect(finance).toMatch(/cancelledWithPayments\.map\(\(c\) => \([\s\S]{0,600}setPayingCharge\(c\)/);
+  });
+
+  it('...but no NEW payment can be recorded against a cancelled charge', () => {
+    expect(paymentModal).toContain("const cancelled = charge?.lifecycle === 'cancelled';");
+    expect(paymentModal).toContain('disabled={saving || cancelled}');
+    expect(paymentModal).toContain('if (cancelled) return;'); // the rule, not just the button
+    expect(paymentModal).toContain('החיוב בוטל, ולכן לא ניתן לרשום עליו תשלום חדש');
+  });
+
   it('offers a CORRECTION path — a mistyped payment can be removed', () => {
     // Codex round 2, P2: DELETE_PAYMENT existed in api/store with nothing in the
     // UI dispatching it, so a wrong amount permanently distorted actual revenue
@@ -508,9 +541,9 @@ describe('PaymentModal · suggests the BALANCE, and is honest about overpayment'
     expect(paymentModal).toContain('onDelete(p)');
     expect(paymentModal).toContain('תשלומים שנרשמו');
     expect(paymentModal).toContain('אין עריכה של תשלום קיים');
-    // ...and the page really wires it to the durable dispatch.
+    // ...and the page really wires it to the durable dispatch (behind the
+    // confirmation asserted above).
     expect(finance).toContain("dispatch({ type: 'DELETE_PAYMENT', id: payment.id })");
-    expect(finance).toContain('onDelete={deletePayment}');
     expect(finance).toContain('payments={payments}');
   });
 

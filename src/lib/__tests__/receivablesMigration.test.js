@@ -142,6 +142,19 @@ describe('deletion semantics — preserved exactly, and never a bare SET NULL', 
     expect(code).toContain("if c.confdeltype <> 'n' then");
   });
 
+  it('repairs a MISSING ownership FK on a pre-existing table, and asserts it', () => {
+    // Codex round 3, P2: `create table if not exists` cannot add the auth.users
+    // FK, so a pre-existing table with a plain NOT NULL user_id would satisfy
+    // every column check and still orphan its rows when an account is deleted —
+    // silently unmeeting declared limitation L4. A missing constraint needs no
+    // backfill decision, so it is REPAIRED (and a wrong one is a SAFE STOP).
+    expect(code).toContain("references auth.users (id) on delete cascade");
+    expect(code).toContain('added the missing ownership fk on public.%.user_id');
+    expect(code).toContain('that is not references auth.users(id) on delete cascade');
+    expect(code).toContain('does not reference auth.users(id) on delete cascade');
+    expect(code).toMatch(/c\.confrelid = 'auth\.users'::regclass/);
+  });
+
   it('the migration asserts its own postcondition for every key', () => {
     expect(code).toContain('confdelsetcols');
     expect(code).toContain('receivables failed');
