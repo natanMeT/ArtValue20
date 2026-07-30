@@ -368,6 +368,7 @@ export async function bulkUpload(userId, data) {
   // so a malformed row is skipped rather than half-written.
   const chargeIdMap = {};
   const chargeRows = [];
+  const cancelledChargeIds = [];
   for (const c of data.charges || []) {
     const v = validateCharge({
       ...c,
@@ -387,9 +388,21 @@ export async function bulkUpload(userId, data) {
       id,
       user_id: userId,
       ...mapToRow(v.value, CHARGE_FIELDS),
-      // Lifecycle is preserved: a cancelled charge must not come back open.
-      lifecycle: c.lifecycle === 'cancelled' ? 'cancelled' : 'open',
+      // EVERY charge is inserted `open`, including the cancelled ones.
+      //
+      // trg_payments_reject_cancelled refuses a payment whose charge is already
+      // cancelled — correct for a live write, and fatal for a RESTORE, because a
+      // cancelled charge legitimately keeps the payments it received. Inserting
+      // it cancelled first would have the trigger reject the whole payment batch
+      // after clients, quotes, transactions and charges were already committed
+      // in separate requests, leaving a half-restored account.
+      //
+      // So the historical payments go in first and the cancelled lifecycle is
+      // restored afterwards (the trigger guards payment writes, not lifecycle
+      // updates). `cancelledChargeIds` carries the ids that still need it.
+      lifecycle: 'open',
     });
+    if (c.lifecycle === 'cancelled') cancelledChargeIds.push(id);
   }
   if (chargeRows.length) guard((await supabase.from('charges').insert(chargeRows)).error);
 
@@ -407,6 +420,14 @@ export async function bulkUpload(userId, data) {
     paymentRows.push({ id: uuid(), user_id: userId, ...mapToRow(v.value, PAYMENT_FIELDS) });
   }
   if (paymentRows.length) guard((await supabase.from('payments').insert(paymentRows)).error);
+
+  // ...and only now restore the cancelled lifecycle, once every historical
+  // payment is in. One statement for the whole set.
+  if (cancelledChargeIds.length) {
+    guard((await supabase.from('charges')
+      .update({ lifecycle: 'cancelled' })
+      .in('id', cancelledChargeIds)).error);
+  }
 
   return {
     clients: clientRows.length, quotes: quoteRows.length, transactions: txRows.length,

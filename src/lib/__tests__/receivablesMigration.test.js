@@ -154,6 +154,14 @@ describe('deletion semantics — preserved exactly, and never a bare SET NULL', 
     expect(code).toMatch(/where c\.id = new\.charge_id and c\.user_id = new\.user_id/);
     expect(code).toContain("if found and parent_lifecycle = 'cancelled' then");
     expect(code).toContain("using errcode = '23514'");
+    // Codex round 5, P2: an UNLOCKED parent read can observe `open` while a
+    // concurrent transaction cancels the same charge, allow the insert, and let
+    // that cancellation commit afterwards — the very race the trigger exists to
+    // close. FOR SHARE conflicts with the FOR NO KEY UPDATE lock a plain UPDATE
+    // takes; FOR KEY SHARE would NOT, since that is what the FK check itself
+    // takes and it does not conflict with a non-key update.
+    expect(code).toMatch(/where c\.id = new\.charge_id and c\.user_id = new\.user_id\s+for share;/);
+    expect(code).not.toMatch(/for key share/);
     // SECURITY INVOKER on purpose: it reads charges as the caller, so RLS applies
     // and a charge the caller cannot see simply yields no row (the composite FK
     // refuses that insert anyway). Elevated rights would widen the surface for

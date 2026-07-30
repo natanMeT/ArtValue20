@@ -345,8 +345,20 @@ describe('api · a payment writes to payments and to nothing else', () => {
     // Rows go through the SAME validators as a direct save.
     expect(bulk).toContain('validateCharge(');
     expect(bulk).toContain('validatePayment(');
-    // A cancelled charge must not come back open.
-    expect(bulk).toContain("lifecycle: c.lifecycle === 'cancelled' ? 'cancelled' : 'open'");
+    // A cancelled charge must not come back open — but it is restored to
+    // cancelled only AFTER its payments are in. Codex round 5, P1: inserting it
+    // cancelled first makes trg_payments_reject_cancelled reject the whole
+    // payment batch, after clients/quotes/transactions/charges were already
+    // committed in separate requests — a half-restored account. A cancelled
+    // charge legitimately keeps the payments it received, so the restore order
+    // is: charges open -> payments -> restore the cancelled lifecycle.
+    expect(bulk).toContain("lifecycle: 'open',");
+    expect(bulk).toContain("if (c.lifecycle === 'cancelled') cancelledChargeIds.push(id)");
+    expect(bulk).toContain(".update({ lifecycle: 'cancelled' })");
+    expect(bulk).toContain(".in('id', cancelledChargeIds)");
+    // ORDER IS THE FIX: the lifecycle restore must come after the payment insert.
+    expect(bulk.indexOf("from('payments').insert(paymentRows)"))
+      .toBeLessThan(bulk.indexOf(".update({ lifecycle: 'cancelled' })"));
     // What could not be imported is COUNTED, not silently dropped.
     expect(bulk).toContain('paymentsSkipped');
     expect(bulk).toMatch(/charges: chargeRows\.length, payments: paymentRows\.length/);

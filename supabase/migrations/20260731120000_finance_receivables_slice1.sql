@@ -803,9 +803,18 @@ as $$
 declare
   parent_lifecycle text;
 begin
+  -- FOR SHARE, not a plain read. Without a row lock this SELECT can observe
+  -- `open` while a concurrent transaction is cancelling the same charge, allow
+  -- the insert, and let that cancellation commit afterwards -- which is exactly
+  -- the cross-device race the trigger exists to close. FOR SHARE conflicts with
+  -- the FOR NO KEY UPDATE lock a plain UPDATE takes, so this blocks until the
+  -- other transaction ends and then re-reads the committed row.
+  -- (FOR KEY SHARE would NOT do: it is what the foreign-key check itself takes,
+  -- and it does not conflict with a non-key update.)
   select c.lifecycle into parent_lifecycle
     from public.charges c
-   where c.id = new.charge_id and c.user_id = new.user_id;
+   where c.id = new.charge_id and c.user_id = new.user_id
+     for share;
 
   if found and parent_lifecycle = 'cancelled' then
     raise exception 'payments: charge % is cancelled and cannot receive a payment', new.charge_id
