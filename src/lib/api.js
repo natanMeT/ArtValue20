@@ -15,6 +15,10 @@ import {
   validateCampaign, canCreateWithin, canTransition,
   normalizeCampaignRow, sortCampaignsNewestFirst, CAMPAIGN_QUOTA,
 } from './campaigns.js';
+import {
+  validateCharge, validatePayment,
+  normalizeChargeRow, normalizePaymentRow, CHARGE_LIFECYCLES,
+} from './receivables.js';
 
 const uuid = () =>
   (crypto?.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -55,6 +59,23 @@ const BUSINESS_PROFILE_FIELDS = {
   businessName: 'business_name', positioning: 'positioning',
   audiences: 'audiences', tone: 'tone', differentiators: 'differentiators',
   services: 'services', brandPalette: 'brand_palette',
+};
+// F1 Core Receivables: charge write map (camel → snake). It is an ALLOW-LIST,
+// and what it OMITS is the point — there is no payment-status key here because
+// there is no such column: status is derived from amount_total and the sum of
+// payments (src/lib/receivables.js). `lifecycle` is written on create ('open')
+// and by cancelCharge alone. created_at/updated_at are server-managed.
+const CHARGE_FIELDS = {
+  clientId: 'client_id', quoteId: 'quote_id', kind: 'kind',
+  paymentTerms: 'payment_terms', serviceDate: 'service_date',
+  dueDate: 'due_date', dueDateSource: 'due_date_source',
+  amountTotal: 'amount_total', description: 'description',
+  invoiceUrl: 'invoice_url', lifecycle: 'lifecycle',
+};
+// F1: payment write map. A payment is immutable in this slice — it is created
+// or deleted, never edited — so this map is used only by the insert.
+const PAYMENT_FIELDS = {
+  chargeId: 'charge_id', amount: 'amount', paidAt: 'paid_at',
 };
 
 function mapToRow(obj, fieldMap) {
@@ -142,7 +163,7 @@ function guard(error) {
 // Read everything for the signed-in user (RLS scopes to their rows).
 // ===================================================================
 export async function fetchAll() {
-  const [clientsRes, quotesRes, itemsRes, txRes, leadsRes, tasksRes, bpRes] = await Promise.all([
+  const [clientsRes, quotesRes, itemsRes, txRes, leadsRes, tasksRes, bpRes, chargesRes, paymentsRes] = await Promise.all([
     supabase.from('clients').select('*').order('created_at', { ascending: false }),
     supabase.from('quotes').select('*').order('created_at', { ascending: false }),
     supabase.from('quote_items').select('*').order('position', { ascending: true }),
@@ -151,8 +172,12 @@ export async function fetchAll() {
     supabase.from('tasks').select('*').order('created_at', { ascending: false }),
     // S0D: one row per user (user_id PK); RLS scopes to the signed-in account.
     supabase.from('business_profile').select('*').limit(1),
+    // F1: expected billing and money actually received. Both are RLS-scoped.
+    supabase.from('charges').select('*').order('due_date', { ascending: true }),
+    supabase.from('payments').select('*').order('paid_at', { ascending: false }),
   ]);
   guard(clientsRes.error); guard(quotesRes.error); guard(itemsRes.error); guard(txRes.error); guard(leadsRes.error); guard(tasksRes.error); guard(bpRes.error);
+  guard(chargesRes.error); guard(paymentsRes.error);
 
   const itemsByQuote = {};
   for (const it of itemsRes.data) (itemsByQuote[it.quote_id] ||= []).push(rowToItem(it));
@@ -167,6 +192,10 @@ export async function fetchAll() {
     tasks: tasksRes.data.map(rowToTask),
     // S0D: durable per-account Business Context (null when unconfigured/malformed).
     businessProfile: rowToBusinessProfile((bpRes.data && bpRes.data[0]) || null),
+    // F1: a row that cannot be trusted is DROPPED by the normalizer rather than
+    // rendered as a half-charge with a plausible-looking balance.
+    charges: (chargesRes.data || []).map(normalizeChargeRow).filter(Boolean),
+    payments: (paymentsRes.data || []).map(normalizePaymentRow).filter(Boolean),
     meta: { source: 'supabase' },
   };
 }
@@ -291,8 +320,12 @@ export async function bulkUpload(userId, data) {
 
   const quoteRows = [];
   const itemRows = [];
+  // F1: quote ids are remapped like client ids, so an imported charge can point
+  // at the quote it came from instead of losing the link.
+  const quoteIdMap = {};
   for (const q of data.quotes || []) {
     const id = uuid();
+    quoteIdMap[q.id] = id;
     quoteRows.push({ id, user_id: userId, ...mapToRow(q, QUOTE_FIELDS), client_id: clientIdMap[q.clientId] || null });
     (q.items || []).forEach((it, i) =>
       itemRows.push({ user_id: userId, quote_id: id, description: it.desc || '', qty: Number(it.qty) || 1, price: Number(it.price) || 0, position: i })
@@ -328,7 +361,93 @@ export async function bulkUpload(userId, data) {
     }
   }
 
-  return { clients: clientRows.length, quotes: quoteRows.length, transactions: txRows.length, leads: leadRows.length, tasks: taskRows.length, businessProfile };
+  // F1: charges + payments are part of `data` (fetchAll returns them, and the
+  // Settings backup is a dump of the whole store), so an importer that skipped
+  // them would silently drop every receivable from a restore while still
+  // reporting success. Charges go through the SAME validator as a direct save,
+  // so a malformed row is skipped rather than half-written.
+  const chargeIdMap = {};
+  const chargeRows = [];
+  const cancelledChargeIds = [];
+  // A charge the CURRENT validator rejects (a legacy kind, a malformed date) is
+  // skipped rather than half-written — and skipping it also strands every
+  // payment that pointed at it, since no id mapping exists. Both losses are
+  // COUNTED and returned: an import that quietly loses receivables while
+  // reporting success is the false-success failure this codebase keeps closing.
+  let chargesSkipped = 0;
+  for (const c of data.charges || []) {
+    const v = validateCharge({
+      ...c,
+      // The remapped parents. An unknown id becomes NULL rather than a dangling
+      // reference — the composite FK would reject it, and losing a link is a far
+      // smaller loss than losing the charge.
+      clientId: clientIdMap[c.clientId] || null,
+      quoteId: quoteIdMap[c.quoteId] || null,
+      // A manual due date must survive the round trip verbatim; a computed one
+      // is left to the validator so it stays consistent with the terms.
+      dueDate: c.dueDateSource === 'manual' ? c.dueDate : '',
+    });
+    if (!v.ok) { chargesSkipped += 1; continue; }
+    // The lifecycle is NOT covered by validateCharge(): that validator always
+    // creates in 'open', because a create has no lifecycle to choose. An import
+    // does — and an unrecognised one (a legacy 'archived', a missing field) must
+    // not be silently activated. Activating it would inflate open receivables
+    // and let new payments be recorded against what may have been a cancelled
+    // record. Unknown -> skipped and counted, like any other unusable row.
+    if (!CHARGE_LIFECYCLES.includes(c.lifecycle)) { chargesSkipped += 1; continue; }
+    const id = uuid();
+    chargeIdMap[c.id] = id;
+    chargeRows.push({
+      id,
+      user_id: userId,
+      ...mapToRow(v.value, CHARGE_FIELDS),
+      // EVERY charge is inserted `open`, including the cancelled ones.
+      //
+      // trg_payments_reject_cancelled refuses a payment whose charge is already
+      // cancelled — correct for a live write, and fatal for a RESTORE, because a
+      // cancelled charge legitimately keeps the payments it received. Inserting
+      // it cancelled first would have the trigger reject the whole payment batch
+      // after clients, quotes, transactions and charges were already committed
+      // in separate requests, leaving a half-restored account.
+      //
+      // So the historical payments go in first and the cancelled lifecycle is
+      // restored afterwards (the trigger guards payment writes, not lifecycle
+      // updates). `cancelledChargeIds` carries the ids that still need it.
+      lifecycle: 'open',
+    });
+    if (c.lifecycle === 'cancelled') cancelledChargeIds.push(id);
+  }
+  if (chargeRows.length) guard((await supabase.from('charges').insert(chargeRows)).error);
+
+  // A payment whose charge did not survive the import is DROPPED, not orphaned:
+  // charge_id is NOT NULL and the composite FK would refuse it, so keeping it
+  // would fail the whole import. The count is returned so the caller can report
+  // what actually landed instead of implying everything did.
+  const paymentRows = [];
+  let paymentsSkipped = 0;
+  for (const p of data.payments || []) {
+    const chargeId = chargeIdMap[p.chargeId];
+    if (!chargeId) { paymentsSkipped += 1; continue; }
+    const v = validatePayment({ chargeId, amount: p.amount, paidAt: p.paidAt });
+    if (!v.ok) { paymentsSkipped += 1; continue; }
+    paymentRows.push({ id: uuid(), user_id: userId, ...mapToRow(v.value, PAYMENT_FIELDS) });
+  }
+  if (paymentRows.length) guard((await supabase.from('payments').insert(paymentRows)).error);
+
+  // ...and only now restore the cancelled lifecycle, once every historical
+  // payment is in. One statement for the whole set.
+  if (cancelledChargeIds.length) {
+    guard((await supabase.from('charges')
+      .update({ lifecycle: 'cancelled' })
+      .in('id', cancelledChargeIds)).error);
+  }
+
+  return {
+    clients: clientRows.length, quotes: quoteRows.length, transactions: txRows.length,
+    leads: leadRows.length, tasks: taskRows.length, businessProfile,
+    charges: chargeRows.length, payments: paymentRows.length,
+    chargesSkipped, paymentsSkipped,
+  };
 }
 
 // Pure mapping helpers exported for focused unit tests (S0B + S0D).
@@ -555,3 +674,160 @@ export async function deleteCampaign(campaignId) {
   guard((await supabase.from('campaigns').delete().eq('id', campaignId)).error);
   return true;
 }
+
+// ===================================================================
+// F1 Core Receivables — expected billing (charges) vs. money that actually
+// arrived (payments).
+//
+// PAYMENTS ARE THE SOURCE OF TRUTH FOR RECEIVED REVENUE, and this file is where
+// that is enforced in the IO layer: NOTHING below writes to `transactions`.
+// Recording a payment creates exactly ONE row, in `payments`. A parallel income
+// transaction would count the same shekel twice, and there is no code path here
+// that could create one. (What this cannot prevent is a user recording the same
+// receipt through the transaction form as well -- see the note on actualRevenue
+// in receivables.js and L6 in the migration.)
+//
+// There is no Storage side and no second write, so none of the Asset Library's
+// ordering rules apply: every operation below is ONE statement whose success or
+// failure is the whole truth. `guard()` rethrows and the caller surfaces it.
+//
+// Every client-side rule invoked here is ADVISORY (a truthful pre-refusal). The
+// server is the authority: RLS for ownership, the five composite foreign keys
+// for same-owner relationships, the CHECK constraints for domains and bounds,
+// and trg_payments_reject_cancelled for "no payment against a cancelled charge"
+// — which is why createPayment does not pre-check the lifecycle: a client-side
+// snapshot of it could be stale, and the refusal is the server's to make.
+// ===================================================================
+
+/** The signed-in account's charges, soonest due first. RLS scopes the select. */
+export async function listCharges() {
+  const res = await supabase.from('charges').select('*').order('due_date', { ascending: true });
+  guard(res.error);
+  return (res.data || []).map(normalizeChargeRow).filter(Boolean);
+}
+
+/** The signed-in account's payments, newest first. RLS scopes the select. */
+export async function listPayments() {
+  const res = await supabase.from('payments').select('*').order('paid_at', { ascending: false });
+  guard(res.error);
+  return (res.data || []).map(normalizePaymentRow).filter(Boolean);
+}
+
+/**
+ * Create ONE charge. Validated AT THE BOUNDARY (defense in depth — the modal
+ * validates too), then inserted as a single row in lifecycle 'open'.
+ *
+ * The due date is resolved by the shared validator: absent → computed from the
+ * service month + terms and stamped `computed`; supplied → honoured verbatim and
+ * stamped `manual`, so the screen can say which one it is showing.
+ *
+ * Resolves with the CREATED ROW as the server stored it. Rejects on ANY failure.
+ */
+export async function createCharge(userId, input = {}) {
+  const v = validateCharge(input);
+  if (!v.ok) {
+    const err = new Error(v.errors[0]);
+    err.userSafe = true;
+    err.validationErrors = v.errors;
+    throw err;
+  }
+  const id = uuid();
+  // `.select().single()` deliberately: the store applies the SERVER'S row to
+  // local state rather than reconstructing what it hopes was written. A
+  // reconstructed row is a guess that looks like a fact.
+  const res = await supabase.from('charges').insert({
+    id, user_id: userId, ...mapToRow(v.value, CHARGE_FIELDS),
+  }).select().single();
+  guard(res.error);
+  const charge = normalizeChargeRow(res.data);
+  if (!charge) throw new Error('charges: the created row did not come back in a usable shape');
+  return charge;
+}
+
+/**
+ * Update the editable fields of ONE charge. `lifecycle` is NOT changed here — a
+ * cancellation goes through cancelCharge so there is exactly one client-side
+ * entry point for it, mirroring setCampaignStatus.
+ */
+export async function updateCharge(chargeId, input = {}) {
+  const v = validateCharge(input);
+  if (!v.ok) {
+    const err = new Error(v.errors[0]);
+    err.userSafe = true;
+    err.validationErrors = v.errors;
+    throw err;
+  }
+  const { lifecycle, ...editable } = v.value; // eslint-disable-line no-unused-vars
+  const res = await supabase.from('charges')
+    .update(mapToRow(editable, CHARGE_FIELDS)).eq('id', chargeId).select().single();
+  guard(res.error);
+  const charge = normalizeChargeRow(res.data);
+  if (!charge) throw new Error('charges: the updated row did not come back in a usable shape');
+  return charge;
+}
+
+/**
+ * Cancel ONE charge. The lifecycle is the ONLY thing this touches: cancelling a
+ * claim must never rewrite the money that was already received against it, and
+ * the payments rows are left exactly where they are.
+ */
+export async function cancelCharge(chargeId) {
+  guard((await supabase.from('charges').update({ lifecycle: 'cancelled' }).eq('id', chargeId)).error);
+  return true;
+}
+
+/**
+ * Reopen ONE cancelled charge. The lifecycle graph is symmetric by design
+ * (open <-> cancelled, declared limitation L3), so this is the other half of
+ * cancelCharge — without it an accidental cancellation is permanent through the
+ * UI, and the charge is a durable row nothing can reach.
+ */
+export async function reopenCharge(chargeId) {
+  guard((await supabase.from('charges').update({ lifecycle: 'open' }).eq('id', chargeId)).error);
+  return true;
+}
+
+/**
+ * Delete ONE charge. Its payments go with it — `payments_charge_same_owner_fk`
+ * is ON DELETE CASCADE, because a payment that describes no charge is an
+ * unattributed number, not a record. Cancelling is the non-destructive option
+ * and is what the UI offers first.
+ */
+export async function deleteCharge(chargeId) {
+  guard((await supabase.from('charges').delete().eq('id', chargeId)).error);
+  return true;
+}
+
+/**
+ * Record ONE payment against a charge. This is the ONLY way received revenue
+ * enters the product, and it writes to `payments` and nothing else — there is
+ * deliberately no accompanying `transactions` insert anywhere in this function.
+ *
+ * Resolves with the CREATED ROW as the server stored it. Rejects on ANY failure.
+ */
+export async function createPayment(userId, input = {}) {
+  const v = validatePayment(input);
+  if (!v.ok) {
+    const err = new Error(v.errors[0]);
+    err.userSafe = true;
+    err.validationErrors = v.errors;
+    throw err;
+  }
+  const id = uuid();
+  const res = await supabase.from('payments').insert({
+    id, user_id: userId, ...mapToRow(v.value, PAYMENT_FIELDS),
+  }).select().single();
+  guard(res.error);
+  const payment = normalizePaymentRow(res.data);
+  if (!payment) throw new Error('payments: the created row did not come back in a usable shape');
+  return payment;
+}
+
+/** Delete ONE payment (a correction). RLS scopes it to the owner. */
+export async function deletePayment(paymentId) {
+  guard((await supabase.from('payments').delete().eq('id', paymentId)).error);
+  return true;
+}
+
+// Pure mapping helpers exported for focused unit tests (F1).
+export { CHARGE_FIELDS, PAYMENT_FIELDS };

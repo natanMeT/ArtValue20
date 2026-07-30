@@ -6,11 +6,19 @@ import CountUp from '../components/ui/CountUp.jsx';
 import Icon from '../components/ui/Icon.jsx';
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
 import TransactionModal from '../components/forms/TransactionModal.jsx';
+import ChargeModal from '../components/forms/ChargeModal.jsx';
+import PaymentModal from '../components/forms/PaymentModal.jsx';
 import { SectionHeader, EmptyState } from '../components/ui/atoms.jsx';
 import { RevenueExpenseChart, MonthlyBarChart } from '../components/charts/charts.jsx';
 import { financeTotals, monthlySeries, monthTotals } from '../lib/calc.js';
 import { formatCurrency, formatDate } from '../lib/format.js';
 import { saveLabel } from '../lib/saveLabel.js';
+import {
+  receivablesTotals, actualRevenue, decorateCharge, sortChargesByDueDate,
+  isChargeOpen, chargeReceived, isSafeInvoiceUrl,
+  CHARGE_KIND_LABELS, PAYMENT_TERMS_LABELS,
+  PAYMENT_STATUS_LABELS, PAYMENT_STATUS_CLASS, DUE_DATE_SOURCE_LABELS,
+} from '../lib/receivables.js';
 
 function StatCard({ label, value, icon, tone }) {
   const color = tone === 'income' ? 'var(--lime-deep)' : tone === 'expense' ? '#ef7a7a' : tone === 'net' ? 'var(--text)' : 'var(--text)';
@@ -31,11 +39,65 @@ function StatCard({ label, value, icon, tone }) {
   );
 }
 
+// ===================================================================
+// F1 Core Receivables on the Finance screen.
+//
+// TWO DIFFERENT FACTS, KEPT APART ON PURPOSE:
+//   the existing KPI strip and charts describe TRANSACTIONS — the ledger of
+//   income and expenses, unchanged by this slice;
+//   the receivables block below describes CHARGES and PAYMENTS — what is still
+//   owed, and what actually arrived.
+// The existing KPIs are deliberately NOT rewritten to fold payments in: they
+// have a defined meaning that other parts of the product and the owner already
+// read. Instead the receivables block states the combined figure explicitly
+// (actualRevenue) and shows both of its parts, so the relationship between the
+// two areas is visible rather than implied.
+//
+// THE SYSTEM never records one receipt twice: a payment writes one `payments`
+// row and never an income `transaction` (store.jsx / api.js). It cannot stop a
+// PERSON entering the same receipt on both paths — nothing links a transaction
+// to a charge — so the two parts are shown SEPARATELY and the screen says which
+// path charge money belongs on. See actualRevenue() in receivables.js and L6.
+//
+// CLOUD-ONLY: receivables have no local reducer, no seed and no localStorage
+// fallback. In local/demo mode the block renders a truthful unavailable state
+// instead of a form that would appear to save and would not.
+// ===================================================================
+
+function ReceivablesUnavailable() {
+  return (
+    <ScrollReveal className="b-span-12" style={{ marginTop: 16 }}>
+      <div className="card panel">
+        <div className="panel-head">
+          <div>
+            <div className="panel-title">חיובים ותשלומים</div>
+            <div className="sub">מעקב אחרי כסף שאמור להיכנס מול כסף שנכנס בפועל</div>
+          </div>
+        </div>
+        <EmptyState
+          icon="lock"
+          title="זמין רק בחשבון בענן"
+          hint="חיובים ותשלומים נשמרים בענן בלבד ומשויכים לחשבון. במצב ההדגמה המקומי אין להם אחסון עמיד, ולכן האזור אינו פעיל כאן — כדי לא להציג טופס ששומר לכאורה ולא שומר בפועל."
+        />
+      </div>
+    </ScrollReveal>
+  );
+}
+
 export default function Finance() {
   const { data, dispatch, toast, mode } = useStore();
   const [editing, setEditing] = useState(null); // 'new' | tx
   const [toDelete, setToDelete] = useState(null);
   const [typeFilter, setTypeFilter] = useState('all');
+  // F1 receivables UI state.
+  const [chargeEditing, setChargeEditing] = useState(null); // 'new' | charge
+  const [payingCharge, setPayingCharge] = useState(null);
+  const [toCancel, setToCancel] = useState(null);
+  const [toDeletePayment, setToDeletePayment] = useState(null);
+  const chargeSavingRef = useRef(false);
+  const [chargeSaving, setChargeSaving] = useState(false);
+  const paymentSavingRef = useRef(false);
+  const [paymentSaving, setPaymentSaving] = useState(false);
   // In-flight save guard. The ref is the SYNCHRONOUS latch (two click events can
   // run in the same tick, before any rerender — state alone cannot block that);
   // `saving` is the visible pending state that disables the modal submit.
@@ -53,6 +115,107 @@ export default function Finance() {
     const arr = typeFilter === 'all' ? data.transactions : data.transactions.filter((t) => t.type === typeFilter);
     return [...arr].sort((a, b) => new Date(b.date) - new Date(a.date));
   }, [data.transactions, typeFilter]);
+
+  // ---- receivables (F1) ----
+  const cloud = mode === 'supabase';
+  const charges = data.charges || [];
+  const payments = data.payments || [];
+  // Open charges only. A cancelled charge is not a claim, so it appears in no
+  // total and not in THIS list — its payments stay recorded and stay visible
+  // through actual revenue, because the money did arrive. (A cancelled charge
+  // that still holds payments gets its own reachable row below.)
+  const openCharges = useMemo(
+    () => sortChargesByDueDate(charges.filter(isChargeOpen)).map((c) => decorateCharge(c, payments)),
+    [charges, payments],
+  );
+  // EVERY cancelled charge, not only the ones holding payments.
+  //
+  // Two different things must stay reachable here. A cancelled charge WITH
+  // payments still contributes to actual revenue, and PaymentModal is the only
+  // surface that can correct one of those payments. A cancelled charge WITHOUT
+  // payments has no money attached at all — but it is still a durable row, and
+  // an earlier `received > 0` filter made an accidental cancellation invisible
+  // and unreactivatable: gone from the open list, gone from this one, with
+  // nothing in the product able to set it back to `open`. The lifecycle graph is
+  // symmetric by design (open <-> cancelled), so the UI must be too.
+  const cancelledCharges = useMemo(
+    () => sortChargesByDueDate(charges.filter((c) => !isChargeOpen(c)))
+      .map((c) => decorateCharge(c, payments)),
+    [charges, payments],
+  );
+  const recTotals = useMemo(() => receivablesTotals(charges, payments), [charges, payments]);
+  const revenue = useMemo(() => actualRevenue(payments, data.transactions), [payments, data.transactions]);
+  const clientName = (id) => data.clients.find((c) => c.id === id)?.name || '—';
+
+  // Same confirmed-write contract as the transaction `save` above: await the
+  // store's settled { ok }, show success ONLY on ok:true, and hold the modal
+  // open with the submitted values on failure. The ref is the SYNCHRONOUS latch
+  // (two clicks can land in one tick, before any rerender) so exactly one write
+  // is dispatched per submit — a duplicate charge is a duplicate invoice.
+  const saveCharge = async (charge) => {
+    if (chargeSavingRef.current) return;
+    chargeSavingRef.current = true;
+    setChargeSaving(true);
+    try {
+      const res = await dispatch(charge.id
+        ? { type: 'UPDATE_CHARGE', payload: charge }
+        : { type: 'ADD_CHARGE', payload: charge });
+      if (res?.ok === false) return;
+      toast(charge.id ? `החיוב עודכן · ${saveLabel(mode)}` : `החיוב נוצר · ${saveLabel(mode)}`);
+      setChargeEditing(null);
+    } finally {
+      chargeSavingRef.current = false;
+      setChargeSaving(false);
+    }
+  };
+
+  // Recording a payment dispatches ADD_PAYMENT and NOTHING ELSE. There is no
+  // ADD_TX beside it, on purpose: payments are the source of truth for received
+  // revenue, and a parallel income transaction would count the same shekel twice.
+  const savePayment = async (payment) => {
+    if (paymentSavingRef.current) return;
+    paymentSavingRef.current = true;
+    setPaymentSaving(true);
+    try {
+      const res = await dispatch({ type: 'ADD_PAYMENT', payload: payment });
+      if (res?.ok === false) return;
+      toast(`התשלום נרשם · ${saveLabel(mode)}`);
+      setPayingCharge(null);
+    } finally {
+      paymentSavingRef.current = false;
+      setPaymentSaving(false);
+    }
+  };
+
+  // The correction path for a mistyped payment. A payment is immutable by
+  // design, so a wrong one is DELETED and re-recorded — without this the error
+  // is permanent through the UI and permanently distorts actual revenue
+  // (cancelling the charge deliberately keeps its payments).
+  // Routed through a confirmation, like every other destructive control on this
+  // page. Deleting a payment removes a durable record of real money and moves
+  // every aggregate, so a stray click must not be enough.
+  const deletePayment = async () => {
+    const payment = toDeletePayment;
+    setToDeletePayment(null);
+    if (!payment) return;
+    const res = await dispatch({ type: 'DELETE_PAYMENT', id: payment.id });
+    if (res?.ok !== false) toast('התשלום נמחק');
+  };
+
+  // The other half of cancellation. Without it an accidental cancel is permanent
+  // through the UI, even though the database allows open <-> cancelled freely.
+  const reopenCharge = async (charge) => {
+    if (!charge) return;
+    const res = await dispatch({ type: 'REOPEN_CHARGE', id: charge.id });
+    if (res?.ok !== false) toast('החיוב הוחזר לפעיל');
+  };
+
+  const cancelCharge = async () => {
+    if (!toCancel) return;
+    const res = await dispatch({ type: 'CANCEL_CHARGE', id: toCancel.id });
+    if (res?.ok !== false) toast('החיוב בוטל');
+    setToCancel(null);
+  };
 
   // Await the store's settled { ok } result — show success and close the modal
   // ONLY on ok:true (same contract as Clients.save, S0B). On failure the store
@@ -191,8 +354,185 @@ export default function Finance() {
         </div>
       </ScrollReveal>
 
+      {/* ---- F1 Core Receivables ---- */}
+      {!cloud ? <ReceivablesUnavailable /> : (
+        <>
+          <StaggerGroup className="stat-strip" style={{ marginTop: 16 }}>
+            <StatCard label="צפוי לחיוב" value={recTotals.expected} icon="target" tone="avg" />
+            <StatCard label="התקבל בפועל" value={recTotals.received} icon="trendUp" tone="income" />
+            <StatCard label="יתרה פתוחה" value={recTotals.open} icon="wallet" tone="expense" />
+          </StaggerGroup>
+
+          <ScrollReveal className="b-span-12" style={{ marginTop: 16 }}>
+            <div className="card panel">
+              <div className="panel-head">
+                <div>
+                  <div className="panel-title">חיובים פתוחים</div>
+                  {/* The two parts are named explicitly, so "actual revenue" is
+                      never a number the user has to take on trust. */}
+                  <div className="sub">
+                    {`הכנסה בפועל: ${formatCurrency(revenue.total)} — מתוכה ${formatCurrency(revenue.fromPayments)} תשלומים על חיובים ו-${formatCurrency(revenue.fromTransactions)} הכנסות שנרשמו ישירות`}
+                  </div>
+                  {/* The one thing the system cannot prevent for the user: the
+                      same receipt entered on both paths. Said plainly, next to
+                      the number it would distort. */}
+                  <div className="sub">
+                    כסף שהתקבל עבור חיוב נרשם כאן בלבד, דרך ״רישום תשלום״. רישום של אותו כסף גם כתנועת הכנסה יופיע פעמיים בהכנסה בפועל.
+                  </div>
+                </div>
+                <button className="btn btn-primary" onClick={() => setChargeEditing('new')}>
+                  <Icon name="plus" size={18} /> חיוב חדש
+                </button>
+              </div>
+
+              {recTotals.overpaid > 0 && (
+                <div className="sub" style={{ marginBottom: 8 }}>
+                  {`נרשמו תשלומים בסך ${formatCurrency(recTotals.overpaid)} מעבר לסכום החיוב. היתרה הפתוחה אינה יורדת מתחת לאפס.`}
+                </div>
+              )}
+
+              {openCharges.length === 0 ? (
+                <EmptyState
+                  icon="wallet"
+                  title="אין חיובים פתוחים"
+                  hint="חיוב הוא כסף שאמור להיגבות. תשלום הוא כסף שהתקבל בפועל עבורו."
+                  action={<button className="btn btn-primary" onClick={() => setChargeEditing('new')}><Icon name="plus" size={18} /> חיוב חדש</button>}
+                />
+              ) : (
+                <div className="table-wrap">
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>לקוח</th>
+                        <th>סוג</th>
+                        <th>תנאי תשלום</th>
+                        <th>פירעון</th>
+                        <th>סכום</th>
+                        <th>התקבל</th>
+                        <th>יתרה</th>
+                        <th>מצב</th>
+                        <th style={{ textAlign: 'end' }}>פעולות</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {openCharges.map((c) => (
+                        <tr key={c.id}>
+                          <td style={{ fontWeight: 500 }}>{clientName(c.clientId)}</td>
+                          <td><span className="badge badge-neutral">{CHARGE_KIND_LABELS[c.kind]}</span></td>
+                          <td className="muted">{PAYMENT_TERMS_LABELS[c.paymentTerms]}</td>
+                          <td className="muted">
+                            {formatDate(c.dueDate)}
+                            {/* Says which one it is, every row — a computed date
+                                and a hand-typed one are not the same fact. */}
+                            <div className="sub">{DUE_DATE_SOURCE_LABELS[c.dueDateSource]}</div>
+                          </td>
+                          <td className="tnum">{formatCurrency(c.amountTotal)}</td>
+                          <td className="tnum">{formatCurrency(c.received)}</td>
+                          <td className="tnum" style={{ fontWeight: 700 }}>{formatCurrency(c.balance)}</td>
+                          <td><span className={`badge ${PAYMENT_STATUS_CLASS[c.paymentStatus]}`}>{PAYMENT_STATUS_LABELS[c.paymentStatus]}</span></td>
+                          <td>
+                            <div className="row gap-2" style={{ justifyContent: 'flex-end' }}>
+                              {/* THIRD layer, after the write boundary and the
+                                  column CHECK: only an http/https link is ever
+                                  rendered as an href. A row written before
+                                  charges_invoice_url_scheme existed cannot make
+                                  this page emit `javascript:`. */}
+                              {isSafeInvoiceUrl(c.invoiceUrl) && (
+                                <a className="icon-action" href={c.invoiceUrl} target="_blank" rel="noopener noreferrer" aria-label="חשבונית">
+                                  <Icon name="link" size={15} />
+                                </a>
+                              )}
+                              <button className="btn btn-ghost" onClick={() => setPayingCharge(c)}>רישום תשלום</button>
+                              <button className="icon-action" onClick={() => setChargeEditing(c)} aria-label="עריכה"><Icon name="edit" size={15} /></button>
+                              <button className="icon-action del" onClick={() => setToCancel(c)} aria-label="ביטול חיוב"><Icon name="x" size={15} /></button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Cancelled charges that still hold payments. They are out of
+                  every KPI, but their money is still in actual revenue — so a
+                  mistyped payment on one must remain correctable. Without this
+                  row, cancelling a charge would hide the only surface that can
+                  delete its payments. */}
+              {cancelledCharges.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <div className="panel-title" style={{ fontSize: '0.95rem' }}>חיובים שבוטלו</div>
+                  <div className="sub" style={{ marginBottom: 8 }}>
+                    החיובים האלה אינם נספרים בצפוי, בהתקבל או ביתרה. כסף שכבר התקבל עליהם נשאר בהכנסה בפועל. אפשר להחזיר חיוב לפעיל, ואם נרשמו עליו תשלומים אפשר לתקן אותם.
+                  </div>
+                  <div className="table-wrap">
+                    <table className="tbl">
+                      <tbody>
+                        {cancelledCharges.map((c) => (
+                          <tr key={c.id}>
+                            <td style={{ fontWeight: 500 }}>{clientName(c.clientId)}</td>
+                            <td><span className="badge badge-lost">בוטל</span></td>
+                            <td className="muted">{formatDate(c.dueDate)}</td>
+                            <td className="tnum">{formatCurrency(c.amountTotal)}</td>
+                            <td className="tnum">{c.received > 0 ? formatCurrency(c.received) : '—'}</td>
+                            <td style={{ textAlign: 'end' }}>
+                              <div className="row gap-2" style={{ justifyContent: 'flex-end' }}>
+                                <button className="btn btn-ghost" onClick={() => reopenCharge(c)}>החזרה לפעיל</button>
+                                {c.received > 0 && (
+                                  <button className="btn btn-ghost" onClick={() => setPayingCharge(c)}>תשלומים</button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          </ScrollReveal>
+        </>
+      )}
+
       <TransactionModal open={!!editing} onClose={() => setEditing(null)} onSave={save} initial={editing && editing !== 'new' ? editing : null} saving={saving} />
       <ConfirmDialog open={!!toDelete} onClose={() => setToDelete(null)} onConfirm={remove} message={`למחוק את התנועה על סך ${formatCurrency(toDelete?.amount || 0)}?`} />
+
+      {cloud && (
+        <>
+          <ChargeModal
+            open={!!chargeEditing}
+            onClose={() => setChargeEditing(null)}
+            onSave={saveCharge}
+            initial={chargeEditing && chargeEditing !== 'new' ? chargeEditing : null}
+            clients={data.clients}
+            quotes={data.quotes}
+            saving={chargeSaving}
+          />
+          <PaymentModal
+            open={!!payingCharge}
+            onClose={() => setPayingCharge(null)}
+            onSave={savePayment}
+            onDelete={setToDeletePayment}
+            charge={payingCharge}
+            received={payingCharge ? chargeReceived(payingCharge.id, payments) : 0}
+            payments={payments}
+            saving={paymentSaving}
+          />
+          <ConfirmDialog
+            open={!!toDeletePayment}
+            onClose={() => setToDeletePayment(null)}
+            onConfirm={deletePayment}
+            message={`למחוק את התשלום על סך ${formatCurrency(toDeletePayment?.amount || 0)}? הסכום ירד מההכנסה בפועל ומהיתרה של החיוב.`}
+          />
+          <ConfirmDialog
+            open={!!toCancel}
+            onClose={() => setToCancel(null)}
+            onConfirm={cancelCharge}
+            message={`לבטל את החיוב על סך ${formatCurrency(toCancel?.amountTotal || 0)}? התשלומים שכבר נרשמו יישארו רשומים.`}
+          />
+        </>
+      )}
     </div>
   );
 }

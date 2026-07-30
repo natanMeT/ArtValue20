@@ -14,6 +14,11 @@ const EMPTY = {
   projects: [], tasks: [], plinks: [], pfiles: [], comms: [], inventory: [],
   activity: [], // audit log / memory — append-only event trail (last 200)
   businessProfile: null, // S0D: durable per-account Business Context (null = unconfigured)
+  // F1 Core Receivables: expected billing (charges) and money that actually
+  // arrived (payments). CLOUD-ONLY — there is no seed, no local reducer entry
+  // point and no localStorage fallback, so in local/demo mode these stay empty
+  // and the Finance screen says so rather than showing a form that saves nothing.
+  charges: [], payments: [],
   meta: {},
 };
 
@@ -157,11 +162,27 @@ export function reducer(state, action) {
     }
     case 'DELETE_CLIENT': {
       const gone = state.clients.find((c) => c.id === action.id);
+      // F1: MIRROR THE DATABASE. charges_client_same_owner_fk is
+      // ON DELETE SET NULL (client_id) and quotes cascade — so after this delete
+      // the server holds charges with client_id NULL, and with quote_id NULL for
+      // any charge that pointed at one of the cascaded quotes. Leaving the local
+      // charge objects carrying the dead ids means opening and saving that charge
+      // resubmits a reference that no longer exists and fails the FK.
+      const goneQuoteIds = new Set(state.quotes.filter((q) => q.clientId === action.id).map((q) => q.id));
       return {
         ...state,
         clients: state.clients.filter((c) => c.id !== action.id),
         quotes: state.quotes.filter((q) => q.clientId !== action.id),
         transactions: state.transactions.filter((t) => !(t.auto && t.clientId === action.id)),
+        charges: (state.charges || []).map((c) => (
+          (c.clientId === action.id || goneQuoteIds.has(c.quoteId))
+            ? {
+              ...c,
+              clientId: c.clientId === action.id ? null : c.clientId,
+              quoteId: goneQuoteIds.has(c.quoteId) ? null : c.quoteId,
+            }
+            : c
+        )),
         activity: gone ? pushAct(state, act('client_delete', `נמחק לקוח "${gone.name}"`, { entity: 'client', name: gone.name })) : state.activity,
       };
     }
@@ -171,7 +192,13 @@ export function reducer(state, action) {
     case 'UPDATE_QUOTE':
       return { ...state, quotes: state.quotes.map((q) => (q.id === action.payload.id ? { ...q, ...action.payload } : q)) };
     case 'DELETE_QUOTE':
-      return { ...state, quotes: state.quotes.filter((q) => q.id !== action.id) };
+      return {
+        ...state,
+        quotes: state.quotes.filter((q) => q.id !== action.id),
+        // F1: mirrors charges_quote_same_owner_fk ON DELETE SET NULL (quote_id).
+        // A charge outlives the quote it came from; only the link goes.
+        charges: (state.charges || []).map((c) => (c.quoteId === action.id ? { ...c, quoteId: null } : c)),
+      };
 
     case 'ADD_TX': {
       const tx = { ...action.payload, id: action.payload.id || uid('tx') };
@@ -243,6 +270,35 @@ export function reducer(state, action) {
     case 'SAVE_BUSINESS_PROFILE':
       return { ...state, businessProfile: action.payload };
 
+    // ---- receivables (F1) ----
+    // These cases apply ONLY AFTER the server has confirmed the write (see the
+    // confirmed-write branch in dispatch). They are never optimistic.
+    //
+    // NOTE WHAT IS ABSENT AND MUST STAY ABSENT: not one of these cases touches
+    // `state.transactions`. A payment is received revenue on its own terms;
+    // synthesising an income transaction beside it would count the same shekel
+    // twice — the exact defect syncClientIncome() produced for clients (S0A).
+    case 'ADD_CHARGE':
+      return { ...state, charges: [action.payload, ...(state.charges || [])] };
+    case 'UPDATE_CHARGE':
+      return { ...state, charges: (state.charges || []).map((c) => (c.id === action.payload.id ? { ...c, ...action.payload } : c)) };
+    case 'CANCEL_CHARGE':
+      return { ...state, charges: (state.charges || []).map((c) => (c.id === action.id ? { ...c, lifecycle: 'cancelled' } : c)) };
+    case 'REOPEN_CHARGE':
+      return { ...state, charges: (state.charges || []).map((c) => (c.id === action.id ? { ...c, lifecycle: 'open' } : c)) };
+    case 'DELETE_CHARGE':
+      return {
+        ...state,
+        charges: (state.charges || []).filter((c) => c.id !== action.id),
+        // Mirrors payments_charge_same_owner_fk ON DELETE CASCADE, so the screen
+        // never shows payments attached to a charge the server has removed.
+        payments: (state.payments || []).filter((p) => p.chargeId !== action.id),
+      };
+    case 'ADD_PAYMENT':
+      return { ...state, payments: [action.payload, ...(state.payments || [])] };
+    case 'DELETE_PAYMENT':
+      return { ...state, payments: (state.payments || []).filter((p) => p.id !== action.id) };
+
     // ---- communication ----
     case 'ADD_COMM':
       return { ...state, comms: [{ ...action.payload, id: action.payload.id || uid('cm') }, ...(state.comms || [])] };
@@ -260,6 +316,48 @@ export function reducer(state, action) {
 // reducer applies) so no task success can be shown before Supabase confirms.
 const TASK_DISPATCH = new Set(['ADD_TASK', 'UPDATE_TASK', 'DELETE_TASK']);
 const isTaskDispatch = (t) => TASK_DISPATCH.has(t);
+
+// F1: durable receivables dispatches. Same confirmed-write contract as tasks —
+// persist BEFORE the reducer applies, so nothing about money is ever shown as
+// saved before the server has said so.
+//
+// These deliberately do NOT go through persist(). persist() is the entity
+// router that betaCapabilities.DURABLE_DISPATCH is kept in lockstep with, and
+// receivables are cloud-only rather than a beta-contained module — so they take
+// the same direct-api route SAVE_BUSINESS_PROFILE (S0D) already uses.
+const RECEIVABLES_DISPATCH = new Set([
+  'ADD_CHARGE', 'UPDATE_CHARGE', 'CANCEL_CHARGE', 'REOPEN_CHARGE', 'DELETE_CHARGE',
+  'ADD_PAYMENT', 'DELETE_PAYMENT',
+]);
+const isReceivablesDispatch = (t) => RECEIVABLES_DISPATCH.has(t);
+
+/**
+ * Route ONE receivables action to its api call and resolve with the action the
+ * reducer should apply — carrying the SERVER'S row, never a reconstructed one.
+ * Rejects on any failure; the caller shows no success and refetches.
+ */
+function persistReceivable(action, userId) {
+  switch (action.type) {
+    case 'ADD_CHARGE':
+      return api.createCharge(userId, action.payload).then((charge) => ({ ...action, payload: charge }));
+    case 'UPDATE_CHARGE':
+      return api.updateCharge(action.payload.id, action.payload).then((charge) => ({ ...action, payload: charge }));
+    case 'CANCEL_CHARGE':
+      return api.cancelCharge(action.id).then(() => action);
+    case 'REOPEN_CHARGE':
+      return api.reopenCharge(action.id).then(() => action);
+    case 'DELETE_CHARGE':
+      return api.deleteCharge(action.id).then(() => action);
+    case 'ADD_PAYMENT':
+      // ONE write, to `payments`. No income transaction is created here, on
+      // purpose — see the reducer note. Payments are the source of truth.
+      return api.createPayment(userId, action.payload).then((payment) => ({ ...action, payload: payment }));
+    case 'DELETE_PAYMENT':
+      return api.deletePayment(action.id).then(() => action);
+    default:
+      return Promise.reject(new Error(`unrouted receivables dispatch: ${action.type}`));
+  }
+}
 
 // Pre-assign a uuid for ADD actions so optimistic state and the DB row match.
 function withId(action) {
@@ -378,6 +476,16 @@ export function StoreProvider({ children }) {
   const dispatch = useCallback(
     (action) => {
       if (!supabaseEnabled) {
+        // F1: receivables are CLOUD-ONLY. In local/demo mode there is no durable
+        // store for them, so the dispatch is refused OUTRIGHT — nothing mutates
+        // and no caller can claim a save. This is the S0A false-success rule in
+        // the other direction: S0A contained local-only modules that pretended
+        // to persist in the cloud; here a cloud-only module must not pretend to
+        // persist locally. The Finance screen never offers these controls in
+        // local mode; this is the belt to that UI's braces.
+        if (isReceivablesDispatch(action.type)) {
+          return Promise.resolve({ ok: false, reason: 'cloud_only' });
+        }
         setData((d) => reducer(d, action));
         return Promise.resolve({ ok: true }); // local mode: localStorage is durable
       }
@@ -398,6 +506,24 @@ export function StoreProvider({ children }) {
         return persist(act, userId).then(
           () => { setData((d) => reducer(d, act)); return { ok: true }; },
           async (e) => { console.error(e); toast('שגיאה בשמירת המשימה לשרת', 'error'); await refetch(); return { ok: false, error: e }; }
+        );
+      }
+
+      // F1 truthful write for durable Receivables: persist BEFORE applying the
+      // reducer. No optimistic charge and no optimistic payment — a KPI about
+      // money must never move before the server has confirmed the row. On
+      // failure nothing is applied locally and we refetch the authoritative
+      // state, so a rejected write cannot leave a phantom balance on screen.
+      if (isReceivablesDispatch(act.type)) {
+        if (!userId) return Promise.resolve({ ok: false });
+        return persistReceivable(act, userId).then(
+          (confirmed) => { setData((d) => reducer(d, confirmed)); return { ok: true }; },
+          async (e) => {
+            console.error(e);
+            toast(userFacingError(e, 'שגיאה בשמירת החיוב/התשלום לשרת'), 'error');
+            await refetch();
+            return { ok: false, error: e };
+          }
         );
       }
 

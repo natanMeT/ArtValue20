@@ -9,6 +9,48 @@ import AiGatewaySmoke from '../components/dev/AiGatewaySmoke.jsx';
 import BusinessContextEditor from '../components/settings/BusinessContextEditor.jsx';
 import { computeHydrationReady } from '../lib/onboarding.js';
 
+/**
+ * The import-result toast: WHAT LANDED, and what did not.
+ *
+ * `api.bulkUpload` already counts the rows it had to skip — a charge the current
+ * validator rejects, and every payment stranded by one (charge_id is NOT NULL, so
+ * a payment whose charge did not survive cannot be written at all). Reporting
+ * only the clients/quotes/transactions/leads it inserted made a lossy restore
+ * look like a clean one: the receivables were silently gone and the toast said
+ * success. That is the false-success failure this codebase keeps closing, so:
+ *
+ *   * charges and payments are NAMED in the summary, like every other kind;
+ *   * when anything was skipped, the counts are stated AND the toast is raised to
+ *     `error` — the only kind Toaster does not render with a success check — so
+ *     no full success is ever declared over a partial import.
+ *
+ * `counts` is null in local/demo mode, where the parsed file REPLACES the store
+ * wholesale and nothing can be skipped.
+ *
+ * BOTH WRITERS SHARE THIS. `importData` (a backup file) and `runMigrate` (the
+ * local → cloud upload) call the SAME `api.bulkUpload`, so they had the same
+ * false-success defect; `runMigrate` reported an unqualified "uploaded to cloud"
+ * while its receivables were silently dropped. One builder means the skipped-row
+ * rule cannot be fixed in one path and left broken in the other. `lead` is the
+ * only thing that differs — which ACTION ran — and the toast has to keep saying
+ * that, because the two are reached from different buttons.
+ */
+export function importResultToast(counts, lead = 'יובאו') {
+  if (!counts) return { message: 'הנתונים יובאו בהצלחה', kind: 'success' };
+  const chargesSkipped = counts.chargesSkipped || 0;
+  const paymentsSkipped = counts.paymentsSkipped || 0;
+  const summary = `${lead} ${counts.clients || 0} לקוחות, ${counts.quotes || 0} הצעות, ${counts.transactions || 0} תנועות, ${counts.leads || 0} פניות, ${counts.charges || 0} חיובים, ${counts.payments || 0} תשלומים`;
+  if (chargesSkipped > 0 || paymentsSkipped > 0) {
+    return {
+      // `חלקי` rather than `ייבוא חלקי`: the same sentence now serves the cloud
+      // upload, where "import" would be the wrong word for what just happened.
+      message: `${summary} · חלקי: דולגו ${chargesSkipped} חיובים ו-${paymentsSkipped} תשלומים שלא ניתן היה לייבא`,
+      kind: 'error',
+    };
+  }
+  return { message: summary, kind: 'success' };
+}
+
 export default function Settings() {
   const {
     data, dispatch, theme, toggleTheme, toast,
@@ -54,7 +96,8 @@ export default function Settings() {
         if (!parsed.clients || !parsed.quotes || !parsed.transactions) throw new Error('bad');
         setBusy(true);
         const counts = await importBackup(parsed);
-        toast(counts ? `יובאו ${counts.clients} לקוחות, ${counts.quotes} הצעות, ${counts.transactions} תנועות, ${counts.leads || 0} פניות` : 'הנתונים יובאו בהצלחה');
+        const result = importResultToast(counts);
+        toast(result.message, result.kind);
       } catch {
         toast('קובץ לא תקין או שגיאת ייבוא', 'error');
       } finally {
@@ -69,7 +112,10 @@ export default function Settings() {
     setBusy(true);
     try {
       const counts = await migrateFromLocal();
-      toast(`הועלו לענן: ${counts.clients} לקוחות, ${counts.quotes} הצעות, ${counts.transactions} תנועות, ${counts.leads || 0} פניות`);
+      // The SAME builder as importData — same api.bulkUpload underneath, so the
+      // same skipped charges/payments have to reach the user here too.
+      const result = importResultToast(counts, 'הועלו לענן:');
+      toast(result.message, result.kind);
     } catch (err) {
       toast(err.message === 'אין נתונים מקומיים לייבוא' ? err.message : 'שגיאה בהעלאה לענן', 'error');
     } finally {
