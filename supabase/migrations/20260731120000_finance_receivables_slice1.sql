@@ -144,16 +144,16 @@ begin
       ('quotes',       'client_id', 'uuid', false),
       ('transactions', 'user_id',   'uuid', true),
       ('transactions', 'client_id', 'uuid', false)
-    ) as t(tbl, col, typ, notnull)
+    ) as t(tbl, col, typ, requires_not_null)
   loop
     if not exists (
       select 1 from information_schema.columns
       where table_schema = 'public' and table_name = r.tbl and column_name = r.col
         and data_type = r.typ
-        and is_nullable = case when r.notnull then 'NO' else 'YES' end
+        and is_nullable = case when r.requires_not_null then 'NO' else 'YES' end
     ) then
       raise exception 'Receivables SAFE STOP: public.%.% is not % %.',
-        r.tbl, r.col, r.typ, case when r.notnull then 'NOT NULL' else 'NULLABLE' end;
+        r.tbl, r.col, r.typ, case when r.requires_not_null then 'NOT NULL' else 'NULLABLE' end;
     end if;
   end loop;
 
