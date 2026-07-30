@@ -398,7 +398,9 @@ describe('the unique keys the composite FKs point at', () => {
     // place judges an index without it.
     expect((code.match(/position\('using btree ' in /g) || []).length).toBeGreaterThanOrEqual(2);
     expect(code).toContain("am.amname = 'btree'");
-    expect(code).toContain('join pg_am am on am.oid = c.relam');
+    // `ci`, not `c`: the alias collided with this block's own `c record;`
+    // declaration and aborted the apply with 55000. See the shadowed-alias guard.
+    expect(code).toContain('join pg_am am on am.oid = ci.relam');
     expect(code).toContain('is not a btree');
     // ...and the shapes are declared, not implied.
     expect(code).toContain("'(user_id, paid_at desc)'".replace('desc', 'DESC').toLowerCase());
@@ -1088,5 +1090,127 @@ describe('the client mirror and the migration agree', () => {
     // 2026-02-15 + net60 = 2026-04-29, in the migration prose AND the module.
     expect(sql).toContain('2026-04-29');
     expect(lib).toContain('2026-04-29');
+  });
+});
+
+// ===================================================================
+// GUARD · no `DO $$` block may alias a table with a name it also DECLAREs.
+//
+// Measured, not hypothetical. The second apply attempt of this migration
+// (PostgreSQL 17.6) aborted with
+//   ERROR: record "c" is not assigned yet (SQLSTATE 55000)
+// at the PART 6 index check, which read
+//   join pg_class c on c.oid = x.indexrelid
+//   join pg_namespace n on n.oid = c.relnamespace
+// inside a block declaring `c record;` and `n int;`. PL/pgSQL resolves
+// `c.relname` against the DECLARED VARIABLE, not the table alias, so the
+// reference hit an unassigned record and the whole migration rolled back —
+// after the DDL had run and after both existing foreign keys had been replaced.
+//
+// This class is invisible to every other test in this file: the SQL is
+// well-formed, the identifiers all exist, and only EXECUTION reveals it. So the
+// guard is structural — it parses each block and compares its DECLARE names
+// against its own table aliases — and it scans EVERY block, not the one line
+// that happened to fail first. When it was first written it found 5 collisions
+// in this file, all in PART 6; the fix renamed them to ci/ns.
+// ===================================================================
+
+/** Words that follow `from`/`join` but are never a table alias. */
+const NOT_AN_ALIAS = new Set([
+  'on', 'where', 'loop', 'select', 'as', 'using', 'left', 'right', 'inner', 'join',
+  'cross', 'lateral', 'order', 'group', 'and', 'or', 'set', 'into', 'values', 'with',
+  'when', 'then', 'else', 'end', 'if', 'not', 'exists', 'from', 'union', 'all',
+  'limit', 'for', 'in', 'is', 'null', 'by', 'having', 'returning', 'case',
+  'distinct', 'array', 'unnest', 'only',
+]);
+
+/**
+ * Every `<table> <alias>` in a block whose alias is also a DECLAREd variable.
+ *
+ * Extracted so the negative control can run THIS function against a
+ * deliberately re-broken source rather than a re-typed approximation.
+ */
+function shadowedAliasFindings(source) {
+  const findings = [];
+  const blocks = [...source.matchAll(/do \$\$([\s\S]*?)\$\$;/g)];
+  for (const [index, block] of blocks.entries()) {
+    const body = block[1];
+    const declareSection = body.match(/^\s*declare\b([\s\S]*?)\bbegin\b/);
+    if (!declareSection) continue;
+    // `  name type;` — one declaration per line, which is this file's style.
+    const declared = new Set(
+      [...declareSection[1].matchAll(/^\s*([a-z_][a-z_0-9]*)\s+[a-z]/gm)].map((m) => m[1]),
+    );
+    for (const use of body.matchAll(
+      /\b(?:from|join)\s+((?:[a-z_]+\.)?[a-z_][a-z_0-9]*)\s+(?:as\s+)?([a-z_][a-z_0-9]*)\b/g,
+    )) {
+      const [, table, alias] = use;
+      if (NOT_AN_ALIAS.has(alias) || NOT_AN_ALIAS.has(table)) continue;
+      if (declared.has(alias)) findings.push({ block: index + 1, table, alias });
+    }
+  }
+  return { blockCount: blocks.length, findings };
+}
+
+describe('GUARD · no DO block aliases a table with one of its own DECLARE names', () => {
+  it('scans every DO block in the migration, not just the one that failed', () => {
+    // Proves the guard is pointed at the whole file. A scanner that finds zero
+    // hits is indistinguishable from one pointed at nothing until it reports a
+    // count it can be checked against.
+    expect(shadowedAliasFindings(code).blockCount).toBe(8);
+  });
+
+  it('finds NO shadowed alias anywhere in the migration', () => {
+    expect(shadowedAliasFindings(code).findings).toEqual([]);
+  });
+
+  it('PART 6 uses the non-colliding ci/ns aliases', () => {
+    expect(code).toContain('join pg_class ci on ci.oid = x.indexrelid');
+    expect(code).toContain('join pg_namespace ns on ns.oid = ci.relnamespace');
+    expect(code).toContain("where ns.nspname = 'public' and ci.relname = r.idx");
+    // ...and the three pg_constraint reads in the same block:
+    expect((code.match(/from pg_constraint ci\b/g) || []).length).toBe(3);
+  });
+
+  it('the block that failed still DECLAREs c and n — the fix renamed the ALIAS, not the variable', () => {
+    // If the fix had renamed the variables instead, the guard would pass while
+    // the record `c` that PART 6 genuinely uses (`select ... into c`) was gone.
+    const part6 = [...code.matchAll(/do \$\$([\s\S]*?)\$\$;/g)][7][1];
+    expect(part6).toMatch(/^\s*c record;/m);
+    expect(part6).toMatch(/^\s*n int;/m);
+    expect(part6).toMatch(/into c\r?\n/);
+  });
+
+  it('NEGATIVE CONTROL · re-introducing the c/n aliases makes the guard fail', () => {
+    // Put the exact defect back and prove the guard reports it, naming the
+    // tables involved. This is the state the live database rejected with 55000.
+    const broken = code
+      .replace('join pg_class ci on ci.oid = x.indexrelid', 'join pg_class c on c.oid = x.indexrelid')
+      .replace(
+        'join pg_namespace ns on ns.oid = ci.relnamespace',
+        'join pg_namespace n on n.oid = c.relnamespace',
+      );
+    const { blockCount, findings } = shadowedAliasFindings(broken);
+
+    expect(blockCount).toBe(8);
+    expect(findings).toEqual([
+      { block: 8, table: 'pg_class', alias: 'c' },
+      { block: 8, table: 'pg_namespace', alias: 'n' },
+    ]);
+    // ...and the positive assertion above genuinely rejects it.
+    expect(findings).not.toEqual([]);
+  });
+
+  it('NEGATIVE CONTROL · a shadowed alias in ANY other block is caught too', () => {
+    // The guard must not be hard-coded to PART 6. Break the FIRST block instead
+    // and prove it is reported, with its own block number.
+    const injected = code.replace(
+      /(do \$\$[\s\S]*?begin\r?\n)/,
+      '$1  perform 1 from pg_class r;\n',
+    );
+    expect(injected).not.toBe(code); // the injection actually landed
+    const { findings } = shadowedAliasFindings(injected);
+
+    expect(findings).toContainEqual({ block: 1, table: 'pg_class', alias: 'r' });
   });
 });

@@ -1700,10 +1700,10 @@ begin
     -- ...and the access method read from the catalog, not only from the text.
     if not exists (
       select 1 from pg_index x
-      join pg_class c on c.oid = x.indexrelid
-      join pg_namespace n on n.oid = c.relnamespace
-      join pg_am am on am.oid = c.relam
-      where n.nspname = 'public' and c.relname = r.idx and x.indisvalid and am.amname = 'btree'
+      join pg_class ci on ci.oid = x.indexrelid
+      join pg_namespace ns on ns.oid = ci.relnamespace
+      join pg_am am on am.oid = ci.relam
+      where ns.nspname = 'public' and ci.relname = r.idx and x.indisvalid and am.amname = 'btree'
     ) then
       raise exception 'Receivables FAILED: index %.% exists but is NOT VALID or is not a btree -- it would never serve the ordered due-date read or the ON DELETE lookups.', r.tbl, r.idx;
     end if;
@@ -1849,10 +1849,10 @@ begin
   for r in select unnest(array['charges', 'payments']) as tbl loop
     if (
       select coalesce(array_agg(a.attname order by k.ord), array[]::name[])
-        from pg_constraint c
-        cross join lateral unnest(c.conkey) with ordinality as k(attnum, ord)
-        join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum
-       where c.conrelid = ('public.' || r.tbl)::regclass and c.contype = 'p'
+        from pg_constraint ci
+        cross join lateral unnest(ci.conkey) with ordinality as k(attnum, ord)
+        join pg_attribute a on a.attrelid = ci.conrelid and a.attnum = k.attnum
+       where ci.conrelid = ('public.' || r.tbl)::regclass and ci.contype = 'p'
     ) is distinct from array['id']::name[] then
       raise exception 'Receivables FAILED: public.% does not have PRIMARY KEY (id). The app deletes by id; duplicates would make one correction remove several rows.', r.tbl;
     end if;
@@ -1892,20 +1892,20 @@ begin
   -- ---- ownership cascades to auth.users (declared limitation L4) ----
   for r in select unnest(array['charges', 'payments']) as tbl loop
     if not exists (
-      select 1 from pg_constraint c
-       where c.conrelid = ('public.' || r.tbl)::regclass
-         and c.contype = 'f'
-         and c.confrelid = 'auth.users'::regclass
+      select 1 from pg_constraint ci
+       where ci.conrelid = ('public.' || r.tbl)::regclass
+         and ci.contype = 'f'
+         and ci.confrelid = 'auth.users'::regclass
          and (select array_agg(a.attname order by k.ord)
-                from unnest(c.conkey) with ordinality as k(attnum, ord)
-                join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
+                from unnest(ci.conkey) with ordinality as k(attnum, ord)
+                join pg_attribute a on a.attrelid = ci.conrelid and a.attnum = k.attnum)
              = array['user_id']::name[]
          and (select array_agg(a.attname order by k.ord)
-                from unnest(c.confkey) with ordinality as k(attnum, ord)
-                join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum)
+                from unnest(ci.confkey) with ordinality as k(attnum, ord)
+                join pg_attribute a on a.attrelid = ci.confrelid and a.attnum = k.attnum)
              = array['id']::name[]
-         and c.confdeltype = 'c'
-         and c.convalidated
+         and ci.confdeltype = 'c'
+         and ci.convalidated
     ) then
       raise exception 'Receivables FAILED: public.%.user_id does not REFERENCE auth.users(id) ON DELETE CASCADE (or exists only as NOT VALID). Deleting an account would orphan its financial rows.', r.tbl;
     end if;
@@ -1913,12 +1913,12 @@ begin
     -- ...and it is the ONLY key over user_id. An extra one is enforced beside it
     -- and brings its own delete behaviour.
     select count(*) into n
-      from pg_constraint c
-     where c.conrelid = ('public.' || r.tbl)::regclass
-       and c.contype = 'f'
+      from pg_constraint ci
+     where ci.conrelid = ('public.' || r.tbl)::regclass
+       and ci.contype = 'f'
        and (select array_agg(a.attname order by k.ord)
-              from unnest(c.conkey) with ordinality as k(attnum, ord)
-              join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
+              from unnest(ci.conkey) with ordinality as k(attnum, ord)
+              join pg_attribute a on a.attrelid = ci.conrelid and a.attnum = k.attnum)
            = array['user_id']::name[];
     if n <> 1 then
       raise exception 'Receivables FAILED: public.%.user_id carries % foreign keys, expected exactly 1. An extra key is enforced beside the ownership key and imposes its own deletion behaviour.', r.tbl, n;
