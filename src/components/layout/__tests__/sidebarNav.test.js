@@ -19,8 +19,11 @@ const isRegisteredRoute = (to) => appSrc.includes(`path="${to}"`);
 // Campaigns slice 1 added '/campaigns' — a durable CLOUD-ONLY module, so it is
 // the first item carrying `cloudOnly` (hidden in the local demo) rather than
 // `betaHidden` (hidden in cloud).
+// Schedule Core slice 1 added '/schedule' (יומן) — the second `cloudOnly` item,
+// for the same reason. It is NOT '/growth/calendar', which is a Growth planning
+// board that persists nothing and stays in EXPECTED_GROWTH_ROUTES below.
 const EXPECTED_MAIN_ROUTES = [
-  '/', '/clients', '/outreach', '/projects', '/tasks', '/pipeline',
+  '/', '/clients', '/outreach', '/projects', '/tasks', '/schedule', '/pipeline',
   '/quotes', '/diagnose', '/studio', '/campaigns',
   '/finance', '/activity', '/inventory', '/assets', '/templates',
 ];

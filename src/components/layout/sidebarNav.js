@@ -18,6 +18,12 @@ export const NAV_SECTIONS = [
       { to: '/clients', label: 'לקוחות', icon: 'users' },
       { to: '/projects', label: 'פרויקטים', icon: 'briefcase', betaHidden: true },
       { to: '/tasks', label: 'משימות', icon: 'check' },
+      // Schedule Core slice 1 — durable cloud module, so it carries `cloudOnly`
+      // for the same reason Campaigns does: shown in cloud mode, hidden in the
+      // local demo where it has no durable storage. The route stays registered
+      // either way and renders a truthful unavailable state locally.
+      // Labelled יומן (diary); the Growth planning board keeps its own label.
+      { to: '/schedule', label: 'יומן', icon: 'calendar', cloudOnly: true },
       { to: '/pipeline', label: 'פייפליין', icon: 'filter' },
       { to: '/quotes', label: 'הצעות מחיר', icon: 'doc' },
       { to: '/finance', label: 'פיננסים', icon: 'wallet' },

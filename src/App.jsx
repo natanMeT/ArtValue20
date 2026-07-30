@@ -19,6 +19,7 @@ import Outreach from './pages/Outreach.jsx';
 import Projects from './pages/Projects.jsx';
 import ProjectDetail from './pages/ProjectDetail.jsx';
 import Tasks from './pages/Tasks.jsx';
+import Schedule from './pages/Schedule.jsx';
 import Pipeline from './pages/Pipeline.jsx';
 import Assets from './pages/Assets.jsx';
 import Templates from './pages/Templates.jsx';
@@ -123,6 +124,13 @@ function MainRoutes() {
         <Route path="/projects" element={<Projects />} />
         <Route path="/projects/:id" element={<ProjectDetail />} />
         <Route path="/tasks" element={<Tasks />} />
+        {/* Schedule Core slice 1 — durable appointments / lessons / events. NOT
+            gated: the module IS durable in the cloud, so a beta gate here would
+            be false. It is cloud-only, so the page itself renders a truthful
+            unavailable state in local/demo mode (see Schedule.jsx). This is
+            /schedule and is NOT /growth/calendar, which plans activity volume
+            and persists nothing. */}
+        <Route path="/schedule" element={<Schedule />} />
         <Route path="/pipeline" element={<Pipeline />} />
         <Route path="/assets" element={<Assets />} />
         <Route path="/templates" element={<Templates />} />
