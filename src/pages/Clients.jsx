@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useStore } from '../store/store.jsx';
@@ -8,11 +8,13 @@ import Icon from '../components/ui/Icon.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
 import ClientModal from '../components/forms/ClientModal.jsx';
+import ClientProfilePanel from '../components/clients/ClientProfilePanel.jsx';
 import { StatusBadge, SectionHeader, EmptyState } from '../components/ui/atoms.jsx';
 import { CLIENT_STATUS } from '../data/seed.js';
 import { PIPELINE_STAGES } from '../data/studio.js';
 import { formatCurrency, formatDate, STATUS_LABELS } from '../lib/format.js';
-import { quoteTotal } from '../lib/calc.js';
+import { isSupabaseConfigured } from '../lib/supabase.js';
+import { listAppointments } from '../lib/api.js';
 
 const FILTERS = [{ key: 'all', label: 'הכל' }, ...CLIENT_STATUS.map((s) => ({ key: s, label: STATUS_LABELS[s] }))];
 
@@ -28,7 +30,7 @@ function initials(name) {
 }
 
 export default function Clients() {
-  const { data, dispatch, toast, mode } = useStore();
+  const { data, dispatch, toast, mode, session } = useStore();
   const navigate = useNavigate();
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState('all');
@@ -52,7 +54,24 @@ export default function Clients() {
     return m;
   }, [data.clients]);
 
-  const linkedQuotes = (clientId) => data.quotes.filter((quote) => quote.clientId === clientId);
+  // Client Profile slice 1 — the diary is the ONE part of the profile that is
+  // not already in the store (appointments are cloud-only; see Schedule.jsx), so
+  // it is read on demand when a profile is opened. Read-only: this page never
+  // writes an appointment. In local/demo mode there is nothing to read and the
+  // panel says the diary is unavailable rather than showing "no appointments",
+  // which would be a claim we cannot make.
+  const [appointments, setAppointments] = useState([]);
+  const [scheduleState, setScheduleState] = useState(isSupabaseConfigured ? 'loading' : 'unavailable');
+
+  useEffect(() => {
+    if (!detail || !isSupabaseConfigured) return undefined;
+    let live = true;
+    setScheduleState('loading');
+    listAppointments()
+      .then((rows) => { if (live) { setAppointments(rows); setScheduleState('ready'); } })
+      .catch(() => { if (live) { setAppointments([]); setScheduleState('error'); } });
+    return () => { live = false; };
+  }, [detail]);
 
   // S0B: client saves may carry follow-up fields (nextAction / nextActionDate).
   // Await the store's settled { ok } result — show success and close the modal
@@ -184,7 +203,10 @@ export default function Clients() {
         onClose={() => setDetail(null)}
         title={detail?.name}
         subtitle={detail ? `${detail.contact} · ${detail.projectType}` : ''}
-        maxWidth={620}
+        // 620 → 760: the profile panel adds money rows with three trailing
+        // badges; at 620 the amount and its status badge wrapped onto separate
+        // lines and the row read as two facts instead of one.
+        maxWidth={760}
         footer={
           detail && (
             <>
@@ -244,33 +266,17 @@ export default function Clients() {
               </div>
             )}
 
-            <div>
-              <div className="row between" style={{ marginBottom: 10 }}>
-                <div className="panel-title">הצעות מחיר מקושרות</div>
-                <span className="dim" style={{ fontSize: '0.8rem' }}>{linkedQuotes(detail.id).length} הצעות</span>
-              </div>
-              {linkedQuotes(detail.id).length === 0 ? (
-                <p className="dim" style={{ fontSize: '0.86rem' }}>אין הצעות מחיר מקושרות.</p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {linkedQuotes(detail.id).map((quote) => (
-                    <div key={quote.id} className="row between" style={{ padding: '11px 14px', background: 'var(--surface-2)', borderRadius: 12, border: '1px solid var(--border)' }}>
-                      <div className="row gap-3">
-                        <Icon name="doc" size={18} />
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{quote.number}</div>
-                          <div className="dim" style={{ fontSize: '0.76rem' }}>{formatDate(quote.date)}</div>
-                        </div>
-                      </div>
-                      <div className="row gap-3">
-                        <span className="tnum" style={{ fontWeight: 700 }}>{formatCurrency(quoteTotal(quote))}</span>
-                        <StatusBadge status={quote.status} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            {/* Client Profile slice 1 — the real snapshot, from existing data
+                only: next action, tasks, diary, charges/balance, payments and
+                quotes. Read-only; the write paths stay on their own screens. */}
+            <ClientProfilePanel
+              client={detail}
+              data={data}
+              appointments={appointments}
+              scheduleState={scheduleState}
+              userId={session?.user?.id || null}
+              onOpen={(to, state) => { setDetail(null); navigate(to, state ? { state } : undefined); }}
+            />
 
             <div className="row gap-2">
               {waLink(detail.phone) && (
