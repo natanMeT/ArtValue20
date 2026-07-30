@@ -831,11 +831,25 @@ begin
     raise notice 'Receivables: replaced single-column FK quotes.% with a composite same-owner key.', c.conname;
   end if;
 
-  -- Idempotent: create only when the composite key is not already there.
-  if not exists (
+  -- Idempotent -- but NOT name-only. A constraint already wearing this name is
+  -- only "already there" if it is the key this migration means: a valid
+  -- composite FK over EXACTLY (client_id, user_id). A drifted one over some
+  -- other first column would otherwise skip creation and leave quotes.client_id
+  -- with no same-owner enforcement at all, which is the whole point of the key.
+  if exists (
     select 1 from pg_constraint
      where conrelid = 'public.quotes'::regclass and conname = 'quotes_client_same_owner_fk'
   ) then
+    if (
+      select coalesce(array_agg(a.attname order by k.ord), array[]::name[])
+        from pg_constraint con
+        cross join lateral unnest(con.conkey) with ordinality as k(attnum, ord)
+        join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k.attnum
+       where con.conrelid = 'public.quotes'::regclass and con.conname = 'quotes_client_same_owner_fk'
+    ) is distinct from array['client_id', 'user_id']::name[] then
+      raise exception 'Receivables SAFE STOP: a constraint named quotes_client_same_owner_fk already exists over different columns. quotes.client_id would be left without same-owner enforcement. Not replaced.';
+    end if;
+  else
     alter table public.quotes add constraint quotes_client_same_owner_fk
       foreign key (client_id, user_id)
       references public.clients (id, user_id)
@@ -877,10 +891,21 @@ begin
     raise notice 'Receivables: replaced single-column FK transactions.% with a composite same-owner key.', c.conname;
   end if;
 
-  if not exists (
+  -- Same rule as quotes above: the NAME is not the key.
+  if exists (
     select 1 from pg_constraint
      where conrelid = 'public.transactions'::regclass and conname = 'transactions_client_same_owner_fk'
   ) then
+    if (
+      select coalesce(array_agg(a.attname order by k.ord), array[]::name[])
+        from pg_constraint con
+        cross join lateral unnest(con.conkey) with ordinality as k(attnum, ord)
+        join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k.attnum
+       where con.conrelid = 'public.transactions'::regclass and con.conname = 'transactions_client_same_owner_fk'
+    ) is distinct from array['client_id', 'user_id']::name[] then
+      raise exception 'Receivables SAFE STOP: a constraint named transactions_client_same_owner_fk already exists over different columns. transactions.client_id would be left without same-owner enforcement. Not replaced.';
+    end if;
+  else
     -- SET NULL (client_id) ALONE. A bare SET NULL would also null user_id, which
     -- is NOT NULL -- every delete of a client with transactions would fail.
     alter table public.transactions add constraint transactions_client_same_owner_fk
@@ -1056,6 +1081,45 @@ alter table public.payments add constraint payments_charge_same_owner_fk
   on delete cascade;
 
 -- ---------------- indexes ----------------
+-- `create index if not exists` is NAME-only: an existing index of the same name
+-- over the wrong columns or with the wrong predicate is left untouched, and the
+-- migration then completes without the indexes the due-date read and the ON
+-- DELETE scans depend on -- turning every parent delete into a sequential scan,
+-- silently. So each name is verified against its intended definition first, and
+-- a mismatch is a SAFE STOP (dropping someone else's index is not this
+-- migration's call).
+do $$
+declare
+  r record;
+  def text;
+begin
+  for r in
+    select * from (values
+      ('idx_charges_user_due',    'charges',      '(user_id, due_date)',                 ''),
+      ('idx_charges_client_user', 'charges',      '(client_id, user_id)',                'WHERE (client_id IS NOT NULL)'),
+      ('idx_charges_quote_user',  'charges',      '(quote_id, user_id)',                 'WHERE (quote_id IS NOT NULL)'),
+      ('idx_payments_charge',     'payments',     '(charge_id, user_id)',                ''),
+      ('idx_payments_user_paid',  'payments',     '(user_id, paid_at DESC)',             ''),
+      ('idx_quotes_client_user',  'quotes',       '(client_id, user_id)',                'WHERE (client_id IS NOT NULL)'),
+      ('idx_tx_client_user',      'transactions', '(client_id, user_id)',                'WHERE (client_id IS NOT NULL)')
+    ) as t(idx, tbl, cols, pred)
+  loop
+    select indexdef into def
+      from pg_indexes
+     where schemaname = 'public' and indexname = r.idx;
+    if not found then
+      continue; -- created below
+    end if;
+
+    if position(r.cols in def) = 0 or (r.pred <> '' and position(r.pred in def) = 0)
+       or (r.pred = '' and position(' WHERE ' in def) > 0) then
+      raise exception 'Receivables SAFE STOP: index % already exists with a different definition (%). Expected % %. Not replaced.',
+        r.idx, def, r.cols, r.pred;
+    end if;
+  end loop;
+end;
+$$;
+
 -- The (col, user_id) shape is deliberate: it is the exact key each ON DELETE
 -- action scans on the child side. Without it every client delete seq-scans
 -- quotes, transactions and charges.
@@ -1319,20 +1383,33 @@ begin
   -- ---- indexes ----
   for r in
     select * from (values
-      ('charges',      'idx_charges_user_due'),
-      ('charges',      'idx_charges_client_user'),
-      ('charges',      'idx_charges_quote_user'),
-      ('payments',     'idx_payments_charge'),
-      ('payments',     'idx_payments_user_paid'),
-      ('quotes',       'idx_quotes_client_user'),
-      ('transactions', 'idx_tx_client_user')
-    ) as t(tbl, idx)
+      ('charges',      'idx_charges_user_due',    '(user_id, due_date)'),
+      ('charges',      'idx_charges_client_user', '(client_id, user_id)'),
+      ('charges',      'idx_charges_quote_user',  '(quote_id, user_id)'),
+      ('payments',     'idx_payments_charge',     '(charge_id, user_id)'),
+      ('payments',     'idx_payments_user_paid',  '(user_id, paid_at DESC)'),
+      ('quotes',       'idx_quotes_client_user',  '(client_id, user_id)'),
+      ('transactions', 'idx_tx_client_user',      '(client_id, user_id)')
+    ) as t(tbl, idx, cols)
   loop
+    -- The DEFINITION, not the name: an index of the right name over the wrong
+    -- columns leaves the ON DELETE scans and the due-date read unindexed while
+    -- looking present. `indisvalid` too -- a failed concurrent build leaves an
+    -- index that exists and is never used.
     if not exists (
-      select 1 from pg_indexes
-      where schemaname = 'public' and tablename = r.tbl and indexname = r.idx
+      select 1 from pg_indexes i
+      where i.schemaname = 'public' and i.tablename = r.tbl and i.indexname = r.idx
+        and position(r.cols in i.indexdef) > 0
     ) then
-      raise exception 'Receivables FAILED: index %.% is missing.', r.tbl, r.idx;
+      raise exception 'Receivables FAILED: index %.% is missing or is not over %.', r.tbl, r.idx, r.cols;
+    end if;
+    if not exists (
+      select 1 from pg_index x
+      join pg_class c on c.oid = x.indexrelid
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relname = r.idx and x.indisvalid
+    ) then
+      raise exception 'Receivables FAILED: index %.% exists but is NOT VALID and would never be used.', r.tbl, r.idx;
     end if;
   end loop;
 
@@ -1392,13 +1469,13 @@ begin
   -- ---- THE FIVE COMPOSITE FOREIGN KEYS ----
   for r in
     select * from (values
-      -- child table,   constraint name,                      parent,            delete action, set-null columns
-      ('quotes',       'quotes_client_same_owner_fk',        'clients',  'c', null),
-      ('transactions', 'transactions_client_same_owner_fk',  'clients',  'n', 'client_id'),
-      ('charges',      'charges_client_same_owner_fk',       'clients',  'n', 'client_id'),
-      ('charges',      'charges_quote_same_owner_fk',        'quotes',   'n', 'quote_id'),
-      ('payments',     'payments_charge_same_owner_fk',      'charges',  'c', null)
-    ) as t(child, con, parent, deltype, setcol)
+      -- child table,   constraint name,                      parent,     link column,  delete action, set-null columns
+      ('quotes',       'quotes_client_same_owner_fk',        'clients',  'client_id', 'c', null),
+      ('transactions', 'transactions_client_same_owner_fk',  'clients',  'client_id', 'n', 'client_id'),
+      ('charges',      'charges_client_same_owner_fk',       'clients',  'client_id', 'n', 'client_id'),
+      ('charges',      'charges_quote_same_owner_fk',        'quotes',   'quote_id',  'n', 'quote_id'),
+      ('payments',     'payments_charge_same_owner_fk',      'charges',  'charge_id', 'c', null)
+    ) as t(child, con, parent, linkcol, deltype, setcol)
   loop
     select con.oid, con.conkey, con.confkey, con.confrelid, con.confdeltype, con.confdelsetcols, con.convalidated
       into c
@@ -1426,9 +1503,13 @@ begin
       into keycols
       from unnest(c.conkey) with ordinality as k(attnum, ord)
       join pg_attribute a on a.attrelid = ('public.' || r.child)::regclass and a.attnum = k.attnum;
-    if array_length(keycols, 1) is distinct from 2 or keycols[2] <> 'user_id' then
-      raise exception 'Receivables FAILED: %.% is not a COMPOSITE same-owner key -- columns are (%). A single-column key permits cross-account references, because a foreign key is checked by the system and not through RLS.',
-        r.child, r.con, array_to_string(keycols, ', ');
+    -- BOTH columns, in order. Checking only that the second is user_id accepts a
+    -- key over some other first column -- which would leave the intended link
+    -- column with no same-owner enforcement while the constraint name suggests
+    -- otherwise.
+    if keycols is distinct from array[r.linkcol, 'user_id']::name[] then
+      raise exception 'Receivables FAILED: %.% is not the COMPOSITE same-owner key over (%, user_id) -- columns are (%). A key over the wrong column leaves % unenforced, and a single-column key permits cross-account references, because a foreign key is checked by the system and not through RLS.',
+        r.child, r.con, r.linkcol, array_to_string(keycols, ', '), r.linkcol;
     end if;
 
     if c.confrelid <> ('public.' || r.parent)::regclass then

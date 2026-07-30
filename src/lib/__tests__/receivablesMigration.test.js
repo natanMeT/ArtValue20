@@ -265,6 +265,54 @@ describe('the unique keys the composite FKs point at', () => {
     expect(code).toContain('already exists but is not unique (id, user_id)');
   });
 
+  it('reuses a NAMED composite key only when its columns are exactly right', () => {
+    // Codex round 15, P1: the quotes/transactions "create only if absent"
+    // branches were name-only. A valid composite FK of that name over a
+    // DIFFERENT first column would skip creation, and the postflight checked
+    // only that there were two columns and the second was user_id — so
+    // quotes.client_id would be left with no same-owner enforcement while the
+    // constraint name suggested otherwise.
+    expect(code).toContain('already exists over different columns');
+    // The condition must be the WHOLE guard — `... ::name[] then`, with nothing
+    // appended that could neutralise it. Counting occurrences alone would pass
+    // on `... ::name[] and false then`, which is how a guard rots into a no-op.
+    expect((code.match(/is distinct from array\['client_id', 'user_id'\]::name\[\]\s+then/g) || []).length).toBe(2);
+    // ...and the CREATE must sit in the else-branch, not behind a name-only
+    // `if not exists`, which was the original defect.
+    for (const tbl of ['quotes', 'transactions']) {
+      const guard = code.indexOf(`a constraint named ${tbl}_client_same_owner_fk already exists over different columns`);
+      const create = code.indexOf(`alter table public.${tbl} add constraint ${tbl}_client_same_owner_fk`);
+      expect(guard, `${tbl} guard present`).toBeGreaterThan(-1);
+      expect(create, `${tbl} create present`).toBeGreaterThan(-1);
+      expect(guard, `${tbl}: the guard must precede the create`).toBeLessThan(create);
+      expect(code.slice(guard, create)).toContain('else');
+    }
+    // The postflight now requires BOTH columns, in order.
+    expect(code).toContain("keycols is distinct from array[r.linkcol, 'user_id']::name[]");
+    expect(code).not.toMatch(/keycols\[2\] <> 'user_id'/);
+    for (const [con, col] of [['quotes_client_same_owner_fk', 'client_id'],
+      ['charges_quote_same_owner_fk', 'quote_id'], ['payments_charge_same_owner_fk', 'charge_id']]) {
+      expect(code, `${con} must declare its link column`).toMatch(
+        new RegExp(String.raw`'${con}',\s+'\w+',\s+'${col}'`),
+      );
+    }
+  });
+
+  it('reuses an index NAME only when its definition is right', () => {
+    // Codex round 15, P2: `create index if not exists` is name-only, so an index
+    // of the right name over the wrong columns survives — and every ON DELETE
+    // scan silently becomes a sequential scan while the postflight reports the
+    // index present.
+    expect(code).toContain('already exists with a different definition');
+    expect(code).toContain('is missing or is not over %');
+    expect(code).toContain('exists but is not valid and would never be used');
+    expect(code).toMatch(/position\(r\.cols in i\.indexdef\) > 0/);
+    expect(code).toContain('x.indisvalid');
+    // ...and the shapes are declared, not implied.
+    expect(code).toContain("'(user_id, paid_at desc)'".replace('desc', 'DESC').toLowerCase());
+    expect(code).toContain('where (client_id is not null)');
+  });
+
   it('refuses a NOT VALID foreign key wherever one could be reused', () => {
     // Codex round 14, P2: a constraint created NOT VALID is enforced for NEW
     // rows only, so reusing one would let this migration claim the same-owner
