@@ -77,7 +77,32 @@ export default function Assets() {
       <ScrollReveal>
         <div className="card panel">
           {list.length === 0 ? (
-            <EmptyState icon="link" title="לא נמצאו נכסים" hint="נסה חיפוש או סינון אחר" />
+            // Two DIFFERENT empty states, because "nothing matched your filter"
+            // and "this account has no assets" call for different actions, and
+            // offering "clear the filter" when no filter is set is a dead CTA.
+            rows.length === 0 ? (
+              <EmptyState
+                icon="link"
+                title="אין עדיין קבצים או קישורים"
+                hint="נכסים נוספים מתוך כרטיס הפרויקט — קישור, לוגו, מסמך או קובץ מצורף."
+                action={(
+                  <button className="btn btn-primary" onClick={() => navigate('/projects')}>
+                    <Icon name="arrow" size={16} /> למסך הפרויקטים
+                  </button>
+                )}
+              />
+            ) : (
+              <EmptyState
+                icon="link"
+                title="לא נמצאו נכסים"
+                hint="אין תוצאה שמתאימה לחיפוש או לסינון הנוכחי."
+                action={(
+                  <button className="btn btn-ghost" onClick={() => { setQ(''); setFilter('all'); }}>
+                    <Icon name="x" size={16} /> ניקוי חיפוש וסינון
+                  </button>
+                )}
+              />
+            )
           ) : (
             <div className="table-wrap">
               <table className="tbl">

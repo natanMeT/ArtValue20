@@ -52,7 +52,10 @@ export default function ClientModal({ open, onClose, onSave, initial }) {
       onClose={onClose}
       title={initial ? 'עריכת לקוח' : 'לקוח חדש'}
       subtitle={initial ? initial.name : 'הוספת לקוח למאגר'}
-      maxWidth={620}
+      // 620 → 720: this is the widest form in the product (11 fields in a
+      // two-column grid plus a notes textarea) and at 620 each column was under
+      // 280px, so labels wrapped and the paid-status notice ran to five lines.
+      maxWidth={720}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>ביטול</button>

@@ -8,6 +8,7 @@ import Icon from '../components/ui/Icon.jsx';
 import { StatusBadge } from '../components/ui/atoms.jsx';
 import { FinancialBars, GaugeDonut, DonutChart, DONUT_COLORS } from '../components/charts/charts.jsx';
 import { dashboardKpis, monthlySeries, clientBreakdown, momChange, quoteTotal, financeTotals } from '../lib/calc.js';
+import { decorateCharge, isChargeOpen } from '../lib/receivables.js';
 import { formatCurrency, formatCompact, relativeTime } from '../lib/format.js';
 import { resolveDisplayName, avatarInitial } from '../lib/userIdentity.js';
 import { shouldShowSetupBanner, computeHydrationReady } from '../lib/onboarding.js';
@@ -53,13 +54,11 @@ export default function Dashboard() {
     const totals = financeTotals(data.transactions);
     const margin = totals.income ? Math.round((totals.net / totals.income) * 100) : 0;
     const activeDeals = (data.projects || []).filter((p) => p.status !== 'completed' && p.status !== 'frozen').length;
-    const decided = data.quotes.filter((q) => ['accepted', 'rejected', 'sent', 'viewed'].includes(q.status));
     const accepted = data.quotes.filter((q) => q.status === 'accepted');
-    const conversion = decided.length ? Math.round((accepted.length / decided.length) * 100) : 0;
     const newLeads = data.clients.filter((c) => c.status === 'lead').length;
     const avgProject = (data.projects || []).length ? Math.round(totals.income / (data.projects || []).length) : 0;
     const maxMonth = Math.max(...series.map((s) => s.income), 1);
-    return { margin, activeDeals, conversion, newLeads, closed: accepted.length, avgProject, maxMonth };
+    return { margin, activeDeals, newLeads, closed: accepted.length, avgProject, maxMonth };
   }, [data, series]);
 
   const donutData = ['active', 'lead', 'completed', 'lost']
@@ -79,6 +78,58 @@ export default function Dashboard() {
       stuck: data.clients.filter((c) => ['lead', 'active', 'await_material', 'await_approval'].includes(c.status) && daysSince(c.nextActionDate || c.date) > 5),
     };
   }, [data]);
+  // ---------------------------------------------------------------
+  // "מה דורש טיפול" — the near-term action summary that replaced the old
+  // quote-ratio KPI.
+  //
+  // TRUTHFULNESS RULES, because a dashboard that overstates is worse than one
+  // that says less:
+  //  · every line is derived from data ALREADY hydrated into the store by
+  //    fetchAll (tasks, clients, charges, payments). Nothing new is fetched
+  //    here and no new table is invented.
+  //  · a line with a count of 0 is NOT rendered. An always-present row reading
+  //    "0 חיובים באיחור" trains the eye to skip the card.
+  //  · THE DIARY IS DELIBERATELY ABSENT. The schedule table is real and live,
+  //    but it is not part of fetchAll, so the store holds no diary rows here.
+  //    Rendering a zero count from an unloaded source would be a false claim —
+  //    the card says nothing about today's diary rather than something wrong.
+  //    Wiring the diary into the dashboard is its own slice.
+  //  · charges/payments are cloud-only and default to [] in local/demo mode, so
+  //    those lines simply do not appear there. That degrades to silence, not to
+  //    a fabricated zero.
+  // ---------------------------------------------------------------
+  const attention = useMemo(() => {
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const dayOf = (v) => (typeof v === 'string' ? v.slice(0, 10) : '');
+
+    const openTasks = (data.tasks || []).filter((t) => t.status !== 'done');
+    const tasksOverdue = openTasks.filter((t) => { const d = dayOf(t.deadline); return d && d < todayStr; });
+    const tasksToday = openTasks.filter((t) => dayOf(t.deadline) === todayStr);
+
+    // Open balance only: a fully-paid charge needs no action, and a cancelled
+    // one is excluded by isChargeOpen exactly as the Finance KPIs exclude it.
+    const openCharges = (data.charges || [])
+      .filter(isChargeOpen)
+      .map((c) => decorateCharge(c, data.payments || []))
+      .filter((c) => c && c.balance > 0);
+    const chargesOverdue = openCharges.filter((c) => { const d = dayOf(c.dueDate); return d && d < todayStr; });
+    const overdueAmount = chargesOverdue.reduce((s, c) => s + c.balance, 0);
+
+    const clientsNoNext = (data.clients || []).filter(
+      (c) => ['lead', 'active', 'await_material', 'await_approval'].includes(c.status)
+        && !(c.nextAction && String(c.nextAction).trim()),
+    );
+
+    const rows = [];
+    if (tasksOverdue.length) rows.push({ key: 'tasks-overdue', icon: 'clock', tone: 'bad', text: `${tasksOverdue.length} משימות באיחור`, to: '/tasks' });
+    if (tasksToday.length) rows.push({ key: 'tasks-today', icon: 'check', tone: 'warn', text: `${tasksToday.length} משימות לביצוע היום`, to: '/tasks' });
+    if (chargesOverdue.length) rows.push({ key: 'charges-overdue', icon: 'wallet', tone: 'bad', text: `${chargesOverdue.length} חיובים באיחור · ${formatCurrency(overdueAmount)} פתוח`, to: '/finance' });
+    if (clientsNoNext.length) rows.push({ key: 'clients-no-next', icon: 'users', tone: 'warn', text: `${clientsNoNext.length} לקוחות ללא פעולה מתוכננת`, to: '/pipeline' });
+
+    return { rows, total: tasksOverdue.length + tasksToday.length + chargesOverdue.length + clientsNoNext.length };
+  }, [data]);
+
   const projName = (id) => (data.projects || []).find((p) => p.id === id)?.name || '';
 
   // recent activity (latest quotes)
@@ -123,7 +174,10 @@ export default function Dashboard() {
           <p className="hero-sub">הפייפליין שלך <span className="hl">{growthText}</span> החודש. בוא נסגור עוד עסקאות.</p>
         </div>
         <div className="row gap-3 wrap">
-          <button className="btn btn-primary" onClick={() => navigate('/intake')}><Icon name="userPlus" size={18} /> ליד חדש</button>
+          {/* Module-specific label. This used to repeat the same generic
+              new-lead CTA the sidebar already shows globally; on the dashboard
+              the action the owner actually takes here is adding a client. */}
+          <button className="btn btn-primary" onClick={() => navigate('/intake')}><Icon name="userPlus" size={18} /> הוספת לקוח</button>
           <button className="btn btn-ghost" onClick={() => navigate('/finance')}><Icon name="download" size={17} /> הפקת דוח</button>
           <button className="btn btn-ghost" onClick={() => window.dispatchEvent(new CustomEvent('artvalue:demo:open'))}><Icon name="spark" size={17} /> מצב הדגמה</button>
         </div>
@@ -134,7 +188,12 @@ export default function Dashboard() {
         <StaggerGroup className="kpi-quad">
           <KpiRich label="הכנסות החודש" value={kpis.revenue} icon="wallet" accent deltaText={revDelta != null ? `${revDelta >= 0 ? '+' : ''}${revDelta.toFixed(0)}%` : null} deltaUp={(revDelta || 0) >= 0} progress={(kpis.revenue / metrics.maxMonth) * 100} />
           <KpiRich label="עסקאות פעילות" value={metrics.activeDeals} money={false} icon="briefcase" deltaText={`${metrics.activeDeals}`} deltaUp progress={Math.min(100, metrics.activeDeals * 14)} delayed />
-          <KpiRich label="אחוז המרה" value={metrics.conversion} money={false} decimals={1} icon="trendUp" accent deltaText={`${metrics.conversion}%`} deltaUp progress={metrics.conversion} delayed />
+          {/* Replaces the old quote-ratio tile: a percentage over quote statuses
+              answered no question the owner acts on, and it read 0% or 100% on
+              the small quote counts this product actually holds. This tile
+              counts real work waiting instead. `deltaUp` is false on purpose —
+              a rising backlog is not good news, so the pill must not be green. */}
+          <KpiRich label="דורש טיפול" value={attention.total} money={false} icon="clock" accent deltaText={attention.total ? 'פתוח' : 'נקי'} deltaUp={attention.total === 0} progress={Math.min(100, attention.total * 12)} delayed />
           <KpiRich label="לידים חדשים" value={metrics.newLeads} money={false} icon="users" deltaText="New" deltaUp progress={Math.min(100, metrics.newLeads * 22)} />
         </StaggerGroup>
 
@@ -160,6 +219,45 @@ export default function Dashboard() {
           </div>
         </ScrollReveal>
       </div>
+
+      {/* מה דורש טיפול — near-term actionable work, existing data only. */}
+      <ScrollReveal style={{ marginTop: 16 }}>
+        <div className="card panel">
+          <div className="panel-head">
+            <div>
+              <div className="panel-title">מה דורש טיפול</div>
+              <div className="sub">משימות, חיובים ולקוחות שממתינים לפעולה</div>
+            </div>
+            <button className="btn btn-ghost btn-sm" onClick={() => navigate('/tasks')}>כל המשימות <Icon name="arrow" size={15} /></button>
+          </div>
+          {attention.rows.length === 0 ? (
+            <p className="dim" style={{ fontSize: '0.88rem', padding: '8px 0' }}>
+              אין כרגע משימות באיחור, חיובים באיחור או לקוחות ללא פעולה מתוכננת.
+            </p>
+          ) : (
+            <div className="activity-list">
+              {attention.rows.map((r) => (
+                <div
+                  className="activity-row"
+                  key={r.key}
+                  onClick={() => navigate(r.to)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <span className="activity-ico"><Icon name={r.icon} size={16} /></span>
+                  <div className="activity-main"><div className="t">{r.text}</div></div>
+                  <span className={`badge ${r.tone === 'bad' ? 'badge-lost' : 'badge-payment'}`}>
+                    {r.tone === 'bad' ? 'באיחור' : 'לטיפול'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Stated, not hidden: the diary is live but is not loaded here. */}
+          <div className="dim" style={{ fontSize: '0.74rem', marginTop: 10 }}>
+            הכרטיס מסכם משימות, חיובים ולקוחות מהנתונים שנטענו. רישומי היומן אינם נכללים כאן — הם נטענים במסך היומן.
+          </div>
+        </div>
+      </ScrollReveal>
 
       {/* Financial summary + client donut */}
       <div className="bento">

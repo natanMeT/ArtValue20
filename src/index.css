@@ -40,6 +40,13 @@
 /* ---------------- DARK THEME (default) — Obsidian carbon + glass ---------------- */
 :root,
 [data-theme='dark'] {
+  /* UI polish: the ONE declaration that makes native controls obey the theme.
+     Without it `<input type="date">` / `type="time"` render their picker
+     indicator AND their popup calendar/clock in the browser's light default —
+     the white boxes that stood out on every dark form. This is deliberately set
+     on the theme root rather than per-input, because a per-input fix silently
+     misses the next date field somebody adds. */
+  color-scheme: dark;
   --bg: #0e0e0e;
   --bg-2: #0a0a0a;
   --surface: #1c1b1b;
@@ -67,6 +74,7 @@
 
 /* ---------------- LIGHT THEME — soft variant ---------------- */
 [data-theme='light'] {
+  color-scheme: light;
   --bg: #f1f2ec;
   --bg-2: #e7e9df;
   --surface: #ffffff;
@@ -351,6 +359,109 @@ select {
   background-repeat: no-repeat;
   background-position: left 14px center;
   padding-left: 38px;
+}
+
+/* ---------------- Form layout ----------------
+   `.form-row`, `.form-actions` and `.form-error` are used by the cloud-only
+   screens (Campaigns, and the receivables/schedule forms) but had NO rule
+   anywhere in the stylesheet — so those forms rendered as raw browser defaults:
+   labels and inputs stacked full-bleed, no gap, no field sizing. These are the
+   missing definitions, matching the `.field`/`.input` tokens above. */
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+/* The cloud forms wrap each control in a bare <label> rather than .field, so the
+   label element itself has to behave like one. */
+.form-row > label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-2);
+  min-width: 0;
+}
+.form-row > label > input,
+.form-row > label > select,
+.form-row > label > textarea {
+  width: 100%;
+  min-width: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.92rem;
+  padding: 11px 14px;
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+}
+.form-row > label > input::placeholder,
+.form-row > label > textarea::placeholder {
+  color: var(--text-3);
+}
+.form-row > label > input:focus,
+.form-row > label > select:focus,
+.form-row > label > textarea:focus {
+  outline: none;
+  border-color: var(--lime-deep);
+  box-shadow: 0 0 0 3px var(--lime-glow);
+  background: var(--surface);
+}
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.form-error {
+  padding: 11px 14px;
+  margin-bottom: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(239, 111, 111, 0.3);
+  background: rgba(239, 111, 111, 0.1);
+  color: #f08a8a;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+[data-theme='light'] .form-error { color: #a83232; }
+
+/* ---------------- Data table ----------------
+   `.table` had no definition either — Campaigns and Schedule were rendering
+   unstyled HTML tables (collapsed borders, zero padding, cramped rows). It
+   mirrors `.tbl` so the two table idioms in the product read identically. */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.table th {
+  text-align: start;
+  font-weight: 600;
+  font-size: 0.78rem;
+  color: var(--text-3);
+  padding: 0 14px 12px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+.table td {
+  padding: 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.table tr:last-child td { border-bottom: none; }
+.table tbody tr { transition: background 0.15s; }
+.table tbody tr:hover { background: var(--surface-2); }
+
+/* Per-row action clusters wrap instead of forcing the table wider than the
+   card — these rows carry up to five status buttons plus edit and delete. */
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 /* ---------------- Badges ---------------- */
