@@ -474,6 +474,229 @@ describe('the cross-owner data proof runs BEFORE anything is altered', () => {
   });
 });
 
+// ===================================================================
+// Codex round 21 — the two P2s that were reported and not fixed in round 20.
+//
+// Both are about WHERE a failure lands, not whether it lands. The keys are
+// created VALIDATED and the postflight is table-aware, so a bad row or a
+// hijacked index name is always caught eventually; the defect is that "eventually"
+// meant mid-DDL, after earlier statements had committed on the statement-by-
+// statement path (the documented "paste into the SQL Editor" route), which is
+// exactly what PART 1's SAFE-STOP promise excludes.
+// ===================================================================
+
+// The seven (child, child_col, parent) relationships that get a key in this
+// migration: two ownership keys into auth.users, and the five same-owner pairs.
+const OWNERSHIP_ROWS = [
+  ['charges', 'user_id', 'auth', 'users', 'id', 'null'],
+  ['payments', 'user_id', 'auth', 'users', 'id', 'null'],
+  ['quotes', 'client_id', 'public', 'clients', 'id', "'user_id'"],
+  ['transactions', 'client_id', 'public', 'clients', 'id', "'user_id'"],
+  ['charges', 'client_id', 'public', 'clients', 'id', "'user_id'"],
+  ['charges', 'quote_id', 'public', 'quotes', 'id', "'user_id'"],
+  ['payments', 'charge_id', 'public', 'charges', 'id', "'user_id'"],
+];
+
+describe('PART 1 · (k1b) orphan and cross-owner rows are refused PRE-DDL', () => {
+  // The (k1b) block, isolated. Every assertion below reads THIS and not the
+  // whole file: (d) already contains cross-owner prose and two hand-written
+  // scans, so a file-wide match would pass with (k1b) deleted outright.
+  const k1b = (() => {
+    const m = code.match(/\('charges',\s*'user_id',\s*'auth'/);
+    if (!m) return '';
+    const start = m.index;
+    const end = code.indexOf("('idx_charges_user_due'", start); // start of the (k2) list
+    return code.slice(start, end === -1 ? undefined : end);
+  })();
+
+  it('POSITIVE CONTROL for the (k1b) extractor itself', () => {
+    // Without this, every assertion in this describe would be vacuously true the
+    // moment the block moved or was removed.
+    expect(k1b.length, '(k1b) block not found').toBeGreaterThan(400);
+    expect(k1b).toContain('execute format(');
+  });
+
+  it.each(OWNERSHIP_ROWS)(
+    'covers %s.%s → %s.%s(%s)',
+    (child, childCol, pschema, parent, parentCol, ownerCol) => {
+      // The whole row, not the table name — a list that named `charges` three
+      // times but pointed two of them at the same parent would still pass a
+      // per-name check.
+      const row = new RegExp(
+        `\\('${child}',\\s*'${childCol}',\\s*'${pschema}',\\s*'${parent}',\\s*'${parentCol}',\\s*${ownerCol.replace(/'/g, "'")}\\s*\\)`
+      );
+      expect(k1b).toMatch(row);
+    },
+  );
+
+  it('all seven relationships, and no more — the list is the coverage claim', () => {
+    expect(OWNERSHIP_ROWS).toHaveLength(7);
+    // Five same-owner pairs (one per composite FK) + two ownership keys.
+    expect(OWNERSHIP_ROWS.filter((r) => r[5] === "'user_id'")).toHaveLength(FKS.length);
+    expect(OWNERSHIP_ROWS.filter((r) => r[5] === 'null')).toHaveLength(2);
+  });
+
+  it('checks ORPHANS — a non-NULL link with no parent row at all', () => {
+    expect(k1b).toContain(
+      "'select count(*) from public.%i ch where ch.%i is not null and not exists (select 1 from %i.%i p where p.%i = ch.%i)'",
+    );
+    expect(k1b).toContain('row(s) pointing at a %.% that does not exist');
+  });
+
+  it('checks CROSS-OWNER rows — a parent that exists under another account', () => {
+    expect(k1b).toContain(
+      "'select count(*) from public.%i ch join %i.%i p on p.%i = ch.%i where p.%i is distinct from ch.user_id'",
+    );
+    expect(k1b).toContain('row(s) referencing a %.% owned by a different account');
+    // ...and only where an owner column exists: auth.users has no owner of its own.
+    expect(k1b).toContain('if r.owner_col is not null then');
+  });
+
+  it('both are SAFE STOPs that change nothing and never guess an owner', () => {
+    expect(k1b.match(/raise exception 'receivables safe stop/g) || []).toHaveLength(2);
+    expect(k1b).toContain('nothing was changed');
+    expect(k1b).toContain('do not reassign ownership by guessing');
+    // No repair of any kind inside the block.
+    expect(k1b).not.toMatch(/\b(update|delete|insert|alter|drop)\b/);
+  });
+
+  it('guards TABLE and COLUMN existence before it queries anything', () => {
+    // The block must never be the thing that fails, with an undefined-column
+    // error, on the shape it was written to inspect. pg_attribute (not
+    // information_schema) so an `auth` parent is reachable too.
+    expect(k1b).toContain("if to_regclass('public.' || r.child) is null");
+    expect(k1b).toContain("or to_regclass(r.pschema || '.' || r.parent) is null then");
+    expect(k1b).toContain("and a.attname = r.child_col and a.attnum > 0 and not a.attisdropped");
+    expect(k1b).toContain("and a.attname = 'user_id' and a.attnum > 0 and not a.attisdropped");
+    expect(k1b).toContain("and a.attname = r.parent_col and a.attnum > 0 and not a.attisdropped");
+    expect(k1b).toContain("and a.attname = r.owner_col and a.attnum > 0 and not a.attisdropped");
+    // Guarded rows are SKIPPED, not failed: PART 3 creates the missing table.
+    expect((k1b.match(/continue;/g) || []).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('runs BEFORE the first altering statement of the whole migration', () => {
+    const scan = code.indexOf('row(s) pointing at a %.% that does not exist');
+    expect(scan).toBeGreaterThan(-1);
+    for (const firstDdl of [
+      'create or replace function public.set_updated_at',
+      'create table if not exists public.charges',
+      'alter table public.charges add constraint charges_client_same_owner_fk',
+    ]) {
+      const at = code.indexOf(firstDdl);
+      expect(at, `not found: ${firstDdl}`).toBeGreaterThan(-1);
+      expect(scan, `(k1b) must precede: ${firstDdl}`).toBeLessThan(at);
+    }
+    // ...and before the legacy-link sweep that drops the old single-column keys.
+    const sweep = code.indexOf('drop constraint');
+    expect(sweep === -1 || scan < sweep).toBe(true);
+  });
+
+  it('NEGATIVE CONTROLS — each guarantee fails when its clause is removed', () => {
+    // §21: a check that has never failed is not known to be a check. Each
+    // mutation below removes exactly one clause from the real file text and
+    // proves the corresponding assertion above goes red.
+    const orphan = "ch.%i is not null and not exists";
+    const cross = 'is distinct from ch.user_id';
+
+    // 1. orphan scan deleted → the orphan assertion fails.
+    expect(code.replace(orphan, 'x')).not.toContain(orphan);
+    // 2. cross-owner scan deleted → the cross-owner assertion fails.
+    expect(k1b.replace(cross, 'x')).not.toContain(cross);
+    // 3. a relationship dropped from the list → its row assertion fails.
+    const withoutPayments = k1b.replace(/\('payments',\s*'charge_id',[^)]*\)/, '');
+    expect(withoutPayments).not.toMatch(/\('payments',\s*'charge_id'/);
+    // 4. the block moved BELOW the first DDL → the ordering assertion fails.
+    const moved = `create table if not exists public.charges (\n${k1b}`;
+    expect(moved.indexOf(orphan)).toBeGreaterThan(moved.indexOf('create table if not exists public.charges'));
+    // 5. the existence guard removed → the guard assertion fails.
+    expect(k1b.replace("if to_regclass('public.' || r.child) is null", 'if false then'))
+      .not.toContain("if to_regclass('public.' || r.child) is null");
+  });
+});
+
+describe('PART 1 · (k2) an index NAME is only accepted on the EXPECTED table', () => {
+  // The (k2) list and lookup, isolated from the PART 3 pre-create block, which
+  // carries the same seven names.
+  const k2 = (() => {
+    // The FIRST occurrence of the index list is the PART 1 copy; the PART 3
+    // pre-create block carries the same seven names further down.
+    const from = code.indexOf("('idx_charges_user_due'");
+    if (from === -1) return '';
+    // ...up to the start of the (k) ownership-FK block that follows it.
+    const end = code.indexOf("(values ('charges'), ('payments')) as t(tbl)", from);
+    return code.slice(from, end === -1 ? undefined : end);
+  })();
+
+  it('POSITIVE CONTROL for the (k2) extractor itself', () => {
+    expect(k2.length, '(k2) block not found').toBeGreaterThan(400);
+    expect(k2).toContain('pg_indexes');
+    // It must be the PART 1 copy, not the PART 3 one.
+    expect(code.indexOf(k2)).toBeLessThan(code.indexOf('create table if not exists public.charges'));
+  });
+
+  it('every expected index carries its expected TABLE', () => {
+    for (const [idx, tbl] of [
+      ['idx_charges_user_due', 'charges'],
+      ['idx_charges_client_user', 'charges'],
+      ['idx_charges_quote_user', 'charges'],
+      ['idx_payments_charge', 'payments'],
+      ['idx_payments_user_paid', 'payments'],
+      ['idx_quotes_client_user', 'quotes'],
+      ['idx_tx_client_user', 'transactions'],
+    ]) {
+      expect(k2, `no expected tablename for ${idx}`).toMatch(
+        new RegExp(`\\('${idx}',\\s*'${tbl}',`),
+      );
+    }
+  });
+
+  it('...and the lookup REQUIRES it, exactly as the postflight does', () => {
+    // The defect: index names are SCHEMA-wide, so a schema+name lookup is
+    // satisfied by an index owned by a different table, `create index if not
+    // exists` then skips the intended one, and only the table-aware postflight
+    // notices — after the preceding DDL has committed.
+    expect(k2).toContain("where schemaname = 'public' and tablename = r.tbl and indexname = r.idx");
+    // The postflight already did this; PART 1 now matches it.
+    expect(code).toContain("where i.schemaname = 'public' and i.tablename = r.tbl and i.indexname = r.idx");
+  });
+
+  it('a name found on the WRONG table is a SAFE STOP, not a skipped create', () => {
+    // Table-scoping alone would turn the hijacked name into `not found` and fall
+    // through to `continue` — the same silent miss, differently spelled. The
+    // schema-wide re-check is what makes it loud.
+    expect(k2).toContain("if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = r.idx) then");
+    expect(k2).toContain('already exists in schema public but on table %, not the expected public.%');
+    expect(k2).toContain('index names are schema-wide');
+    // ...and it still names the actual holder, so the operator can look at it.
+    expect(k2).toContain("(select tablename from pg_indexes where schemaname = 'public' and indexname = r.idx)");
+  });
+
+  it('the SAFE STOP still precedes every altering statement', () => {
+    const stop = code.indexOf('already exists in schema public but on table %');
+    expect(stop).toBeGreaterThan(-1);
+    expect(stop).toBeLessThan(code.indexOf('create or replace function public.set_updated_at'));
+    expect(stop).toBeLessThan(code.indexOf('create index if not exists idx_charges_user_due'));
+  });
+
+  it('NEGATIVE CONTROLS — the table requirement and the loud path are load-bearing', () => {
+    // 1. the tablename predicate reverted → the lookup assertion fails.
+    const blind = k2.replace(
+      "where schemaname = 'public' and tablename = r.tbl and indexname = r.idx",
+      "where schemaname = 'public' and indexname = r.idx",
+    );
+    expect(blind).not.toContain("and tablename = r.tbl and indexname = r.idx");
+    // 2. the expected tablename removed from the list → the coverage fails.
+    expect(k2.replace("('idx_tx_client_user',      'transactions',", "('idx_tx_client_user',"))
+      .not.toMatch(/\('idx_tx_client_user',\s*'transactions',/);
+    // 3. table-scoped but silent (no schema-wide re-check) → the loud-path fails.
+    const silent = k2.replace(
+      "if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = r.idx) then",
+      'if false then',
+    );
+    expect(silent).not.toContain("if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = r.idx) then");
+  });
+});
+
 describe('payment status is DERIVED — no column, on either table', () => {
   it('declares no status column on charges', () => {
     const create = code.slice(code.indexOf('create table if not exists public.charges'));

@@ -649,3 +649,115 @@ describe('PaymentModal · suggests the BALANCE, and is honest about overpayment'
     expect(paymentModal).toContain('validatePayment(payload)');
   });
 });
+
+// ===================================================================
+// Codex round 21, P2 — the import result message.
+//
+// `api.bulkUpload` has counted `chargesSkipped` / `paymentsSkipped` since round 2
+// (a charge the current validator rejects, and every payment stranded by one),
+// and the Settings toast reported neither the receivables it DID import nor the
+// rows it dropped — so a lossy restore rendered as an unqualified success. Same
+// failure class as S0A: the screen must never claim more than actually landed.
+//
+// BEHAVIOURAL, not source-pinned: the SHIPPED builder is extracted from
+// Settings.jsx and EXECUTED with real count objects (house pattern, above).
+// ===================================================================
+
+const settings = read('../Settings.jsx');
+
+const importResultToast = (() => {
+  const start = settings.indexOf('export function importResultToast(counts) {');
+  if (start === -1) throw new Error('importResultToast not found in Settings.jsx');
+  // The first line that is a bare `}` closes it. (`\r?\n` — the repo checks out
+  // with CRLF on Windows and a `\n}` search finds nothing.)
+  const m = settings.slice(start).match(/\r?\n\}\r?\n/);
+  if (!m) throw new Error('importResultToast body not terminated');
+  const text = settings.slice(start, start + m.index + m[0].length).replace('export function', 'function');
+  // eslint-disable-next-line no-new-func
+  return new Function(`${text}\nreturn importResultToast;`)();
+})();
+
+const FULL = {
+  clients: 3, quotes: 2, transactions: 5, leads: 1, tasks: 4, businessProfile: 1,
+  charges: 7, payments: 6, chargesSkipped: 0, paymentsSkipped: 0,
+};
+
+describe('Settings.importResultToast · BEHAVIOURAL (real shipped builder)', () => {
+  it('POSITIVE CONTROL — the extractor really produced the shipped function', () => {
+    expect(typeof importResultToast).toBe('function');
+    expect(importResultToast(FULL).message.length).toBeGreaterThan(20);
+  });
+
+  it('names the imported charges and payments, like every other kind', () => {
+    const { message, kind } = importResultToast(FULL);
+    expect(message).toContain('7 חיובים');
+    expect(message).toContain('6 תשלומים');
+    // ...without losing anything it already reported.
+    expect(message).toContain('3 לקוחות');
+    expect(message).toContain('2 הצעות');
+    expect(message).toContain('5 תנועות');
+    expect(message).toContain('1 פניות');
+    expect(kind).toBe('success');
+  });
+
+  it('a CLEAN import is still reported as a success', () => {
+    // The whole point of the skipped counts is that they distinguish. A builder
+    // that shouted on every import would carry no information at all.
+    expect(importResultToast({ ...FULL, chargesSkipped: 0, paymentsSkipped: 0 }).kind).toBe('success');
+    expect(importResultToast(FULL).message).not.toContain('דולגו');
+  });
+
+  it('THE DEFECT: skipped charges are stated, and success is NOT declared', () => {
+    const { message, kind } = importResultToast({ ...FULL, charges: 5, chargesSkipped: 2 });
+    expect(message).toContain('דולגו 2 חיובים');
+    expect(message).toContain('ייבוא חלקי');
+    // 'error' is the only kind Toaster does not render with a success check.
+    expect(kind).toBe('error');
+    // ...and it still says what DID land, so the user knows the balance.
+    expect(message).toContain('5 חיובים');
+  });
+
+  it('THE DEFECT: skipped payments alone are enough to withhold success', () => {
+    const { message, kind } = importResultToast({ ...FULL, payments: 4, paymentsSkipped: 2 });
+    expect(message).toContain('דולגו 0 חיובים ו-2 תשלומים');
+    expect(kind).toBe('error');
+  });
+
+  it('both kinds skipped are reported separately, never summed away', () => {
+    const { message, kind } = importResultToast({
+      ...FULL, charges: 1, payments: 0, chargesSkipped: 6, paymentsSkipped: 6,
+    });
+    expect(message).toContain('דולגו 6 חיובים ו-6 תשלומים');
+    expect(kind).toBe('error');
+    // A single "12 skipped" total would hide which half was lost.
+    expect(message).not.toContain('12');
+  });
+
+  it('a missing count is 0, never `undefined` in the user-facing text', () => {
+    // bulkUpload always returns every field; a hostile/legacy object must still
+    // produce a readable sentence rather than "יובאו undefined לקוחות".
+    const { message, kind } = importResultToast({});
+    expect(message).not.toContain('undefined');
+    expect(message).toContain('0 חיובים');
+    expect(message).toContain('0 תשלומים');
+    expect(kind).toBe('success');
+  });
+
+  it('local/demo mode (counts === null) keeps its own message', () => {
+    // There, the parsed file REPLACES the store wholesale — nothing is skipped
+    // and there are no per-kind counts to report.
+    for (const empty of [null, undefined]) {
+      const { message, kind } = importResultToast(empty);
+      expect(message).toBe('הנתונים יובאו בהצלחה');
+      expect(kind).toBe('success');
+    }
+  });
+
+  it('the page really uses this builder, and passes the KIND through', () => {
+    // A builder nothing calls would make every assertion above decorative.
+    expect(settings).toContain('const result = importResultToast(counts);');
+    expect(settings).toContain('toast(result.message, result.kind);');
+    // The old unqualified message is gone.
+    expect(settings).not.toContain("toast(counts ? `יובאו");
+  });
+});

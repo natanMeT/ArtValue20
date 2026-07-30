@@ -9,6 +9,38 @@ import AiGatewaySmoke from '../components/dev/AiGatewaySmoke.jsx';
 import BusinessContextEditor from '../components/settings/BusinessContextEditor.jsx';
 import { computeHydrationReady } from '../lib/onboarding.js';
 
+/**
+ * The import-result toast: WHAT LANDED, and what did not.
+ *
+ * `api.bulkUpload` already counts the rows it had to skip — a charge the current
+ * validator rejects, and every payment stranded by one (charge_id is NOT NULL, so
+ * a payment whose charge did not survive cannot be written at all). Reporting
+ * only the clients/quotes/transactions/leads it inserted made a lossy restore
+ * look like a clean one: the receivables were silently gone and the toast said
+ * success. That is the false-success failure this codebase keeps closing, so:
+ *
+ *   * charges and payments are NAMED in the summary, like every other kind;
+ *   * when anything was skipped, the counts are stated AND the toast is raised to
+ *     `error` — the only kind Toaster does not render with a success check — so
+ *     no full success is ever declared over a partial import.
+ *
+ * `counts` is null in local/demo mode, where the parsed file REPLACES the store
+ * wholesale and nothing can be skipped.
+ */
+export function importResultToast(counts) {
+  if (!counts) return { message: 'הנתונים יובאו בהצלחה', kind: 'success' };
+  const chargesSkipped = counts.chargesSkipped || 0;
+  const paymentsSkipped = counts.paymentsSkipped || 0;
+  const summary = `יובאו ${counts.clients || 0} לקוחות, ${counts.quotes || 0} הצעות, ${counts.transactions || 0} תנועות, ${counts.leads || 0} פניות, ${counts.charges || 0} חיובים, ${counts.payments || 0} תשלומים`;
+  if (chargesSkipped > 0 || paymentsSkipped > 0) {
+    return {
+      message: `${summary} · ייבוא חלקי: דולגו ${chargesSkipped} חיובים ו-${paymentsSkipped} תשלומים שלא ניתן היה לייבא`,
+      kind: 'error',
+    };
+  }
+  return { message: summary, kind: 'success' };
+}
+
 export default function Settings() {
   const {
     data, dispatch, theme, toggleTheme, toast,
@@ -54,7 +86,8 @@ export default function Settings() {
         if (!parsed.clients || !parsed.quotes || !parsed.transactions) throw new Error('bad');
         setBusy(true);
         const counts = await importBackup(parsed);
-        toast(counts ? `יובאו ${counts.clients} לקוחות, ${counts.quotes} הצעות, ${counts.transactions} תנועות, ${counts.leads || 0} פניות` : 'הנתונים יובאו בהצלחה');
+        const result = importResultToast(counts);
+        toast(result.message, result.kind);
       } catch {
         toast('קובץ לא תקין או שגיאת ייבוא', 'error');
       } finally {

@@ -497,6 +497,94 @@ begin
     end if;
   end loop;
 
+  -- (k1b) ORPHAN AND CROSS-OWNER ROWS vs. EVERY key this migration adds.
+  -- (d) proved the cross-owner half for the two keys this migration WIDENS, and
+  -- (k1) validated CHECK predicates. Neither looked at the rows a pre-existing
+  -- public.charges / public.payments may already hold: a full-shape table with a
+  -- cross-owner link, an orphan client_id / quote_id / charge_id, or an orphan
+  -- user_id passes every check above, and the ownership FK (PART 3) or the
+  -- composite FK (PART 4) then fails -- after earlier statements have committed
+  -- on the statement-by-statement path, and possibly after the legacy-link sweep
+  -- has already dropped the old single-column FK. The keys themselves are created
+  -- VALIDATED, so a violating row always fails the ALTER loudly; what this block
+  -- fixes is WHERE the failure lands. Pre-DDL, with nothing altered.
+  --
+  -- ORPHAN and CROSS-OWNER are two distinct defects and both are checked:
+  -- a parent that does not exist fails the FK, and a parent that exists under a
+  -- DIFFERENT account fails the same-owner pair. `owner_col` is null for the two
+  -- ownership keys (auth.users has no owner of its own), so those get the orphan
+  -- half only.
+  --
+  -- Every table and every column is proven present first, via pg_attribute so
+  -- the parent may live in `auth` as well as `public`: this block must never
+  -- itself raise an undefined-column error on the shape it is inspecting, and a
+  -- table PART 3 has not created yet is simply skipped (an empty new table
+  -- cannot violate anything).
+  for r in
+    select * from (values
+      ('charges',      'user_id',   'auth',   'users',   'id', null     ),
+      ('payments',     'user_id',   'auth',   'users',   'id', null     ),
+      ('quotes',       'client_id', 'public', 'clients', 'id', 'user_id'),
+      ('transactions', 'client_id', 'public', 'clients', 'id', 'user_id'),
+      ('charges',      'client_id', 'public', 'clients', 'id', 'user_id'),
+      ('charges',      'quote_id',  'public', 'quotes',  'id', 'user_id'),
+      ('payments',     'charge_id', 'public', 'charges', 'id', 'user_id')
+    ) as t(child, child_col, pschema, parent, parent_col, owner_col)
+  loop
+    if to_regclass('public.' || r.child) is null
+       or to_regclass(r.pschema || '.' || r.parent) is null then
+      continue;
+    end if;
+    if not exists (
+      select 1 from pg_attribute a
+       where a.attrelid = ('public.' || r.child)::regclass
+         and a.attname = r.child_col and a.attnum > 0 and not a.attisdropped
+    ) or not exists (
+      select 1 from pg_attribute a
+       where a.attrelid = ('public.' || r.child)::regclass
+         and a.attname = 'user_id' and a.attnum > 0 and not a.attisdropped
+    ) or not exists (
+      select 1 from pg_attribute a
+       where a.attrelid = (r.pschema || '.' || r.parent)::regclass
+         and a.attname = r.parent_col and a.attnum > 0 and not a.attisdropped
+    ) then
+      continue;
+    end if;
+    if r.owner_col is not null and not exists (
+      select 1 from pg_attribute a
+       where a.attrelid = (r.pschema || '.' || r.parent)::regclass
+         and a.attname = r.owner_col and a.attnum > 0 and not a.attisdropped
+    ) then
+      continue;
+    end if;
+
+    -- ORPHAN: a non-NULL link with no parent row at all. (`is not null` is a
+    -- no-op on the NOT NULL columns and is what makes MATCH SIMPLE optionality
+    -- correct on the nullable ones -- a NULL link skips its FK check, so it is
+    -- not an orphan.)
+    execute format(
+      'select count(*) from public.%I ch where ch.%I is not null and not exists (select 1 from %I.%I p where p.%I = ch.%I)',
+      r.child, r.child_col, r.pschema, r.parent, r.parent_col, r.child_col
+    ) into n_bad;
+    if n_bad > 0 then
+      raise exception 'Receivables SAFE STOP: public.%.% has % row(s) pointing at a %.% that does not exist. The foreign key this migration adds would fail mid-DDL instead of here. Nothing was changed -- review the rows first.',
+        r.child, r.child_col, n_bad, r.parent, r.parent_col;
+    end if;
+
+    -- CROSS-OWNER: the parent exists, but under a DIFFERENT account. This is the
+    -- exact durable cross-account pointer the composite keys exist to forbid.
+    if r.owner_col is not null then
+      execute format(
+        'select count(*) from public.%I ch join %I.%I p on p.%I = ch.%I where p.%I is distinct from ch.user_id',
+        r.child, r.pschema, r.parent, r.parent_col, r.child_col, r.owner_col
+      ) into n_bad;
+      if n_bad > 0 then
+        raise exception 'Receivables SAFE STOP: public.%.% has % row(s) referencing a %.% owned by a DIFFERENT account. The same-owner key this migration adds would fail mid-DDL instead of here. Nothing was changed -- do NOT reassign ownership by guessing; review the rows first.',
+          r.child, r.child_col, n_bad, r.parent, r.parent_col;
+      end if;
+    end if;
+  end loop;
+
   -- (k2) EXISTING INDEXES vs. the definitions this migration creates.
   -- Same reason as (k1): `create index if not exists` is name-only, so a
   -- same-named index over the wrong columns, predicate or access method has to
@@ -504,20 +592,39 @@ begin
   -- SAFE STOP would leave everything above it committed. `indisvalid` too -- a
   -- correctly shaped but invalid index would otherwise be deferred all the way
   -- to the postflight.
+  --
+  -- THE EXPECTED TABLE IS PART OF THE DEFINITION, not context. Index names are
+  -- SCHEMA-wide, not table-wide: an index of the same name owned by a DIFFERENT
+  -- table in `public` satisfies a schema+name lookup, `create index if not
+  -- exists` then skips the intended index, and only the table-aware postflight
+  -- notices -- after every preceding statement has committed. So `tbl` is
+  -- carried here and REQUIRED in the lookup, exactly as the postflight does it,
+  -- and a name found on the wrong table is a SAFE STOP rather than a silently
+  -- missing index (dropping someone else's index is not this migration's call).
   for r in
     select * from (values
-      ('idx_charges_user_due',    '(user_id, due_date)',     ''),
-      ('idx_charges_client_user', '(client_id, user_id)',    'WHERE (client_id IS NOT NULL)'),
-      ('idx_charges_quote_user',  '(quote_id, user_id)',     'WHERE (quote_id IS NOT NULL)'),
-      ('idx_payments_charge',     '(charge_id, user_id)',    ''),
-      ('idx_payments_user_paid',  '(user_id, paid_at DESC)', ''),
-      ('idx_quotes_client_user',  '(client_id, user_id)',    'WHERE (client_id IS NOT NULL)'),
-      ('idx_tx_client_user',      '(client_id, user_id)',    'WHERE (client_id IS NOT NULL)')
-    ) as t(idx, cols, pred)
+      ('idx_charges_user_due',    'charges',      '(user_id, due_date)',     ''),
+      ('idx_charges_client_user', 'charges',      '(client_id, user_id)',    'WHERE (client_id IS NOT NULL)'),
+      ('idx_charges_quote_user',  'charges',      '(quote_id, user_id)',     'WHERE (quote_id IS NOT NULL)'),
+      ('idx_payments_charge',     'payments',     '(charge_id, user_id)',    ''),
+      ('idx_payments_user_paid',  'payments',     '(user_id, paid_at DESC)', ''),
+      ('idx_quotes_client_user',  'quotes',       '(client_id, user_id)',    'WHERE (client_id IS NOT NULL)'),
+      ('idx_tx_client_user',      'transactions', '(client_id, user_id)',    'WHERE (client_id IS NOT NULL)')
+    ) as t(idx, tbl, cols, pred)
   loop
     select indexdef into idx_def from pg_indexes
-     where schemaname = 'public' and indexname = r.idx;
+     where schemaname = 'public' and tablename = r.tbl and indexname = r.idx;
     if not found then
+      -- Absent on the EXPECTED table. Before treating that as "PART 3 will
+      -- create it", rule out the case this check was widened for: the name
+      -- already taken by an index on another table, where the create would
+      -- silently no-op.
+      if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = r.idx) then
+        raise exception 'Receivables SAFE STOP: index % already exists in schema public but on table %, not the expected public.%. Index names are schema-wide and `create index if not exists` is name-only, so the intended index would never be created. Nothing was changed.',
+          r.idx,
+          (select tablename from pg_indexes where schemaname = 'public' and indexname = r.idx),
+          r.tbl;
+      end if;
       continue; -- created in PART 3
     end if;
     if position('USING btree ' in idx_def) = 0
