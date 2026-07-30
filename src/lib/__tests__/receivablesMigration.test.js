@@ -375,6 +375,44 @@ describe('columns, bounds and defaults', () => {
     expect(code).toMatch(/check \(invoice_url is null or length\(invoice_url\) <= 2048\)/);
   });
 
+  it('restricts invoice_url to http/https — a length bound is not a URL check', () => {
+    // Codex round 7, P2: `javascript:alert(1)` is well under 2048 characters and
+    // is executable when rendered as an href. The value is stored, exported in
+    // backups and read by whatever comes next, so the COLUMN must refuse it —
+    // a render-time filter alone would leave it in the database.
+    expect(code).toContain('charges_invoice_url_scheme');
+    expect(code).toMatch(/check \(invoice_url is null or invoice_url ~\* '\^https\?:\/\/\[\^\[:space:\]\]'\)/);
+    // ...and the postflight proves the constraint restricts the scheme rather
+    // than merely existing under that name.
+    expect(code).toContain('does not restrict invoice_url to http/https');
+  });
+
+  it('preflights EVERY existing additive business column, not only the keys', () => {
+    // Codex round 7, P2: the "full shape" preflight never examined kind,
+    // payment_terms, due_date_source, lifecycle, description or invoice_url, so
+    // an incompatible pre-existing one survived `add column if not exists` and
+    // failed later at a CHECK — mid-DDL, instead of at the promised pre-DDL SAFE
+    // STOP. All six are now in the shape list, as non-required (they ARE created
+    // additively when absent).
+    for (const col of ['kind', 'payment_terms', 'due_date_source', 'lifecycle', 'description', 'invoice_url']) {
+      expect(code, `${col} must be shape-checked`).toMatch(
+        new RegExp(String.raw`\('charges',\s+'${col}',\s+'text',\s+'(no|yes)'\s*,\s*false\)`),
+      );
+    }
+  });
+
+  it('verifies the PRIMARY KEY of a pre-existing charges/payments table', () => {
+    // Codex round 7, P2: `create table if not exists` leaves an existing table
+    // untouched, PK and all — so one with a uuid `id` and NO primary key passed
+    // every column check while duplicate ids stayed possible. api.deletePayment
+    // deletes BY id, so one correction would have removed several rows.
+    expect(code).toContain('already exists with no primary key');
+    expect(code).toContain('is not exactly (id)');
+    expect(code).toMatch(/c\.contype = 'p'/);
+    // ...and the postflight asserts it landed.
+    expect(code).toContain('does not have primary key (id)');
+  });
+
   it('amounts must be positive on both tables', () => {
     expect(code).toMatch(/check \(amount_total > 0\)/);
     expect(code).toMatch(/check \(amount > 0\)/);

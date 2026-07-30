@@ -5,6 +5,7 @@ import {
   PAYMENT_TERMS, PAYMENT_TERMS_DAYS, CHARGE_KINDS, CHARGE_LIFECYCLES,
   DUE_DATE_SOURCES, PAYMENT_STATUSES, RECEIVABLES_LIMITS,
   isCalendarDate, endOfMonth, addDays, computeDueDate,
+  isSafeInvoiceUrl, normalizeInvoiceUrl,
   chargeReceived, openBalance, chargePaymentStatus, decorateCharge,
   isChargeOpen, receivablesTotals, actualRevenue,
   validateCharge, validatePayment,
@@ -353,6 +354,85 @@ describe('actualRevenue — payments AND legacy income, with no double count', (
   });
 });
 
+describe('invoice links — a length bound is NOT a URL check', () => {
+  // Codex round 7, P2: `javascript:alert(1)` is well under 2048 characters and
+  // is executable the moment it is rendered as an href.
+  it('REFUSES javascript:, data:, file: and every other scheme', () => {
+    for (const bad of [
+      'javascript:alert(1)', 'JavaScript:alert(1)', '  javascript:alert(1)  ',
+      'data:text/html,<script>alert(1)</script>', 'file:///etc/passwd',
+      'vbscript:msgbox(1)', 'ftp://example.com/x',
+    ]) {
+      const r = normalizeInvoiceUrl(bad);
+      expect(r.ok, `must refuse ${bad}`).toBe(false);
+      expect(r.value).toBe(null);
+      expect(isSafeInvoiceUrl(bad)).toBe(false);
+    }
+  });
+
+  it('accepts http and https unchanged', () => {
+    for (const good of ['https://example.com/invoice', 'http://example.com/i?a=1#f']) {
+      expect(normalizeInvoiceUrl(good)).toEqual({ ok: true, value: good, error: null });
+      expect(isSafeInvoiceUrl(good)).toBe(true);
+    }
+  });
+
+  it('NORMALIZES a bare domain to https rather than refusing it', () => {
+    // Without a scheme the browser resolves it relative to the app, so the link
+    // silently goes somewhere else. Rejecting it would be right and useless — it
+    // is what people type.
+    expect(normalizeInvoiceUrl('example.com/invoice').value).toBe('https://example.com/invoice');
+    expect(normalizeInvoiceUrl('  example.com/invoice  ').value).toBe('https://example.com/invoice');
+  });
+
+  it('never PREFIXES a dangerous scheme into a plausible-looking link', () => {
+    // `https://javascript:alert(1)` would look deliberate and be nonsense.
+    expect(normalizeInvoiceUrl('javascript:alert(1)').value).toBe(null);
+  });
+
+  it('blank is optional, not an error', () => {
+    expect(normalizeInvoiceUrl('')).toEqual({ ok: true, value: null, error: null });
+    expect(normalizeInvoiceUrl(null)).toEqual({ ok: true, value: null, error: null });
+    expect(isSafeInvoiceUrl('')).toBe(false);   // ...but nothing to render either
+  });
+
+  it('refuses whitespace and enforces the 2048 bound after normalization', () => {
+    expect(normalizeInvoiceUrl('https://e.com/a b').ok).toBe(false);
+    expect(normalizeInvoiceUrl(`https://e.com/${'x'.repeat(2048)}`).ok).toBe(false);
+    expect(normalizeInvoiceUrl(`https://e.com/${'x'.repeat(2000)}`).ok).toBe(true);
+  });
+
+  it('never throws on hostile input', () => {
+    for (const bad of [null, undefined, 0, [], {}, () => {}]) {
+      expect(() => normalizeInvoiceUrl(bad)).not.toThrow();
+      expect(() => isSafeInvoiceUrl(bad)).not.toThrow();
+    }
+  });
+
+  it('validateCharge refuses an unsafe link and stores the normalized one', () => {
+    const base = { serviceDate: '2026-02-15', paymentTerms: 'net60', amountTotal: 100 };
+    const bad = validateCharge({ ...base, invoiceUrl: 'javascript:alert(1)' });
+    expect(bad.ok).toBe(false);
+    expect(bad.value).toBe(null);
+    expect(bad.errors.join(' ')).toContain('http');
+    expect(validateCharge({ ...base, invoiceUrl: 'example.com/i' }).value.invoiceUrl)
+      .toBe('https://example.com/i');
+  });
+
+  it('a legacy UNSAFE stored row is dropped on hydration, never surfaced', () => {
+    // A row written before charges_invoice_url_scheme existed must not reach the
+    // render as a link — the read boundary drops it rather than trusting the
+    // column to have been constrained.
+    const row = {
+      id: 'ch1', user_id: 'u1', kind: 'final', payment_terms: 'net30',
+      lifecycle: 'open', amount_total: '100.00', invoice_url: 'javascript:alert(1)',
+    };
+    expect(normalizeChargeRow(row).invoiceUrl).toBe(null);
+    expect(normalizeChargeRow({ ...row, invoice_url: 'https://e.com/i' }).invoiceUrl)
+      .toBe('https://e.com/i');
+  });
+});
+
 describe('validateCharge', () => {
   const base = { serviceDate: '2026-02-15', paymentTerms: 'net60', amountTotal: 1180 };
 
@@ -415,7 +495,7 @@ describe('validateCharge', () => {
     expect(url.ok).toBe(false);
     // ...and exactly at the bound it passes (positive control for the same rule).
     expect(validateCharge({ ...base, description: 'x'.repeat(200) }).ok).toBe(true);
-    expect(validateCharge({ ...base, invoiceUrl: 'x'.repeat(2048) }).ok).toBe(true);
+    expect(validateCharge({ ...base, invoiceUrl: `https://e.com/${'x'.repeat(2033)}` }).ok).toBe(true);
   });
 
   it('optional links normalize to null, not to an empty string', () => {

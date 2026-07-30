@@ -228,10 +228,13 @@ export default function ChargeModal({
           </div>
           <div className="field">
             <label>קישור לחשבונית</label>
+            {/* http/https only — enforced by the shared validator and by
+                charges_invoice_url_scheme. A bare domain is normalized to
+                https:// rather than refused. */}
             <input
               className="input" value={form.invoiceUrl}
               onChange={(e) => set('invoiceUrl', e.target.value)}
-              placeholder="https://…" dir="ltr" style={{ textAlign: 'left' }}
+              placeholder="https://example.com/invoice" dir="ltr" style={{ textAlign: 'left' }}
               maxLength={RECEIVABLES_LIMITS.invoiceUrl}
             />
           </div>

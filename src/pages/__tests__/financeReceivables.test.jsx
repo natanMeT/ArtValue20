@@ -442,6 +442,15 @@ describe('Finance page · cloud/local truthfulness', () => {
     expect(finance).toContain('rel="noopener noreferrer"'); // an external link the user supplied
   });
 
+  it('renders ONLY an http/https invoice link', () => {
+    // Codex round 7, P2: the third layer, after the write boundary and the
+    // column CHECK. A row written before charges_invoice_url_scheme existed must
+    // not make this page emit a `javascript:` href.
+    expect(finance).toContain('isSafeInvoiceUrl(c.invoiceUrl) && (');
+    expect(finance).not.toContain('{c.invoiceUrl && (');
+    expect(finance).toContain('isSafeInvoiceUrl');
+  });
+
   it('the receivables handlers never dispatch a transaction action', () => {
     // Each handler is isolated by its OWN extractor rather than by a span of the
     // file: the transaction `save` handler lives between them, and a span-based

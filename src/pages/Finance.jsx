@@ -15,7 +15,7 @@ import { formatCurrency, formatDate } from '../lib/format.js';
 import { saveLabel } from '../lib/saveLabel.js';
 import {
   receivablesTotals, actualRevenue, decorateCharge, sortChargesByDueDate,
-  isChargeOpen, chargeReceived,
+  isChargeOpen, chargeReceived, isSafeInvoiceUrl,
   CHARGE_KIND_LABELS, PAYMENT_TERMS_LABELS,
   PAYMENT_STATUS_LABELS, PAYMENT_STATUS_CLASS, DUE_DATE_SOURCE_LABELS,
 } from '../lib/receivables.js';
@@ -419,7 +419,12 @@ export default function Finance() {
                           <td><span className={`badge ${PAYMENT_STATUS_CLASS[c.paymentStatus]}`}>{PAYMENT_STATUS_LABELS[c.paymentStatus]}</span></td>
                           <td>
                             <div className="row gap-2" style={{ justifyContent: 'flex-end' }}>
-                              {c.invoiceUrl && (
+                              {/* THIRD layer, after the write boundary and the
+                                  column CHECK: only an http/https link is ever
+                                  rendered as an href. A row written before
+                                  charges_invoice_url_scheme existed cannot make
+                                  this page emit `javascript:`. */}
+                              {isSafeInvoiceUrl(c.invoiceUrl) && (
                                 <a className="icon-action" href={c.invoiceUrl} target="_blank" rel="noopener noreferrer" aria-label="חשבונית">
                                   <Icon name="link" size={15} />
                                 </a>

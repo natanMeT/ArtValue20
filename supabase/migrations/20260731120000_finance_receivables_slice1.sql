@@ -204,6 +204,19 @@ begin
       ('charges',  'amount_total', 'numeric', 'NO' , true ),
       ('charges',  'service_date', 'date',    'NO' , true ),
       ('charges',  'due_date',     'date',    'NO' , true ),
+      -- EVERY additive business column too, not only the required ones. An
+      -- earlier revision listed only the keys and the NOT NULL columns, which
+      -- made this a "full shape" check that never looked at kind,
+      -- payment_terms, due_date_source, lifecycle, description or invoice_url.
+      -- `add column if not exists` preserves an incompatible one, so an integer
+      -- `kind` would survive here and fail later at `charges_kind_allowed` --
+      -- mid-DDL, instead of at the pre-DDL SAFE STOP this block promises.
+      ('charges',  'kind',            'text', 'NO' , false),
+      ('charges',  'payment_terms',   'text', 'NO' , false),
+      ('charges',  'due_date_source', 'text', 'NO' , false),
+      ('charges',  'lifecycle',       'text', 'NO' , false),
+      ('charges',  'description',     'text', 'YES', false),
+      ('charges',  'invoice_url',     'text', 'YES', false),
       ('payments', 'id',           'uuid',    'NO' , true ),
       ('payments', 'user_id',      'uuid',    'NO' , true ),
       ('payments', 'charge_id',    'uuid',    'NO' , true ),
@@ -286,7 +299,40 @@ begin
     end if;
   end loop;
 
-  -- (g) THE TIMESTAMP COLUMNS THE updated_at TRIGGER WRITES.
+  -- (g) THE PRIMARY KEY, on a table that already exists.
+  -- `create table if not exists` leaves an existing table untouched, PK and all
+  -- — so one carrying a uuid `id` with NO primary key would pass every column
+  -- check above and reach the end of this migration with duplicate ids still
+  -- possible. That is not academic: the app deletes a payment BY id
+  -- (api.deletePayment), so one correction would remove several rows, and
+  -- charges_id_user_unique alone does not prevent duplicate ids under different
+  -- owners. Adding a PK to a table that may already hold duplicates is a data
+  -- decision, so this is a SAFE STOP rather than a repair.
+  for r in
+    select * from (values ('charges'), ('payments')) as t(tbl)
+  loop
+    if to_regclass('public.' || r.tbl) is not null then
+      if not exists (
+        select 1 from pg_constraint c
+         where c.conrelid = ('public.' || r.tbl)::regclass and c.contype = 'p'
+      ) then
+        raise exception 'Receivables SAFE STOP: public.% already exists with NO PRIMARY KEY. Duplicate ids would remain possible, and the app deletes by id. Adding a key to a table that may already hold duplicates is a data decision -- review the table first.',
+          r.tbl;
+      end if;
+      if (
+        select coalesce(array_agg(a.attname order by k.ord), array[]::name[])
+          from pg_constraint c
+          cross join lateral unnest(c.conkey) with ordinality as k(attnum, ord)
+          join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum
+         where c.conrelid = ('public.' || r.tbl)::regclass and c.contype = 'p'
+      ) is distinct from array['id']::name[] then
+        raise exception 'Receivables SAFE STOP: the PRIMARY KEY of public.% is not exactly (id). The composite unique (id, user_id) is an ADDITIONAL constraint, never a replacement PK.',
+          r.tbl;
+      end if;
+    end if;
+  end loop;
+
+  -- (h) THE TIMESTAMP COLUMNS THE updated_at TRIGGER WRITES.
   -- `add column if not exists updated_at` no-ops on a pre-existing table, so an
   -- `updated_at` of an incompatible type — or a GENERATED one — would survive
   -- this migration untouched. The migration would then SUCCEED, install
@@ -326,7 +372,7 @@ begin
     end if;
   end loop;
 
-  -- (h) PAYMENT STATUS MUST NOT BE A COLUMN. If some earlier hand-run left one
+  -- (i) PAYMENT STATUS MUST NOT BE A COLUMN. If some earlier hand-run left one
   -- behind, this migration will not quietly adopt it -- the whole design is that
   -- status is derived from the amounts and cannot be written.
   if exists (
@@ -576,6 +622,16 @@ alter table public.charges add  constraint charges_description_bounded
 alter table public.charges drop constraint if exists charges_invoice_url_bounded;
 alter table public.charges add  constraint charges_invoice_url_bounded
   check (invoice_url is null or length(invoice_url) <= 2048);
+
+-- ...AND A SAFE SCHEME. Length alone is not a URL check: `javascript:...` is
+-- well under 2048 and, rendered as an href, is executable. The screen refuses to
+-- render anything else, but a render-time filter is not where this belongs --
+-- the value is stored, exported in backups and read by whatever comes next, so
+-- the column itself must not be able to hold it. http/https only, and a scheme
+-- is mandatory (a bare `example.com/invoice` navigates relative to the app).
+alter table public.charges drop constraint if exists charges_invoice_url_scheme;
+alter table public.charges add  constraint charges_invoice_url_scheme
+  check (invoice_url is null or invoice_url ~* '^https?://[^[:space:]]');
 
 alter table public.payments drop constraint if exists payments_amount_positive;
 alter table public.payments add  constraint payments_amount_positive
@@ -1021,6 +1077,7 @@ begin
       ('charges',  'charges_amount_positive'),
       ('charges',  'charges_description_bounded'),
       ('charges',  'charges_invoice_url_bounded'),
+      ('charges',  'charges_invoice_url_scheme'),
       ('payments', 'payments_amount_positive')
     ) as t(tbl, con)
   loop
@@ -1037,6 +1094,14 @@ begin
        where conrelid = 'public.charges'::regclass and conname = 'charges_invoice_url_bounded')
      not like '%2048%' then
     raise exception 'Receivables FAILED: charges_invoice_url_bounded does not bound the link at 2048 characters.';
+  end if;
+
+  -- ...and the scheme constraint really restricts the scheme, rather than merely
+  -- existing under that name.
+  if (select pg_get_constraintdef(oid) from pg_constraint
+       where conrelid = 'public.charges'::regclass and conname = 'charges_invoice_url_scheme')
+     not like '%https?://%' then
+    raise exception 'Receivables FAILED: charges_invoice_url_scheme does not restrict invoice_url to http/https. A javascript: value is well under 2048 characters and is executable when rendered as a link.';
   end if;
 
   -- ---- indexes ----
@@ -1180,6 +1245,19 @@ begin
           r.child, r.con, r.setcol,
           coalesce(nullif(array_to_string(setcols, ', '), ''), '<all key columns>'), r.child;
       end if;
+    end if;
+  end loop;
+
+  -- ---- the primary key really is (id) on both tables ----
+  for r in select unnest(array['charges', 'payments']) as tbl loop
+    if (
+      select coalesce(array_agg(a.attname order by k.ord), array[]::name[])
+        from pg_constraint c
+        cross join lateral unnest(c.conkey) with ordinality as k(attnum, ord)
+        join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum
+       where c.conrelid = ('public.' || r.tbl)::regclass and c.contype = 'p'
+    ) is distinct from array['id']::name[] then
+      raise exception 'Receivables FAILED: public.% does not have PRIMARY KEY (id). The app deletes by id; duplicates would make one correction remove several rows.', r.tbl;
     end if;
   end loop;
 

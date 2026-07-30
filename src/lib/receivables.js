@@ -40,6 +40,7 @@
 //   * kind / terms / lifecycle  -> charges_kind_allowed, charges_terms_allowed,
 //                                  charges_lifecycle_allowed
 //   * invoice_url <= 2048       -> charges_invoice_url_bounded
+//   * invoice_url is http/https -> charges_invoice_url_scheme
 //   * ownership                 -> RLS, four policies per table
 //   * same-owner relationships  -> the five COMPOSITE foreign keys
 //   * no payment on a cancelled charge -> trg_payments_reject_cancelled (23514)
@@ -200,6 +201,64 @@ export function computeDueDate(serviceDate, terms) {
   if (!eom) return null;
   if (!PAYMENT_TERMS.includes(terms)) return null;
   return addDays(eom, PAYMENT_TERMS_DAYS[terms]);
+}
+
+// ---------------- invoice links ----------------
+//
+// A LENGTH BOUND IS NOT A URL CHECK. `javascript:alert(1)` is well under 2048
+// characters and is executable the moment it is rendered as an href — and this
+// value is stored, exported in backups and read by whatever comes next, so
+// filtering it only at render time would leave the dangerous value in the
+// database. It is refused at the write boundary, refused by the column
+// (charges_invoice_url_scheme), and refused again at render.
+//
+// A bare `example.com/invoice` is not rejected but NORMALIZED to `https://…`:
+// without a scheme the browser resolves it relative to the app and the link
+// silently goes somewhere else. Rejecting it would be technically right and
+// practically useless — it is what people type.
+
+const SAFE_URL_SCHEME = /^https?:\/\/[^\s]/i;
+// Anything with a scheme-like prefix that is NOT http(s) is refused outright
+// rather than normalized: prefixing `javascript:alert(1)` with `https://` would
+// produce a nonsense link that looks deliberate.
+const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+
+/** Is this a link the product may render as an href? */
+export function isSafeInvoiceUrl(value) {
+  const s = (value == null ? '' : String(value)).trim();
+  return s.length > 0 && s.length <= 2048 && SAFE_URL_SCHEME.test(s);
+}
+
+/**
+ * Normalize an invoice link for STORAGE.
+ * @returns {{ ok: boolean, value: string|null, error: string|null }}
+ *   blank            -> ok, null (the field is optional)
+ *   http/https       -> ok, unchanged
+ *   no scheme        -> ok, `https://` prefixed
+ *   any other scheme -> NOT ok (javascript:, data:, file:, …)
+ */
+export function normalizeInvoiceUrl(value) {
+  const s = (value == null ? '' : String(value)).trim();
+  if (!s) return { ok: true, value: null, error: null };
+  if (/\s/.test(s)) {
+    return { ok: false, value: null, error: 'קישור החשבונית אינו יכול להכיל רווחים' };
+  }
+  const candidate = HAS_SCHEME.test(s) ? s : `https://${s}`;
+  if (!SAFE_URL_SCHEME.test(candidate)) {
+    return {
+      ok: false,
+      value: null,
+      error: 'קישור החשבונית חייב להתחיל ב-http:// או ב-https://',
+    };
+  }
+  if (candidate.length > RECEIVABLES_LIMITS.invoiceUrl) {
+    return {
+      ok: false,
+      value: null,
+      error: `קישור החשבונית ארוך מ-${RECEIVABLES_LIMITS.invoiceUrl} תווים`,
+    };
+  }
+  return { ok: true, value: candidate, error: null };
 }
 
 // ---------------- derived money facts ----------------
@@ -397,10 +456,11 @@ export function validateCharge(input = {}) {
     errors.push(`תיאור החיוב ארוך מ-${RECEIVABLES_LIMITS.description} תווים`);
   }
 
-  const invoiceUrl = str(src.invoiceUrl);
-  if (invoiceUrl.length > RECEIVABLES_LIMITS.invoiceUrl) {
-    errors.push(`קישור החשבונית ארוך מ-${RECEIVABLES_LIMITS.invoiceUrl} תווים`);
-  }
+  // Scheme AND length, through the one normalizer — so a `javascript:` link is a
+  // visible error rather than a stored value, and a bare `example.com/x` becomes
+  // an absolute https link instead of navigating relative to the app.
+  const invoice = normalizeInvoiceUrl(src.invoiceUrl);
+  if (!invoice.ok) errors.push(invoice.error);
 
   if (errors.length) return { ok: false, errors, value: null };
 
@@ -424,7 +484,7 @@ export function validateCharge(input = {}) {
       dueDateSource: dueRaw ? 'manual' : 'computed',
       amountTotal: round2(amount),
       description: description || null,
-      invoiceUrl: invoiceUrl || null,
+      invoiceUrl: invoice.value,
       // Lifecycle is never taken from the caller on create: a charge is born
       // open. Cancelling is its own explicit action.
       lifecycle: 'open',
@@ -492,7 +552,10 @@ export function normalizeChargeRow(row) {
     dueDateSource: DUE_DATE_SOURCES.includes(dueSource) ? dueSource : 'computed',
     amountTotal: round2(amountTotal),
     description: str(row.description) || null,
-    invoiceUrl: str(row.invoice_url) || null,
+    // A row written before charges_invoice_url_scheme existed could still hold an
+    // unsafe value. It is dropped on the way in rather than trusted because the
+    // column "should" be constrained — the render must never see it at all.
+    invoiceUrl: isSafeInvoiceUrl(row.invoice_url) ? str(row.invoice_url) : null,
     lifecycle,
     createdAt: str(row.created_at) || null,
     updatedAt: str(row.updated_at) || null,
