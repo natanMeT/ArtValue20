@@ -646,6 +646,11 @@ begin
                 join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum)
              = array['id']::name[]
          and c.confdeltype = 'c'
+         -- NOT VALID is not "correct". A constraint created NOT VALID is not
+         -- enforced against the rows already in the table, so reusing one would
+         -- let this migration claim the ownership invariant while orphaned
+         -- user_id values survive underneath it.
+         and c.convalidated
     ) then
       continue; -- already correct (the fresh-install path)
     end if;
@@ -951,7 +956,7 @@ begin
     end if;
 
     for con in
-      select c.oid, c.conname, c.conkey, c.confkey, c.confrelid, c.confdeltype
+      select c.oid, c.conname, c.conkey, c.confkey, c.confrelid, c.confdeltype, c.convalidated
         from pg_constraint c
         join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
        where c.conrelid = ('public.' || r.tbl)::regclass
@@ -977,7 +982,10 @@ begin
         if keycols is distinct from array[r.col, 'user_id']::name[]
            or con.confrelid <> ('public.' || r.parent)::regclass
            or refcols is distinct from array['id', 'user_id']::name[]
-           or con.confdeltype::text is distinct from r.deltype::text then
+           or con.confdeltype::text is distinct from r.deltype::text
+           -- NOT VALID would be enforced for new rows only, so the invariant
+           -- this migration states would not hold for the rows already there.
+           or not con.convalidated then
           raise exception 'Receivables SAFE STOP: a constraint named % already exists on public.% but is not the composite same-owner key this migration declares -- it is (%) -> %(%) ON DELETE %. Not replaced.',
             con.conname, r.tbl, array_to_string(keycols, ', '),
             con.confrelid::regclass, array_to_string(refcols, ', '), con.confdeltype;
@@ -1392,7 +1400,7 @@ begin
       ('payments',     'payments_charge_same_owner_fk',      'charges',  'c', null)
     ) as t(child, con, parent, deltype, setcol)
   loop
-    select con.oid, con.conkey, con.confkey, con.confrelid, con.confdeltype, con.confdelsetcols
+    select con.oid, con.conkey, con.confkey, con.confrelid, con.confdeltype, con.confdelsetcols, con.convalidated
       into c
       from pg_constraint con
      where con.conrelid = ('public.' || r.child)::regclass
@@ -1401,6 +1409,14 @@ begin
 
     if not found then
       raise exception 'Receivables FAILED: foreign key %.% was not created.', r.child, r.con;
+    end if;
+
+    -- A NOT VALID key is enforced for new rows only. The same-owner invariant
+    -- this whole slice rests on would then be false for every row that existed
+    -- before it, which is the one state nobody would think to check for later.
+    if not c.convalidated then
+      raise exception 'Receivables FAILED: foreign key %.% exists but is NOT VALID -- it is not enforced against the rows already in the table, so the same-owner invariant does not hold for them.',
+        r.child, r.con;
     end if;
 
     -- TWO columns, and the SECOND must be user_id. This is the assertion the
@@ -1512,8 +1528,9 @@ begin
                 join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum)
              = array['id']::name[]
          and c.confdeltype = 'c'
+         and c.convalidated
     ) then
-      raise exception 'Receivables FAILED: public.%.user_id does not REFERENCE auth.users(id) ON DELETE CASCADE. Deleting an account would orphan its financial rows.', r.tbl;
+      raise exception 'Receivables FAILED: public.%.user_id does not REFERENCE auth.users(id) ON DELETE CASCADE (or exists only as NOT VALID). Deleting an account would orphan its financial rows.', r.tbl;
     end if;
   end loop;
 

@@ -386,6 +386,13 @@ describe('api · a payment writes to payments and to nothing else', () => {
     // charge legitimately keeps the payments it received, so the restore order
     // is: charges open -> payments -> restore the cancelled lifecycle.
     expect(bulk).toContain("lifecycle: 'open',");
+    // Codex round 14, P2: validateCharge() does NOT check the lifecycle — a
+    // create always starts 'open', so it has none to choose. An import does, and
+    // an unrecognised one (legacy 'archived', missing field) must not be
+    // silently activated: that would inflate open receivables and allow new
+    // payments against what may have been a cancelled record.
+    expect(bulk).toContain('CHARGE_LIFECYCLES.includes(c.lifecycle)');
+    expect(bulk).toMatch(/if \(!CHARGE_LIFECYCLES\.includes\(c\.lifecycle\)\) \{ chargesSkipped \+= 1; continue; \}/);
     expect(bulk).toContain("if (c.lifecycle === 'cancelled') cancelledChargeIds.push(id)");
     expect(bulk).toContain(".update({ lifecycle: 'cancelled' })");
     expect(bulk).toContain(".in('id', cancelledChargeIds)");

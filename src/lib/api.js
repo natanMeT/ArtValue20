@@ -17,7 +17,7 @@ import {
 } from './campaigns.js';
 import {
   validateCharge, validatePayment,
-  normalizeChargeRow, normalizePaymentRow,
+  normalizeChargeRow, normalizePaymentRow, CHARGE_LIFECYCLES,
 } from './receivables.js';
 
 const uuid = () =>
@@ -388,6 +388,13 @@ export async function bulkUpload(userId, data) {
       dueDate: c.dueDateSource === 'manual' ? c.dueDate : '',
     });
     if (!v.ok) { chargesSkipped += 1; continue; }
+    // The lifecycle is NOT covered by validateCharge(): that validator always
+    // creates in 'open', because a create has no lifecycle to choose. An import
+    // does — and an unrecognised one (a legacy 'archived', a missing field) must
+    // not be silently activated. Activating it would inflate open receivables
+    // and let new payments be recorded against what may have been a cancelled
+    // record. Unknown -> skipped and counted, like any other unusable row.
+    if (!CHARGE_LIFECYCLES.includes(c.lifecycle)) { chargesSkipped += 1; continue; }
     const id = uuid();
     chargeIdMap[c.id] = id;
     chargeRows.push({

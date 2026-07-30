@@ -265,6 +265,18 @@ describe('the unique keys the composite FKs point at', () => {
     expect(code).toContain('already exists but is not unique (id, user_id)');
   });
 
+  it('refuses a NOT VALID foreign key wherever one could be reused', () => {
+    // Codex round 14, P2: a constraint created NOT VALID is enforced for NEW
+    // rows only, so reusing one would let this migration claim the same-owner
+    // (or ownership) invariant while violating rows survive underneath it — the
+    // one state nobody would think to check for afterwards.
+    expect(code).toContain('exists but is not valid');
+    expect(code).toContain('or exists only as not valid');
+    expect((code.match(/c\.convalidated/g) || []).length).toBeGreaterThanOrEqual(3);
+    expect(code).toContain('or not con.convalidated then');
+    expect(code).toContain('if not c.convalidated then');
+  });
+
   it('refuses a DEFERRABLE unique key instead of reusing it', () => {
     // Codex round 13, P2: PostgreSQL cannot reference a deferrable unique or
     // primary key from a foreign key ("cannot use a deferrable unique constraint
