@@ -128,14 +128,19 @@ export default function Finance() {
     () => sortChargesByDueDate(charges.filter(isChargeOpen)).map((c) => decorateCharge(c, payments)),
     [charges, payments],
   );
-  // A cancelled charge leaves the KPIs and the open list — but its payments are
-  // still counted in actual revenue, so if it holds any, it must stay REACHABLE:
-  // PaymentModal is the only correction surface, and a charge nothing can open
-  // is a mistyped payment nobody can fix.
-  const cancelledWithPayments = useMemo(
+  // EVERY cancelled charge, not only the ones holding payments.
+  //
+  // Two different things must stay reachable here. A cancelled charge WITH
+  // payments still contributes to actual revenue, and PaymentModal is the only
+  // surface that can correct one of those payments. A cancelled charge WITHOUT
+  // payments has no money attached at all — but it is still a durable row, and
+  // an earlier `received > 0` filter made an accidental cancellation invisible
+  // and unreactivatable: gone from the open list, gone from this one, with
+  // nothing in the product able to set it back to `open`. The lifecycle graph is
+  // symmetric by design (open <-> cancelled), so the UI must be too.
+  const cancelledCharges = useMemo(
     () => sortChargesByDueDate(charges.filter((c) => !isChargeOpen(c)))
-      .map((c) => decorateCharge(c, payments))
-      .filter((c) => c.received > 0),
+      .map((c) => decorateCharge(c, payments)),
     [charges, payments],
   );
   const recTotals = useMemo(() => receivablesTotals(charges, payments), [charges, payments]);
@@ -195,6 +200,14 @@ export default function Finance() {
     if (!payment) return;
     const res = await dispatch({ type: 'DELETE_PAYMENT', id: payment.id });
     if (res?.ok !== false) toast('התשלום נמחק');
+  };
+
+  // The other half of cancellation. Without it an accidental cancel is permanent
+  // through the UI, even though the database allows open <-> cancelled freely.
+  const reopenCharge = async (charge) => {
+    if (!charge) return;
+    const res = await dispatch({ type: 'REOPEN_CHARGE', id: charge.id });
+    if (res?.ok !== false) toast('החיוב הוחזר לפעיל');
   };
 
   const cancelCharge = async () => {
@@ -446,22 +459,29 @@ export default function Finance() {
                   mistyped payment on one must remain correctable. Without this
                   row, cancelling a charge would hide the only surface that can
                   delete its payments. */}
-              {cancelledWithPayments.length > 0 && (
+              {cancelledCharges.length > 0 && (
                 <div style={{ marginTop: 16 }}>
-                  <div className="panel-title" style={{ fontSize: '0.95rem' }}>חיובים שבוטלו עם תשלומים שנרשמו</div>
+                  <div className="panel-title" style={{ fontSize: '0.95rem' }}>חיובים שבוטלו</div>
                   <div className="sub" style={{ marginBottom: 8 }}>
-                    החיובים האלה אינם נספרים בצפוי, בהתקבל או ביתרה — אבל הכסף שהתקבל עליהם נשאר בהכנסה בפועל. אפשר לפתוח אותם כדי לתקן תשלום שנרשם בטעות.
+                    החיובים האלה אינם נספרים בצפוי, בהתקבל או ביתרה. כסף שכבר התקבל עליהם נשאר בהכנסה בפועל. אפשר להחזיר חיוב לפעיל, ואם נרשמו עליו תשלומים אפשר לתקן אותם.
                   </div>
                   <div className="table-wrap">
                     <table className="tbl">
                       <tbody>
-                        {cancelledWithPayments.map((c) => (
+                        {cancelledCharges.map((c) => (
                           <tr key={c.id}>
                             <td style={{ fontWeight: 500 }}>{clientName(c.clientId)}</td>
                             <td><span className="badge badge-lost">בוטל</span></td>
-                            <td className="tnum">{formatCurrency(c.received)}</td>
+                            <td className="muted">{formatDate(c.dueDate)}</td>
+                            <td className="tnum">{formatCurrency(c.amountTotal)}</td>
+                            <td className="tnum">{c.received > 0 ? formatCurrency(c.received) : '—'}</td>
                             <td style={{ textAlign: 'end' }}>
-                              <button className="btn btn-ghost" onClick={() => setPayingCharge(c)}>תשלומים</button>
+                              <div className="row gap-2" style={{ justifyContent: 'flex-end' }}>
+                                <button className="btn btn-ghost" onClick={() => reopenCharge(c)}>החזרה לפעיל</button>
+                                {c.received > 0 && (
+                                  <button className="btn btn-ghost" onClick={() => setPayingCharge(c)}>תשלומים</button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))}

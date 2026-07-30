@@ -541,15 +541,33 @@ describe('PaymentModal · suggests the BALANCE, and is honest about overpayment'
     expect(handler).toContain('const payment = toDeletePayment;');
   });
 
-  it('a CANCELLED charge that holds payments stays reachable for correction', () => {
+  it('EVERY cancelled charge stays reachable — including one with no payments', () => {
     // Codex round 3, P2: the open-charge filter was the only way into
     // PaymentModal, so cancelling a charge hid the only surface that can delete
     // its payments — while those payments stayed in actual revenue.
-    expect(finance).toContain('cancelledWithPayments');
+    // Codex round 9, P2: the fix then filtered on `received > 0`, so an
+    // accidentally cancelled UNPAID charge was invisible in both lists and
+    // nothing could set it back to open. The list is now unfiltered.
+    expect(finance).toContain('cancelledCharges');
     expect(finance).toContain('charges.filter((c) => !isChargeOpen(c))');
-    expect(finance).toContain('.filter((c) => c.received > 0)');
-    expect(finance).toContain('חיובים שבוטלו עם תשלומים שנרשמו');
-    expect(finance).toMatch(/cancelledWithPayments\.map\(\(c\) => \([\s\S]{0,600}setPayingCharge\(c\)/);
+    expect(finance).not.toContain('.filter((c) => c.received > 0)');
+    expect(finance).toContain('חיובים שבוטלו');
+    expect(finance).toMatch(/cancelledCharges\.map\(\(c\) => \([\s\S]{0,900}reopenCharge\(c\)/);
+  });
+
+  it('a cancelled charge can be REACTIVATED — the lifecycle graph is symmetric', () => {
+    // The database allows open <-> cancelled freely (declared limitation L3), so
+    // a UI that can only cancel makes an accidental cancel permanent.
+    expect(finance).toContain("dispatch({ type: 'REOPEN_CHARGE', id: charge.id })");
+    expect(finance).toContain('החזרה לפעיל');
+    expect(store).toContain("case 'REOPEN_CHARGE':");
+    expect(store).toContain("'CANCEL_CHARGE', 'REOPEN_CHARGE'");
+    expect(store).toContain('api.reopenCharge(action.id)');
+    expect(api).toContain('export async function reopenCharge(');
+    // ...and reopening writes ONLY the lifecycle, like cancelling.
+    const fn = api.slice(api.indexOf('export async function reopenCharge('), api.indexOf('* Delete ONE charge.'));
+    expect(fn).toContain("update({ lifecycle: 'open' })");
+    expect(fn).not.toContain('amount');
   });
 
   it('...but no NEW payment can be recorded against a cancelled charge', () => {

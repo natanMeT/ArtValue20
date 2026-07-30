@@ -262,6 +262,8 @@ export function reducer(state, action) {
       return { ...state, charges: (state.charges || []).map((c) => (c.id === action.payload.id ? { ...c, ...action.payload } : c)) };
     case 'CANCEL_CHARGE':
       return { ...state, charges: (state.charges || []).map((c) => (c.id === action.id ? { ...c, lifecycle: 'cancelled' } : c)) };
+    case 'REOPEN_CHARGE':
+      return { ...state, charges: (state.charges || []).map((c) => (c.id === action.id ? { ...c, lifecycle: 'open' } : c)) };
     case 'DELETE_CHARGE':
       return {
         ...state,
@@ -302,7 +304,7 @@ const isTaskDispatch = (t) => TASK_DISPATCH.has(t);
 // receivables are cloud-only rather than a beta-contained module — so they take
 // the same direct-api route SAVE_BUSINESS_PROFILE (S0D) already uses.
 const RECEIVABLES_DISPATCH = new Set([
-  'ADD_CHARGE', 'UPDATE_CHARGE', 'CANCEL_CHARGE', 'DELETE_CHARGE',
+  'ADD_CHARGE', 'UPDATE_CHARGE', 'CANCEL_CHARGE', 'REOPEN_CHARGE', 'DELETE_CHARGE',
   'ADD_PAYMENT', 'DELETE_PAYMENT',
 ]);
 const isReceivablesDispatch = (t) => RECEIVABLES_DISPATCH.has(t);
@@ -320,6 +322,8 @@ function persistReceivable(action, userId) {
       return api.updateCharge(action.payload.id, action.payload).then((charge) => ({ ...action, payload: charge }));
     case 'CANCEL_CHARGE':
       return api.cancelCharge(action.id).then(() => action);
+    case 'REOPEN_CHARGE':
+      return api.reopenCharge(action.id).then(() => action);
     case 'DELETE_CHARGE':
       return api.deleteCharge(action.id).then(() => action);
     case 'ADD_PAYMENT':

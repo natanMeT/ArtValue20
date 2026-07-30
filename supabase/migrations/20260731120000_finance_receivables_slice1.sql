@@ -385,6 +385,27 @@ begin
           (select data_type from information_schema.columns
             where table_schema = 'public' and table_name = r.tbl and column_name = r.col);
       end if;
+
+      -- NULLABILITY AND THE DEFAULT, not just the type. A nullable timestamp
+      -- column, or one defaulted to a fixed instant instead of now(), is
+      -- `timestamptz` and passes the check above -- and then every inserted row
+      -- carries a NULL or a false created_at while the declared schema says
+      -- `NOT NULL DEFAULT now()`. Neither can be corrected by this migration
+      -- (setting NOT NULL on a column that may already hold NULLs, or rewriting
+      -- a default over existing rows, are data decisions), so both are SAFE
+      -- STOPs.
+      if not exists (
+        select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = r.tbl and column_name = r.col
+          and is_nullable = 'NO' and column_default = 'now()'
+      ) then
+        raise exception 'Receivables SAFE STOP: public.%.% already exists as (is_nullable=%, default=%), expected (NO, now()). Rows would carry a NULL or a false timestamp despite the declared NOT NULL DEFAULT now().',
+          r.tbl, r.col,
+          (select is_nullable from information_schema.columns
+            where table_schema = 'public' and table_name = r.tbl and column_name = r.col),
+          coalesce((select column_default from information_schema.columns
+            where table_schema = 'public' and table_name = r.tbl and column_name = r.col), '<null>');
+      end if;
       if exists (
         select 1 from information_schema.columns
         where table_schema = 'public' and table_name = r.tbl and column_name = r.col
@@ -1297,9 +1318,11 @@ begin
       where table_schema = 'public' and table_name = r.tbl and column_name = r.col
         and data_type = 'timestamp with time zone'
         and is_generated = 'NEVER' and is_updatable = 'YES'
-        and column_default is not null
+        -- the SAME expectations the preflight enforces: NOT NULL, default now().
+        -- "some default" is not the contract -- a fixed epoch is also a default.
+        and is_nullable = 'NO' and column_default = 'now()'
     ) then
-      raise exception 'Receivables FAILED: public.%.% is not a plain assignable timestamptz with a default. The updated_at trigger writes it on every UPDATE.',
+      raise exception 'Receivables FAILED: public.%.% is not a plain assignable timestamptz that is NOT NULL DEFAULT now(). The updated_at trigger writes it on every UPDATE.',
         r.tbl, r.col;
     end if;
   end loop;

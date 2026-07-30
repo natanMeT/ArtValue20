@@ -459,8 +459,16 @@ describe('columns, bounds and defaults', () => {
     // fails inside set_updated_at() when it assigns now(). Checked BEFORE any
     // trigger is installed, and asserted again afterwards.
     expect(code).toContain('set_updated_at() assigns now() to it, so every update would fail');
-    expect(code).toContain('is not a plain assignable timestamptz with a default');
+    expect(code).toContain('is not a plain assignable timestamptz that is not null default now()');
     expect(code).toMatch(/\(is_generated <> 'never' or is_updatable = 'no'\)/);
+    // Codex round 9, P2: type + generated/updatable is not the shape either. A
+    // NULLABLE timestamptz, or one defaulted to a fixed epoch instead of now(),
+    // passes those checks — and every inserted row then carries a NULL or a
+    // false created_at while the declared schema says NOT NULL DEFAULT now().
+    // The preflight and the postflight now enforce the SAME pair.
+    expect((code.match(/is_nullable = 'no' and column_default = 'now\(\)'/g) || []).length).toBe(2);
+    expect(code).toContain('expected (no, now())');
+    expect(code).not.toContain('is not a plain assignable timestamptz with a default');
     expect(code).toMatch(/\('charges',\s*'created_at'\), \('charges',\s*'updated_at'\)/);
     expect(code).toMatch(/\('payments',\s*'created_at'\), \('payments',\s*'updated_at'\)/);
     // ...and it really is BEFORE the trigger creation.

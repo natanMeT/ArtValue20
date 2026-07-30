@@ -770,6 +770,17 @@ export async function cancelCharge(chargeId) {
 }
 
 /**
+ * Reopen ONE cancelled charge. The lifecycle graph is symmetric by design
+ * (open <-> cancelled, declared limitation L3), so this is the other half of
+ * cancelCharge — without it an accidental cancellation is permanent through the
+ * UI, and the charge is a durable row nothing can reach.
+ */
+export async function reopenCharge(chargeId) {
+  guard((await supabase.from('charges').update({ lifecycle: 'open' }).eq('id', chargeId)).error);
+  return true;
+}
+
+/**
  * Delete ONE charge. Its payments go with it — `payments_charge_same_owner_fk`
  * is ON DELETE CASCADE, because a payment that describes no charge is an
  * unattributed number, not a record. Cancelling is the non-destructive option
