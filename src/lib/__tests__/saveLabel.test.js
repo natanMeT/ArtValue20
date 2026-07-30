@@ -34,7 +34,10 @@ describe('saveLabel · Clients page wiring (source pins)', () => {
 
   it('both client-save toasts use saveLabel(mode); no hardcoded local wording remains', () => {
     expect(clients.includes("import { saveLabel } from '../lib/saveLabel.js';")).toBe(true);
-    expect(clients.includes('const { data, dispatch, toast, mode } = useStore();')).toBe(true);
+    // Pins that `mode` is read from the store — not the exact destructure list,
+    // which grows as the page reads more of the store (Client Profile slice 1
+    // added `session` for the account-isolation guard).
+    expect(clients).toMatch(/const \{[^}]*\bmode\b[^}]*\} = useStore\(\);/);
     // S0B: the save toast now fires only after a confirmed { ok } write (ternary wording).
     expect(clients.includes('הלקוח עודכן · ${saveLabel(mode)}')).toBe(true);
     expect(clients.includes('לקוח נוסף · ${saveLabel(mode)}')).toBe(true);
