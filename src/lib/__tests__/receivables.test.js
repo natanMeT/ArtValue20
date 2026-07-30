@@ -476,6 +476,22 @@ describe('validateCharge', () => {
     expect(validateCharge({ ...base, amountTotal: '1180.005' }).value.amountTotal).toBe(1180.01);
   });
 
+  it('REFUSES a sub-cent amount that would round to zero', () => {
+    // Codex round 12, P2: 0.001 is positive, so the raw check passed and the
+    // stored value became 0 on the numeric(14,2) grid — which the server then
+    // refuses via charges_amount_positive. The validator reported success and
+    // the user met an avoidable server error instead of inline validation.
+    for (const tiny of [0.001, '0.004', 0.0000001]) {
+      const r = validateCharge({ ...base, amountTotal: tiny });
+      expect(r.ok, `must refuse ${tiny}`).toBe(false);
+      expect(r.errors.join(' ')).toContain('0.01');
+    }
+    // ...and exactly at the minimum it passes (positive control for the rule).
+    expect(validateCharge({ ...base, amountTotal: 0.01 }).value.amountTotal).toBe(0.01);
+    // 0.005 rounds UP to 0.01, so it is storable and must NOT be refused.
+    expect(validateCharge({ ...base, amountTotal: 0.005 }).ok).toBe(true);
+  });
+
   it('refuses a missing or malformed service date', () => {
     expect(validateCharge({ ...base, serviceDate: '' }).ok).toBe(false);
     expect(validateCharge({ ...base, serviceDate: '15/02/2026' }).ok).toBe(false);
@@ -532,6 +548,15 @@ describe('validatePayment', () => {
     expect(validatePayment({ ...base, amount: 'abc' }).ok).toBe(false);
     expect(validatePayment({ ...base, paidAt: '' }).ok).toBe(false);
     expect(validatePayment({ ...base, paidAt: '2026-02-30' }).ok).toBe(false);
+  });
+
+  it('REFUSES a sub-cent payment that would round to zero', () => {
+    for (const tiny of [0.001, '0.004']) {
+      const r = validatePayment({ ...base, amount: tiny });
+      expect(r.ok, `must refuse ${tiny}`).toBe(false);
+      expect(r.errors.join(' ')).toContain('0.01');
+    }
+    expect(validatePayment({ ...base, amount: 0.01 }).value.amount).toBe(0.01);
   });
 
   it('an overpayment is ACCEPTED here — the policy is clamp, not refuse', () => {

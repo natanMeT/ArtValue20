@@ -110,6 +110,11 @@ export const PAYMENT_STATUS_CLASS = Object.freeze({
   paid: 'badge-completed',
 });
 
+// The smallest amount the numeric(14,2) column can hold and still satisfy
+// charges_amount_positive / payments_amount_positive. Anything below it rounds
+// to zero on the way in.
+export const MIN_AMOUNT = 0.01;
+
 /** Mirrors the bounded-text CHECK constraints. */
 export const RECEIVABLES_LIMITS = Object.freeze({
   description: 200,
@@ -449,6 +454,11 @@ export function validateCharge(input = {}) {
   const amount = money(src.amountTotal);
   if (Number.isNaN(amount)) errors.push('סכום החיוב הוא שדה חובה');
   else if (amount <= 0) errors.push('סכום החיוב חייב להיות גדול מאפס');
+  // ...and the ROUNDED amount, because that is what gets stored. `0.001` is
+  // positive here and becomes 0 on the numeric(14,2) grid, which the server then
+  // refuses via charges_amount_positive — so without this the validator reports
+  // success and the user meets an avoidable server error instead of an inline one.
+  else if (round2(amount) <= 0) errors.push(`סכום החיוב חייב להיות לפחות ${MIN_AMOUNT} ₪`);
   else if (amount > RECEIVABLES_LIMITS.amount) errors.push('סכום החיוב חורג מהמותר');
 
   const description = str(src.description);
@@ -509,6 +519,7 @@ export function validatePayment(input = {}) {
   const amount = money(src.amount);
   if (Number.isNaN(amount)) errors.push('סכום התשלום הוא שדה חובה');
   else if (amount <= 0) errors.push('סכום התשלום חייב להיות גדול מאפס');
+  else if (round2(amount) <= 0) errors.push(`סכום התשלום חייב להיות לפחות ${MIN_AMOUNT} ₪`);
   else if (amount > RECEIVABLES_LIMITS.amount) errors.push('סכום התשלום חורג מהמותר');
 
   const paidAt = str(src.paidAt);

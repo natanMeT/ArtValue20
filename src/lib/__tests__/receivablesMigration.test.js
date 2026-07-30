@@ -112,6 +112,14 @@ describe('same-owner ownership is enforced by the KEY, not by a policy', () => {
     expect(code).toMatch(/\('charges',\s*'client_id',\s*'charges_client_same_owner_fk',/);
     expect(code).toMatch(/\('charges',\s*'quote_id',\s*'charges_quote_same_owner_fk',/);
     expect(code).toMatch(/\('payments',\s*'charge_id',\s*'payments_charge_same_owner_fk',/);
+    // Codex round 12, P1: the constraint wearing the name this migration INTENDS
+    // to use was exempted from every check — and the `drop constraint if exists`
+    // further down would then replace a drifted one silently. It is now
+    // validated like any other, and only a byte-for-byte match survives.
+    expect(code).toContain('is not the composite same-owner key this migration declares');
+    expect(code).toMatch(/keycols is distinct from array\[r\.col, 'user_id'\]::name\[\]/);
+    expect(code).toMatch(/con\.confdeltype::text is distinct from r\.deltype::text/);
+    expect(code).not.toContain('ours; recreated idempotently just below');
     // ...and a multi-column key it did not create is a SAFE STOP, not a drop.
     expect(code).toContain('already carries a multi-column foreign key');
     // Codex round 11, P1: "it is single-column" is not a check. The sweep must
@@ -121,8 +129,8 @@ describe('same-owner ownership is enforced by the KEY, not by a policy', () => {
     expect(code).toContain('not replaced -- re-pointing an existing relationship is not this migration');
     expect(code).toMatch(/references %\(%\), not %\(id\)/);
     expect(code).toMatch(/con\.confrelid <> \('public\.' \|\| r\.parent\)::regclass/);
-    expect(code).toMatch(/\('charges',\s+'client_id',\s+'charges_client_same_owner_fk',\s+'clients'\)/);
-    expect(code).toMatch(/\('payments',\s+'charge_id',\s+'payments_charge_same_owner_fk',\s+'charges'\)/);
+    expect(code).toMatch(/\('charges',\s+'client_id',\s+'charges_client_same_owner_fk',\s+'clients',\s*'n'\)/);
+    expect(code).toMatch(/\('payments',\s+'charge_id',\s+'payments_charge_same_owner_fk',\s+'charges',\s*'c'\)/);
     // The sweep must run BEFORE the composite keys are added.
     expect(code.indexOf('dropped legacy single-column fk'))
       .toBeLessThan(code.indexOf('add constraint charges_client_same_owner_fk'));

@@ -921,10 +921,10 @@ declare
 begin
   for r in
     select * from (values
-      ('charges',  'client_id', 'charges_client_same_owner_fk',   'clients'),
-      ('charges',  'quote_id',  'charges_quote_same_owner_fk',    'quotes'),
-      ('payments', 'charge_id', 'payments_charge_same_owner_fk',  'charges')
-    ) as t(tbl, col, keep, parent)
+      ('charges',  'client_id', 'charges_client_same_owner_fk',   'clients', 'n'),
+      ('charges',  'quote_id',  'charges_quote_same_owner_fk',    'quotes',  'n'),
+      ('payments', 'charge_id', 'payments_charge_same_owner_fk',  'charges', 'c')
+    ) as t(tbl, col, keep, parent, deltype)
   loop
     if to_regclass('public.' || r.tbl) is null then
       continue; -- created fresh below/above; nothing legacy can exist
@@ -939,7 +939,30 @@ begin
          and a.attname = r.col
     loop
       if con.conname = r.keep then
-        continue; -- ours; recreated idempotently just below
+        -- NOT an exemption. A constraint wearing the name this migration intends
+        -- to use is not automatically the constraint this migration means -- and
+        -- the `drop constraint if exists` further down would then replace a
+        -- drifted one silently, which is exactly the SAFE STOP this block
+        -- promises. So it is validated like any other, and only a byte-for-byte
+        -- match is allowed to survive to the idempotent recreate below.
+        select coalesce(array_agg(a.attname order by k.ord), array[]::name[])
+          into keycols
+          from unnest(con.conkey) with ordinality as k(attnum, ord)
+          join pg_attribute a on a.attrelid = ('public.' || r.tbl)::regclass and a.attnum = k.attnum;
+        select coalesce(array_agg(a.attname order by k.ord), array[]::name[])
+          into refcols
+          from unnest(con.confkey) with ordinality as k(attnum, ord)
+          join pg_attribute a on a.attrelid = con.confrelid and a.attnum = k.attnum;
+
+        if keycols is distinct from array[r.col, 'user_id']::name[]
+           or con.confrelid <> ('public.' || r.parent)::regclass
+           or refcols is distinct from array['id', 'user_id']::name[]
+           or con.confdeltype::text is distinct from r.deltype::text then
+          raise exception 'Receivables SAFE STOP: a constraint named % already exists on public.% but is not the composite same-owner key this migration declares -- it is (%) -> %(%) ON DELETE %. Not replaced.',
+            con.conname, r.tbl, array_to_string(keycols, ', '),
+            con.confrelid::regclass, array_to_string(refcols, ', '), con.confdeltype;
+        end if;
+        continue; -- verified identical; the recreate below is a no-op in effect
       end if;
 
       select coalesce(array_agg(a.attname order by k.ord), array[]::name[])
