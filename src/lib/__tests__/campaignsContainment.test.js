@@ -58,8 +58,12 @@ describe('route + nav wiring', () => {
   });
 
   it('every OTHER nav item is untouched by the new flag', () => {
+    // The flag is not exclusive to Campaigns — Schedule Core slice 1 added
+    // '/schedule' as the second durable cloud-only module. What this guard
+    // still pins is that `cloudOnly` did not spread to anything else: the two
+    // routes here are the ONLY ones allowed to carry it.
     const flagged = SIDEBAR_ROUTE_ITEMS.filter((i) => i.cloudOnly);
-    expect(flagged.map((i) => i.to)).toEqual(['/campaigns']);
+    expect(flagged.map((i) => i.to).sort()).toEqual(['/campaigns', '/schedule']);
   });
 });
 

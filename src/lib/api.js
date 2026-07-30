@@ -19,6 +19,9 @@ import {
   validateCharge, validatePayment,
   normalizeChargeRow, normalizePaymentRow, CHARGE_LIFECYCLES,
 } from './receivables.js';
+import {
+  validateAppointment, normalizeAppointmentRow, sortByStart, APPOINTMENT_STATUSES,
+} from './schedule.js';
 
 const uuid = () =>
   (crypto?.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -831,3 +834,118 @@ export async function deletePayment(paymentId) {
 
 // Pure mapping helpers exported for focused unit tests (F1).
 export { CHARGE_FIELDS, PAYMENT_FIELDS };
+
+// ===================================================================
+// Schedule Core slice 1 — durable appointments / lessons / events.
+//
+// CLOUD-ONLY, exactly like Campaigns: there is no local reducer, no seed and no
+// localStorage fallback for an appointment, so the screen renders a truthful
+// unavailable state in the local demo rather than a form that would persist
+// nothing. Nothing here is routed through store.jsx's persist() — the page owns
+// its own state and re-reads from the server after every write, which is the
+// Campaigns precedent and the reason a row appears on screen only once the
+// server has returned it.
+//
+// Every client-side rule invoked here is ADVISORY (a truthful pre-refusal). The
+// server is the authority: RLS for ownership, the two composite foreign keys
+// for the same-owner client and task links, and the CHECK constraints for the
+// kind / status domains, the title and notes bounds, and end-after-start.
+//
+// NAMING BOUNDARY: this is `public.appointments`. It is NOT the Growth OS
+// monthly action calendar (`src/data/growthCalendar.js`), it never reads it,
+// and nothing in this block may import from `src/pages/growth/**`.
+// ===================================================================
+
+// Appointment write map (camel -> snake). An ALLOW-LIST: id and user_id are set
+// explicitly on insert, created_at/updated_at are server-managed (default now()
+// + trg_appointments_updated), and `status` is written on create and by
+// setAppointmentStatus alone.
+const APPOINTMENT_FIELDS = {
+  kind: 'kind', title: 'title', clientId: 'client_id', taskId: 'task_id',
+  startAt: 'start_at', endAt: 'end_at', notes: 'notes',
+};
+
+/** Raise the validator's first error as a user-safe Error. */
+function refuse(errors) {
+  const err = new Error(errors[0]);
+  err.userSafe = true;
+  err.validationErrors = errors;
+  return err;
+}
+
+/**
+ * The signed-in account's appointments, earliest first. RLS scopes the select.
+ * Ordered by start_at server-side to match idx_appointments_user_start, and
+ * re-sorted client-side so a malformed-row drop cannot leave a gap in the order.
+ */
+export async function listAppointments() {
+  const res = await supabase.from('appointments').select('*').order('start_at', { ascending: true });
+  guard(res.error);
+  return sortByStart((res.data || []).map(normalizeAppointmentRow).filter(Boolean));
+}
+
+/**
+ * Create ONE appointment. Resolves with the CREATED ROW as the server stored
+ * it — never a locally reconstructed object. Rejects on ANY failure.
+ *
+ * No quota and no pre-count: this slice declares none (see the migration).
+ */
+export async function createAppointment(userId, input = {}) {
+  const v = validateAppointment(input);
+  if (!v.ok) throw refuse(v.errors);
+  const id = uuid();
+  const res = await supabase.from('appointments').insert({
+    id, user_id: userId, status: v.value.status, ...mapToRow(v.value, APPOINTMENT_FIELDS),
+  }).select().single();
+  guard(res.error);
+  const appointment = normalizeAppointmentRow(res.data);
+  if (!appointment) throw new Error('appointments: the created row did not come back in a usable shape');
+  return appointment;
+}
+
+/**
+ * Update the editable fields of ONE appointment. Status is NOT changed here —
+ * an outcome moves through setAppointmentStatus, so there is exactly one
+ * client-side entry point for it, mirroring setCampaignStatus.
+ */
+export async function updateAppointment(appointmentId, input = {}) {
+  const v = validateAppointment(input);
+  if (!v.ok) throw refuse(v.errors);
+  const res = await supabase.from('appointments')
+    .update(mapToRow(v.value, APPOINTMENT_FIELDS))
+    .eq('id', appointmentId).select().single();
+  guard(res.error);
+  const appointment = normalizeAppointmentRow(res.data);
+  if (!appointment) throw new Error('appointments: the updated row did not come back in a usable shape');
+  return appointment;
+}
+
+/**
+ * Record the OUTCOME of one appointment. Every status is reachable from every
+ * other on purpose (declared limitation L5): a no-show corrected to completed,
+ * or a cancellation undone, are ordinary corrections, and there is no trigger
+ * to refuse them. The domain itself is still the server's to enforce —
+ * appointments_status_allowed refuses anything outside the four values.
+ */
+export async function setAppointmentStatus(appointmentId, to) {
+  if (!APPOINTMENT_STATUSES.includes(to)) {
+    const err = new Error('הסטטוס אינו מוכר.');
+    err.userSafe = true;
+    throw err;
+  }
+  guard((await supabase.from('appointments').update({ status: to }).eq('id', appointmentId)).error);
+  return true;
+}
+
+/**
+ * Delete ONE appointment. RLS scopes it to the owner. Cancelling is the
+ * non-destructive option and is what the UI offers first — a cancelled lesson
+ * that is still on the record is a fact worth keeping.
+ */
+export async function deleteAppointment(appointmentId) {
+  guard((await supabase.from('appointments').delete().eq('id', appointmentId)).error);
+  return true;
+}
+
+// Pure mapping helper exported for focused unit tests (Schedule Core slice 1).
+export { APPOINTMENT_FIELDS };
