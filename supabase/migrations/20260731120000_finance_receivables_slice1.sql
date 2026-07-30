@@ -628,15 +628,23 @@ declare
   con_name text;
 begin
   foreach t in array array['charges', 'payments'] loop
-    if exists (
-      select 1 from pg_constraint c
-       where c.conrelid = ('public.' || t)::regclass
-         and c.contype = 'f'
-         and c.confrelid = 'auth.users'::regclass
-         and (select array_agg(a.attname order by k.ord)
-                from unnest(c.conkey) with ordinality as k(attnum, ord)
-                join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
-             = array['user_id']::name[]
+    -- EVERY foreign key over user_id is inspected FIRST -- before deciding that
+    -- the expected one is present. An earlier revision returned as soon as it
+    -- found the correct key, so an ADDITIONAL key on the same column pointing
+    -- somewhere else was never seen: it stays enforced beside the right one,
+    -- can reject otherwise valid inserts, and imposes its own delete behaviour.
+    -- Finding what you were looking for is not the same as finding only that.
+    select c.conname into con_name
+      from pg_constraint c
+     where c.conrelid = ('public.' || t)::regclass
+       and c.contype = 'f'
+       and (select array_agg(a.attname order by k.ord)
+              from unnest(c.conkey) with ordinality as k(attnum, ord)
+              join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
+           = array['user_id']::name[]
+       -- ...everything that is NOT the declared ownership key
+       and not (
+         c.confrelid = 'auth.users'::regclass
          -- The REFERENCED column too, not just the referenced table: an FK to
          -- some other unique column on auth.users would satisfy every other
          -- clause here and still not be the constraint this migration declares.
@@ -651,24 +659,31 @@ begin
          -- let this migration claim the ownership invariant while orphaned
          -- user_id values survive underneath it.
          and c.convalidated
-    ) then
-      continue; -- already correct (the fresh-install path)
-    end if;
-
-    -- A user_id FK that exists but points elsewhere, or does not cascade, is a
-    -- different decision than the one declared here. SAFE STOP rather than
-    -- silently replace it.
-    select c.conname into con_name
-      from pg_constraint c
-     where c.conrelid = ('public.' || t)::regclass
-       and c.contype = 'f'
-       and (select array_agg(a.attname order by k.ord)
-              from unnest(c.conkey) with ordinality as k(attnum, ord)
-              join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
-           = array['user_id']::name[]
+       )
      limit 1;
     if con_name is not null then
-      raise exception 'Receivables SAFE STOP: public.%.user_id already has a foreign key (%) that is not REFERENCES auth.users(id) ON DELETE CASCADE. Not replaced.', t, con_name;
+      raise exception 'Receivables SAFE STOP: public.%.user_id carries a foreign key (%) that is not REFERENCES auth.users(id) ON DELETE CASCADE. Whether it is the only one or an extra beside the correct one, it stays enforced and is not this migration''s decision to replace.',
+        t, con_name;
+    end if;
+
+    -- Only now: is the declared key present?
+    if exists (
+      select 1 from pg_constraint c
+       where c.conrelid = ('public.' || t)::regclass
+         and c.contype = 'f'
+         and c.confrelid = 'auth.users'::regclass
+         and (select array_agg(a.attname order by k.ord)
+                from unnest(c.conkey) with ordinality as k(attnum, ord)
+                join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
+             = array['user_id']::name[]
+         and (select array_agg(a.attname order by k.ord)
+                from unnest(c.confkey) with ordinality as k(attnum, ord)
+                join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum)
+             = array['id']::name[]
+         and c.confdeltype = 'c'
+         and c.convalidated
+    ) then
+      continue; -- already correct, and provably the ONLY key over user_id
     end if;
 
     execute format(
@@ -1620,6 +1635,20 @@ begin
          and c.convalidated
     ) then
       raise exception 'Receivables FAILED: public.%.user_id does not REFERENCE auth.users(id) ON DELETE CASCADE (or exists only as NOT VALID). Deleting an account would orphan its financial rows.', r.tbl;
+    end if;
+
+    -- ...and it is the ONLY key over user_id. An extra one is enforced beside it
+    -- and brings its own delete behaviour.
+    select count(*) into n
+      from pg_constraint c
+     where c.conrelid = ('public.' || r.tbl)::regclass
+       and c.contype = 'f'
+       and (select array_agg(a.attname order by k.ord)
+              from unnest(c.conkey) with ordinality as k(attnum, ord)
+              join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
+           = array['user_id']::name[];
+    if n <> 1 then
+      raise exception 'Receivables FAILED: public.%.user_id carries % foreign keys, expected exactly 1. An extra key is enforced beside the ownership key and imposes its own deletion behaviour.', r.tbl, n;
     end if;
   end loop;
 

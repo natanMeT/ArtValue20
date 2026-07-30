@@ -218,8 +218,28 @@ describe('deletion semantics — preserved exactly, and never a bare SET NULL', 
     // unique column on auth.users would have been accepted as correct, skipping
     // the SAFE STOP while not enforcing what it claims. Both the repair and the
     // postflight now resolve the referenced attribute.
-    expect((code.match(/= array\['id'\]::name\[\]/g) || []).length).toBe(2);
+    // At least twice: the ownership repair (which since round 17 checks both the
+    // "is there a wrong/extra key" scan and the "is the declared key present"
+    // test) and the postflight. A bare count would break every time that block
+    // is restructured, so the floor is what matters — the point is that the
+    // referenced column is verified everywhere the key is judged.
+    expect((code.match(/= array\['id'\]::name\[\]/g) || []).length).toBeGreaterThanOrEqual(2);
     expect(code).toMatch(/from unnest\(c\.confkey\) with ordinality/);
+  });
+
+  it('refuses an EXTRA foreign key over user_id, not just a wrong one', () => {
+    // Codex round 17, P2: the block returned as soon as it found the correct
+    // ownership key, so an ADDITIONAL key on user_id pointing elsewhere was
+    // never seen — it stays enforced beside the right one, can reject valid
+    // inserts and brings its own delete behaviour. Finding what you were
+    // looking for is not the same as finding only that.
+    expect(code).toContain('whether it is the only one or an extra beside the correct one');
+    expect(code).toContain('already correct, and provably the only key over user_id');
+    // The scan must run BEFORE the "is the declared key present?" check.
+    expect(code.indexOf('whether it is the only one or an extra beside the correct one'))
+      .toBeLessThan(code.indexOf('already correct, and provably the only key over user_id'));
+    // ...and the postflight counts them.
+    expect(code).toContain('foreign keys, expected exactly 1');
   });
 
   it('repairs a MISSING ownership FK on a pre-existing table, and asserts it', () => {
