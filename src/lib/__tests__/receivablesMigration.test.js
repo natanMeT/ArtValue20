@@ -240,6 +240,15 @@ describe('deletion semantics — preserved exactly, and never a bare SET NULL', 
       .toBeLessThan(code.indexOf('already correct, and provably the only key over user_id'));
     // ...and the postflight counts them.
     expect(code).toContain('foreign keys, expected exactly 1');
+    // Codex round 18, P2: rejecting only WRONGLY shaped keys still lets two
+    // CORRECTLY shaped ones under different names through — the presence check
+    // skips on whichever it sees first, and the postflight catches it only after
+    // the DDL has run, which is not what a pre-DDL SAFE STOP means. So the keys
+    // are COUNTED before anything else.
+    expect(code).toContain('foreign keys, expected at most 1');
+    expect(code).toContain('select count(*) into n_fk');
+    expect(code.indexOf('foreign keys, expected at most 1'))
+      .toBeLessThan(code.indexOf('whether it is the only one or an extra beside the correct one'));
   });
 
   it('repairs a MISSING ownership FK on a pre-existing table, and asserts it', () => {

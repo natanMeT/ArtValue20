@@ -626,8 +626,29 @@ do $$
 declare
   t text;
   con_name text;
+  n_fk int;
 begin
   foreach t in array array['charges', 'payments'] loop
+    -- HOW MANY keys cover user_id, before anything else. The scan below rejects
+    -- wrongly-shaped ones, but TWO CORRECTLY shaped keys under different names
+    -- would both be excluded by it and the presence check would then skip on
+    -- whichever it saw first. The postflight does catch that -- after the DDL
+    -- has run, which is not what a pre-DDL SAFE STOP means. A duplicate key is
+    -- also not harmless: it doubles the referential check on every write and is
+    -- a decision someone made deliberately, so it is stopped, not deduplicated.
+    select count(*) into n_fk
+      from pg_constraint c
+     where c.conrelid = ('public.' || t)::regclass
+       and c.contype = 'f'
+       and (select array_agg(a.attname order by k.ord)
+              from unnest(c.conkey) with ordinality as k(attnum, ord)
+              join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
+           = array['user_id']::name[];
+    if n_fk > 1 then
+      raise exception 'Receivables SAFE STOP: public.%.user_id carries % foreign keys, expected at most 1. Even correctly shaped duplicates are enforced twice on every write, and removing one is not this migration''s decision.',
+        t, n_fk;
+    end if;
+
     -- EVERY foreign key over user_id is inspected FIRST -- before deciding that
     -- the expected one is present. An earlier revision returned as soon as it
     -- found the correct key, so an ADDITIONAL key on the same column pointing
@@ -683,7 +704,7 @@ begin
          and c.confdeltype = 'c'
          and c.convalidated
     ) then
-      continue; -- already correct, and provably the ONLY key over user_id
+      continue; -- already correct, and provably the ONLY key over user_id (counted above)
     end if;
 
     execute format(
