@@ -897,29 +897,41 @@ $$;
 -- destroying the ledger-survival contract this migration states. The
 -- conventional name even sorts first.
 --
--- So: inspect every FK on each new link column. A single-column one is
--- superseded by the composite key and is dropped; anything else (a multi-column
--- key that is not the one we are about to create) is a SAFE STOP, because
--- replacing a composite decision made elsewhere is not this migration's call.
+-- So: inspect every FK on each new link column and VERIFY ITS TARGET before
+-- touching it. "It is single-column" is not a check -- that was the omission
+-- already corrected once, for quotes and transactions, and repeating it here
+-- would let a legacy `charges.client_id` pointing at some other table (or some
+-- other unique column) be dropped and silently re-pointed at clients(id,
+-- user_id). A key is replaced ONLY when it is single-column AND already
+-- references the intended parent's `id`. Anything else is a SAFE STOP.
+--
+-- ONE DELIBERATE ASYMMETRY with the quotes/transactions blocks, stated so it is
+-- not read as an oversight: those preserve the EXISTING ON DELETE action,
+-- because it is a documented product contract from 20260717090000. These three
+-- columns belong to THIS slice's own tables, so there is no inherited contract
+-- to preserve -- the delete semantics are declared in this file's header. The
+-- old action is therefore reported in the notice rather than required to match,
+-- so an operator can see exactly what was replaced.
 do $$
 declare
   r record;
   con record;
   keycols name[];
+  refcols name[];
 begin
   for r in
     select * from (values
-      ('charges',  'client_id', 'charges_client_same_owner_fk'),
-      ('charges',  'quote_id',  'charges_quote_same_owner_fk'),
-      ('payments', 'charge_id', 'payments_charge_same_owner_fk')
-    ) as t(tbl, col, keep)
+      ('charges',  'client_id', 'charges_client_same_owner_fk',   'clients'),
+      ('charges',  'quote_id',  'charges_quote_same_owner_fk',    'quotes'),
+      ('payments', 'charge_id', 'payments_charge_same_owner_fk',  'charges')
+    ) as t(tbl, col, keep, parent)
   loop
     if to_regclass('public.' || r.tbl) is null then
       continue; -- created fresh below/above; nothing legacy can exist
     end if;
 
     for con in
-      select c.oid, c.conname, c.conkey
+      select c.oid, c.conname, c.conkey, c.confkey, c.confrelid, c.confdeltype
         from pg_constraint c
         join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
        where c.conrelid = ('public.' || r.tbl)::regclass
@@ -935,14 +947,31 @@ begin
         from unnest(con.conkey) with ordinality as k(attnum, ord)
         join pg_attribute a on a.attrelid = ('public.' || r.tbl)::regclass and a.attnum = k.attnum;
 
-      if array_length(keycols, 1) = 1 then
-        execute format('alter table public.%I drop constraint %I', r.tbl, con.conname);
-        raise notice 'Receivables: dropped legacy single-column FK %.% (%) -- superseded by the composite same-owner key.',
-          r.tbl, r.col, con.conname;
-      else
+      if array_length(keycols, 1) is distinct from 1 then
         raise exception 'Receivables SAFE STOP: public.%.% already carries a multi-column foreign key % over (%). Replacing a composite decision made elsewhere is not this migration''s call.',
           r.tbl, r.col, con.conname, array_to_string(keycols, ', ');
       end if;
+
+      -- THE TARGET. Same lesson as the quotes/transactions blocks: verifying the
+      -- child column alone would silently re-point the relationship.
+      if con.confrelid <> ('public.' || r.parent)::regclass then
+        raise exception 'Receivables SAFE STOP: legacy foreign key % on public.%.% references %, not public.%. Not replaced -- re-pointing an existing relationship is not this migration''s decision.',
+          con.conname, r.tbl, r.col, con.confrelid::regclass, r.parent;
+      end if;
+
+      select coalesce(array_agg(a.attname order by k.ord), array[]::name[])
+        into refcols
+        from unnest(con.confkey) with ordinality as k(attnum, ord)
+        join pg_attribute a on a.attrelid = con.confrelid and a.attnum = k.attnum;
+
+      if refcols is distinct from array['id']::name[] then
+        raise exception 'Receivables SAFE STOP: legacy foreign key % on public.%.% references %(%), not %(id). Not replaced.',
+          con.conname, r.tbl, r.col, r.parent, array_to_string(refcols, ', '), r.parent;
+      end if;
+
+      execute format('alter table public.%I drop constraint %I', r.tbl, con.conname);
+      raise notice 'Receivables: dropped legacy single-column FK %.% (%, ON DELETE %) -- superseded by the composite same-owner key declared in this file.',
+        r.tbl, r.col, con.conname, con.confdeltype;
     end loop;
   end loop;
 end;
@@ -1563,30 +1592,35 @@ $$;
 -- 12. NEGATIVE (a stored status cannot be written) -- as A:
 --       update public.charges set status='paid' where id='<HA>';
 --     -- expect ERROR 42703 column "status" does not exist.
--- 13. DELETION SEMANTICS, client side -- as A:
+-- 13. NEGATIVE (a cancelled charge refuses new payments) -- as A:
+--                                              [attempts a write; must FAIL]
+--     ORDER MATTERS: this control MUST run while <HA> still exists. Placed after
+--     the deletes below it would update zero rows, and the insert would then fail
+--     the composite FK with 23503 instead of exercising the trigger -- a control
+--     that "fails" for the wrong reason proves nothing.
+--       update public.charges set lifecycle='cancelled' where id='<HA>';  -- expect 1 row
+--       insert into public.payments (id,user_id,charge_id,amount,paid_at)
+--       values (gen_random_uuid(),'<A uuid>','<HA>',1.00,'2026-03-03');
+--     -- expect ERROR 23514 "charge ... is cancelled and cannot receive a payment".
+--     -- If this returns 23503 instead, <HA> is gone and the control did NOT run.
+--     -- Deleting an EXISTING payment on a cancelled charge must still succeed --
+--     -- that is the correction path, and refusing it would strand the mistake.
+--       update public.charges set lifecycle='open' where id='<HA>';       -- restore for 14-15
+-- 14. DELETION SEMANTICS, client side -- as A:
 --                              [⚠️ DESTRUCTIVE -- PERMANENTLY DELETES CLIENT KA]
 --       delete from public.clients where id='<KA>';                    -- expect 1 row
 --       select id, client_id, user_id from public.charges where id='<HA>';
 --     -- expect the charge STILL PRESENT, client_id NULL, user_id UNCHANGED.
 --     -- A failure here ("null value in column user_id") is the bare-SET-NULL bug.
--- 14. DELETION SEMANTICS, charge side -- as A:
+-- 15. DELETION SEMANTICS, charge side -- as A:
 --                              [⚠️ DESTRUCTIVE -- PERMANENTLY DELETES CHARGE HA]
 --       delete from public.charges where id='<HA>';                    -- expect 1 row
 --       select count(*) from public.payments where id='<PA>';          -- expect 0 (CASCADE)
--- 15. NEGATIVE (a cancelled charge refuses new payments) -- as A:
---                                              [attempts a write; must FAIL]
---       update public.charges set lifecycle='cancelled' where id='<HA>';
---       insert into public.payments (id,user_id,charge_id,amount,paid_at)
---       values (gen_random_uuid(),'<A uuid>','<HA>',1.00,'2026-03-03');
---     -- expect ERROR 23514 "charge ... is cancelled and cannot receive a payment".
---     -- Deleting an EXISTING payment on a cancelled charge must still succeed --
---     -- that is the correction path, and refusing it would strand the mistake.
---       update public.charges set lifecycle='open' where id='<HA>';  -- restore for 13-14
 -- 16. NEGATIVE (isolation) -- as A:
 --       select count(*) from public.charges where user_id='<B uuid>';  -- expect 0
 --
 -- ---------------- PART B CLEANUP -- required, and VERIFIED not assumed -------
--- HA, PA and KA are already gone (controls 13-14). Remove the rest, then PROVE
+-- HA, PA and KA are already gone (controls 14-15). Remove the rest, then PROVE
 -- it rather than trusting it:
 --       delete from public.clients where id='<KB>';        -- as B
 -- Verification query -- run as EACH account; expect 0 from every row:

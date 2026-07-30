@@ -109,11 +109,20 @@ describe('same-owner ownership is enforced by the KEY, not by a policy', () => {
     // still cascades the charge away — destroying the ledger-survival contract
     // this migration states.
     expect(code).toContain('dropped legacy single-column foreign key'.replace('foreign key', 'fk'));
-    expect(code).toMatch(/\('charges',\s*'client_id',\s*'charges_client_same_owner_fk'\)/);
-    expect(code).toMatch(/\('charges',\s*'quote_id',\s*'charges_quote_same_owner_fk'\)/);
-    expect(code).toMatch(/\('payments',\s*'charge_id',\s*'payments_charge_same_owner_fk'\)/);
+    expect(code).toMatch(/\('charges',\s*'client_id',\s*'charges_client_same_owner_fk',/);
+    expect(code).toMatch(/\('charges',\s*'quote_id',\s*'charges_quote_same_owner_fk',/);
+    expect(code).toMatch(/\('payments',\s*'charge_id',\s*'payments_charge_same_owner_fk',/);
     // ...and a multi-column key it did not create is a SAFE STOP, not a drop.
     expect(code).toContain('already carries a multi-column foreign key');
+    // Codex round 11, P1: "it is single-column" is not a check. The sweep must
+    // VERIFY THE TARGET before dropping, or a legacy charges.client_id pointing
+    // somewhere else would be silently re-pointed at clients(id, user_id) — the
+    // same omission already corrected once for quotes and transactions.
+    expect(code).toContain('not replaced -- re-pointing an existing relationship is not this migration');
+    expect(code).toMatch(/references %\(%\), not %\(id\)/);
+    expect(code).toMatch(/con\.confrelid <> \('public\.' \|\| r\.parent\)::regclass/);
+    expect(code).toMatch(/\('charges',\s+'client_id',\s+'charges_client_same_owner_fk',\s+'clients'\)/);
+    expect(code).toMatch(/\('payments',\s+'charge_id',\s+'payments_charge_same_owner_fk',\s+'charges'\)/);
     // The sweep must run BEFORE the composite keys are added.
     expect(code.indexOf('dropped legacy single-column fk'))
       .toBeLessThan(code.indexOf('add constraint charges_client_same_owner_fk'));
@@ -558,6 +567,24 @@ describe('scope — additive, idempotent, and no next-slice bleed', () => {
 
   it('requires PostgreSQL 15+ for the column-list SET NULL form', () => {
     expect(code).toContain("current_setting('server_version_num')::int < 150000");
+  });
+});
+
+describe('the PART B acceptance script is runnable in its numbered order', () => {
+  it('the cancelled-charge control runs BEFORE the destructive deletes', () => {
+    // Codex round 11, P2: placed after the charge delete, the UPDATE would
+    // affect zero rows and the insert would fail the composite FK with 23503
+    // instead of exercising the trigger — a control that fails for the wrong
+    // reason proves nothing.
+    const cancelled = sql.indexOf('13. negative (a cancelled charge refuses new payments)');
+    const delClient = sql.indexOf('14. deletion semantics, client side');
+    const delCharge = sql.indexOf('15. deletion semantics, charge side');
+    expect(cancelled).toBeGreaterThan(-1);
+    expect(delClient).toBeGreaterThan(cancelled);
+    expect(delCharge).toBeGreaterThan(delClient);
+    // ...and the script says what a wrong-reason failure looks like.
+    expect(sql).toContain('if this returns 23503 instead, <ha> is gone and the control did not run');
+    expect(sql).toContain('restore for 14-15');
   });
 });
 

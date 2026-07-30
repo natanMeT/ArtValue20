@@ -162,11 +162,27 @@ export function reducer(state, action) {
     }
     case 'DELETE_CLIENT': {
       const gone = state.clients.find((c) => c.id === action.id);
+      // F1: MIRROR THE DATABASE. charges_client_same_owner_fk is
+      // ON DELETE SET NULL (client_id) and quotes cascade — so after this delete
+      // the server holds charges with client_id NULL, and with quote_id NULL for
+      // any charge that pointed at one of the cascaded quotes. Leaving the local
+      // charge objects carrying the dead ids means opening and saving that charge
+      // resubmits a reference that no longer exists and fails the FK.
+      const goneQuoteIds = new Set(state.quotes.filter((q) => q.clientId === action.id).map((q) => q.id));
       return {
         ...state,
         clients: state.clients.filter((c) => c.id !== action.id),
         quotes: state.quotes.filter((q) => q.clientId !== action.id),
         transactions: state.transactions.filter((t) => !(t.auto && t.clientId === action.id)),
+        charges: (state.charges || []).map((c) => (
+          (c.clientId === action.id || goneQuoteIds.has(c.quoteId))
+            ? {
+              ...c,
+              clientId: c.clientId === action.id ? null : c.clientId,
+              quoteId: goneQuoteIds.has(c.quoteId) ? null : c.quoteId,
+            }
+            : c
+        )),
         activity: gone ? pushAct(state, act('client_delete', `נמחק לקוח "${gone.name}"`, { entity: 'client', name: gone.name })) : state.activity,
       };
     }
@@ -176,7 +192,13 @@ export function reducer(state, action) {
     case 'UPDATE_QUOTE':
       return { ...state, quotes: state.quotes.map((q) => (q.id === action.payload.id ? { ...q, ...action.payload } : q)) };
     case 'DELETE_QUOTE':
-      return { ...state, quotes: state.quotes.filter((q) => q.id !== action.id) };
+      return {
+        ...state,
+        quotes: state.quotes.filter((q) => q.id !== action.id),
+        // F1: mirrors charges_quote_same_owner_fk ON DELETE SET NULL (quote_id).
+        // A charge outlives the quote it came from; only the link goes.
+        charges: (state.charges || []).map((c) => (c.quoteId === action.id ? { ...c, quoteId: null } : c)),
+      };
 
     case 'ADD_TX': {
       const tx = { ...action.payload, id: action.payload.id || uid('tx') };

@@ -207,6 +207,39 @@ describe('store reducer · the receivables state transitions (REAL reducer)', ()
     expect(out.transactions).toHaveLength(1);
   });
 
+  it('DELETE_CLIENT nulls the charge links the DATABASE would null', () => {
+    // Codex round 11, P2: charges_client_same_owner_fk is SET NULL (client_id)
+    // and quotes cascade, so after the server delete the charge holds NULL for
+    // both. Leaving the dead ids in local state means opening and saving that
+    // charge resubmits a reference that no longer exists and fails the FK.
+    let s = { ...base, clients: [{ id: 'cl1', name: 'X' }], quotes: [{ id: 'q1', clientId: 'cl1' }] };
+    s = reducer(s, { type: 'ADD_CHARGE', payload: { id: 'ch1', clientId: 'cl1', quoteId: 'q1', amountTotal: 100, lifecycle: 'open' } });
+    s = reducer(s, { type: 'DELETE_CLIENT', id: 'cl1' });
+    expect(s.charges).toHaveLength(1);           // the charge SURVIVES (ledger rule)
+    expect(s.charges[0].clientId).toBe(null);    // ...with the link cleared
+    expect(s.charges[0].quoteId).toBe(null);     // ...including the cascaded quote
+    expect(s.charges[0].amountTotal).toBe(100);  // ...and nothing else touched
+  });
+
+  it('DELETE_QUOTE nulls only the quote link', () => {
+    let s = reducer({ ...base, quotes: [{ id: 'q1', clientId: 'cl1' }] },
+      { type: 'ADD_CHARGE', payload: { id: 'ch1', clientId: 'cl1', quoteId: 'q1', amountTotal: 100, lifecycle: 'open' } });
+    s = reducer(s, { type: 'DELETE_QUOTE', id: 'q1' });
+    expect(s.charges[0].quoteId).toBe(null);
+    expect(s.charges[0].clientId).toBe('cl1');   // the client link is untouched
+  });
+
+  it('an UNRELATED client or quote delete leaves charge links alone', () => {
+    // Positive control for the two cases above: a filter that nulled everything
+    // would pass them both.
+    let s = { ...base, clients: [{ id: 'cl2', name: 'Y' }], quotes: [{ id: 'q2', clientId: 'cl2' }] };
+    s = reducer(s, { type: 'ADD_CHARGE', payload: { id: 'ch1', clientId: 'cl1', quoteId: 'q1', amountTotal: 100, lifecycle: 'open' } });
+    s = reducer(s, { type: 'DELETE_CLIENT', id: 'cl2' });
+    s = reducer(s, { type: 'DELETE_QUOTE', id: 'q2' });
+    expect(s.charges[0].clientId).toBe('cl1');
+    expect(s.charges[0].quoteId).toBe('q1');
+  });
+
   it('CANCEL_CHARGE flips lifecycle only — the payments stay recorded', () => {
     let s = reducer(base, { type: 'ADD_CHARGE', payload: { id: 'ch1', amountTotal: 1000, lifecycle: 'open' } });
     s = reducer(s, { type: 'ADD_PAYMENT', payload: { id: 'p1', chargeId: 'ch1', amount: 400 } });
