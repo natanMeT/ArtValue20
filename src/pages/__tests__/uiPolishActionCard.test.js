@@ -135,6 +135,19 @@ describe('module primary CTAs are module-specific', () => {
     expect(schedule.includes('ליד חדש')).toBe(false);
   });
 
+  it('the GLOBAL sidebar CTA names what it does, not a per-module lead action', () => {
+    // Owner-authorized one-line exception to the frozen-file rule (method §15).
+    // The button still navigates to /intake — only the label changed. It sat
+    // above EVERY module reading as that module's primary action.
+    const sidebar = read('../../components/layout/Sidebar.jsx');
+    expect(sidebar.includes('ליד חדש')).toBe(false);
+    expect(sidebar.includes('לקוח חדש')).toBe(true);
+    // The behaviour it is attached to is unchanged — this was a label fix, not
+    // a navigation change.
+    expect(sidebar.includes("navigate('/intake')")).toBe(true);
+    expect(sidebar.includes('sidebar-cta')).toBe(true);
+  });
+
   it('POSITIVE CONTROL: the lead-intake module legitimately still says it', () => {
     // Proves the assertions above are a real signal and not a broken query:
     // the one module whose subject IS a new lead keeps the wording.
