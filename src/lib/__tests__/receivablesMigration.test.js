@@ -142,6 +142,38 @@ describe('deletion semantics — preserved exactly, and never a bare SET NULL', 
     expect(code).toContain("if c.confdeltype <> 'n' then");
   });
 
+  it('"no payment on a cancelled charge" is a SERVER rule, not a UI rule', () => {
+    // Codex round 4, P2: the client guard reads a `charge` prop captured when the
+    // modal opened, so another device cancelling it in between (or any direct API
+    // caller) walked straight past it. A CHECK cannot do this — it sees one row of
+    // one table and cannot read the parent charge — so it is a trigger, the same
+    // shape as trg_campaigns_status_transition.
+    expect(code).toContain('create or replace function public.payment_reject_cancelled_charge');
+    expect(code).toContain('create trigger trg_payments_reject_cancelled before insert or update on public.payments');
+    expect(code).toMatch(/select c\.lifecycle into parent_lifecycle/);
+    expect(code).toMatch(/where c\.id = new\.charge_id and c\.user_id = new\.user_id/);
+    expect(code).toContain("if found and parent_lifecycle = 'cancelled' then");
+    expect(code).toContain("using errcode = '23514'");
+    // SECURITY INVOKER on purpose: it reads charges as the caller, so RLS applies
+    // and a charge the caller cannot see simply yields no row (the composite FK
+    // refuses that insert anyway). Elevated rights would widen the surface for
+    // nothing.
+    const decl = code.slice(code.indexOf('create or replace function public.payment_reject_cancelled_charge'));
+    expect(decl.slice(0, decl.indexOf('$$;'))).toContain('security invoker');
+    // ...and the migration asserts the trigger exists once applied.
+    expect(code).toContain('trg_payments_reject_cancelled is missing');
+  });
+
+  it('requires the auth.users FK to reference exactly `id`', () => {
+    // Codex round 4, P2: the ownership repair checked the child column, the
+    // parent table and the cascade — but not confkey — so an FK to some other
+    // unique column on auth.users would have been accepted as correct, skipping
+    // the SAFE STOP while not enforcing what it claims. Both the repair and the
+    // postflight now resolve the referenced attribute.
+    expect((code.match(/= array\['id'\]::name\[\]/g) || []).length).toBe(2);
+    expect(code).toMatch(/from unnest\(c\.confkey\) with ordinality/);
+  });
+
   it('repairs a MISSING ownership FK on a pre-existing table, and asserts it', () => {
     // Codex round 3, P2: `create table if not exists` cannot add the auth.users
     // FK, so a pre-existing table with a plain NOT NULL user_id would satisfy
@@ -281,18 +313,22 @@ describe('RLS — four plain policies per table, no quota, no counter function',
     });
   }
 
-  it('declares NO function at all — so no SECURITY DEFINER, and no anon-grant hole', () => {
-    // The only `create function` permitted is the canonical set_updated_at
-    // helper, which is SECURITY INVOKER and already live.
+  it('declares no SECURITY DEFINER function, and no anon-grant hole', () => {
+    // Two functions only: the canonical set_updated_at helper and the
+    // cancelled-charge trigger. BOTH are SECURITY INVOKER, so the
+    // revoke-execute-from-anon class of bug (20260728130000) cannot apply.
     const fns = [...code.matchAll(/create\s+(?:or\s+replace\s+)?function\s+public\.(\w+)/g)].map((m) => m[1]);
-    expect(fns).toEqual(['set_updated_at']);
+    expect(fns.sort()).toEqual(['payment_reject_cancelled_charge', 'set_updated_at']);
     // Asserted on the DECLARATION, not on the file: the assertion block quotes
     // the phrase "SECURITY DEFINER" inside a raise-exception STRING, and a
     // file-wide scan would match that prose and call the check green for the
     // wrong reason (the mistake this repo has now measured three times).
-    const decl = code.slice(code.indexOf('create or replace function public.set_updated_at'));
-    const body = decl.slice(0, decl.search(/\$[a-z_]*\$\s*;/i));
-    expect(body).not.toContain('security definer');
+    for (const fn of ['set_updated_at', 'payment_reject_cancelled_charge']) {
+      const decl = code.slice(code.indexOf(`create or replace function public.${fn}`));
+      const body = decl.slice(0, decl.search(/\$[a-z_]*\$\s*;/i));
+      expect(body, `${fn} must not be SECURITY DEFINER`).not.toContain('security definer');
+      expect(body, `${fn} must declare SECURITY INVOKER or default`).toBeTruthy();
+    }
     // ...and nothing anywhere GRANTS execute, because nothing new is executable.
     expect(code).not.toMatch(/grant execute on function/);
   });

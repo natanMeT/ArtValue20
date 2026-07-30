@@ -31,6 +31,12 @@ export default function PaymentModal({
   // A cancelled charge is not a claim, so no NEW payment may be recorded against
   // it. The modal still opens on one — it is the only surface that can delete a
   // payment, and a cancelled charge's payments are still in actual revenue.
+  //
+  // ADVISORY, like every other client rule in this slice: this prop is whatever
+  // the charge was when the modal opened, so another device cancelling it in the
+  // meantime would leave `cancelled` false here. The AUTHORITY is
+  // trg_payments_reject_cancelled on public.payments, which refuses the insert
+  // with 23514 regardless of what any screen believes.
   const cancelled = charge?.lifecycle === 'cancelled';
   const balance = openBalance(charge?.amountTotal, received);
   const status = chargePaymentStatus(charge?.amountTotal, received);

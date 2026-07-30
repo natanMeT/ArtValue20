@@ -84,9 +84,12 @@
 --   L2 MATCH SIMPLE. A NULL client_id / quote_id skips its FK check entirely.
 --      That IS the optionality: a charge may exist without a quote, and must
 --      survive its client being deleted.
---   L3 Lifecycle has no transition trigger. open <-> cancelled is symmetric and
---      loses nothing, so the CHECK domain is the whole rule. (Campaigns needed a
---      trigger because its graph is directed and terminal; this one is not.)
+--   L3 Lifecycle has no TRANSITION trigger. open <-> cancelled is symmetric and
+--      loses nothing, so the CHECK domain is the whole rule for the charge
+--      itself. (Campaigns needed one because its graph is directed and terminal;
+--      this one is not.) The separate rule that a CANCELLED charge may not
+--      receive a payment IS enforced server-side, by
+--      trg_payments_reject_cancelled on public.payments.
 --   L4 No account-deletion cleanup beyond `on delete cascade` on user_id.
 --   L5 tasks.client_id remains a SINGLE-COLUMN FK. It is outside this slice's
 --      approved file/scope list and is reported, not fixed here.
@@ -460,6 +463,14 @@ begin
                 from unnest(c.conkey) with ordinality as k(attnum, ord)
                 join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
              = array['user_id']::name[]
+         -- The REFERENCED column too, not just the referenced table: an FK to
+         -- some other unique column on auth.users would satisfy every other
+         -- clause here and still not be the constraint this migration declares.
+         -- (The same omission the composite-key blocks were corrected for.)
+         and (select array_agg(a.attname order by k.ord)
+                from unnest(c.confkey) with ordinality as k(attnum, ord)
+                join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum)
+             = array['id']::name[]
          and c.confdeltype = 'c'
     ) then
       continue; -- already correct (the fresh-install path)
@@ -756,6 +767,57 @@ create trigger trg_charges_updated before update on public.charges
 drop trigger if exists trg_payments_updated on public.payments;
 create trigger trg_payments_updated before update on public.payments
   for each row execute function public.set_updated_at();
+
+-- ===================================================================
+-- NO PAYMENT AGAINST A CANCELLED CHARGE — enforced HERE, not by the screen.
+--
+-- The client refuses this too, but a client refusal is advisory by definition:
+-- a modal opened while the charge was open still holds `lifecycle: 'open'` after
+-- another device cancels it, and any direct API caller bypasses the UI entirely.
+-- A rule that only the current screen state enforces is not a rule.
+--
+-- WHY A TRIGGER AND NOT A CHECK: a CHECK sees one row of ONE table and cannot
+-- read the parent charge. This is the same shape as
+-- trg_campaigns_status_transition, for the same reason.
+--
+-- SECURITY INVOKER, deliberately: it reads public.charges as the caller, so RLS
+-- applies. If the caller cannot see the charge the query returns no row and this
+-- trigger stays silent — which is correct, because the composite foreign key
+-- refuses that insert anyway (cross-account) a moment later. The trigger only
+-- ever refuses a charge the caller CAN see and that IS cancelled, so it can
+-- never block a legitimate write.
+--
+-- errcode 23514 (check_violation) so the client can map it to a truthful message
+-- without string-matching.
+--
+-- It fires on UPDATE as well: payments are immutable in the product today, but
+-- "today" is not an enforcement mechanism, and re-pointing a payment onto a
+-- cancelled charge is the same act as inserting one.
+-- ===================================================================
+create or replace function public.payment_reject_cancelled_charge()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  parent_lifecycle text;
+begin
+  select c.lifecycle into parent_lifecycle
+    from public.charges c
+   where c.id = new.charge_id and c.user_id = new.user_id;
+
+  if found and parent_lifecycle = 'cancelled' then
+    raise exception 'payments: charge % is cancelled and cannot receive a payment', new.charge_id
+      using errcode = '23514';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_payments_reject_cancelled on public.payments;
+create trigger trg_payments_reject_cancelled before insert or update on public.payments
+  for each row execute function public.payment_reject_cancelled_charge();
 
 -- ===================================================================
 -- PART 5 — ROW LEVEL SECURITY.
@@ -1072,6 +1134,16 @@ begin
     end if;
   end loop;
 
+  -- ---- the cancelled-charge rule is a SERVER rule ----
+  if not exists (
+    select 1 from pg_trigger
+     where tgrelid = 'public.payments'::regclass
+       and not tgisinternal
+       and tgname = 'trg_payments_reject_cancelled'
+  ) then
+    raise exception 'Receivables FAILED: trg_payments_reject_cancelled is missing. "No payment against a cancelled charge" would then depend on current UI state, which is not enforcement.';
+  end if;
+
   -- ---- ownership cascades to auth.users (declared limitation L4) ----
   for r in select unnest(array['charges', 'payments']) as tbl loop
     if not exists (
@@ -1083,6 +1155,10 @@ begin
                 from unnest(c.conkey) with ordinality as k(attnum, ord)
                 join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
              = array['user_id']::name[]
+         and (select array_agg(a.attname order by k.ord)
+                from unnest(c.confkey) with ordinality as k(attnum, ord)
+                join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum)
+             = array['id']::name[]
          and c.confdeltype = 'c'
     ) then
       raise exception 'Receivables FAILED: public.%.user_id does not REFERENCE auth.users(id) ON DELETE CASCADE. Deleting an account would orphan its financial rows.', r.tbl;
@@ -1205,7 +1281,16 @@ $$;
 --                              [⚠️ DESTRUCTIVE -- PERMANENTLY DELETES CHARGE HA]
 --       delete from public.charges where id='<HA>';                    -- expect 1 row
 --       select count(*) from public.payments where id='<PA>';          -- expect 0 (CASCADE)
--- 15. NEGATIVE (isolation) -- as A:
+-- 15. NEGATIVE (a cancelled charge refuses new payments) -- as A:
+--                                              [attempts a write; must FAIL]
+--       update public.charges set lifecycle='cancelled' where id='<HA>';
+--       insert into public.payments (id,user_id,charge_id,amount,paid_at)
+--       values (gen_random_uuid(),'<A uuid>','<HA>',1.00,'2026-03-03');
+--     -- expect ERROR 23514 "charge ... is cancelled and cannot receive a payment".
+--     -- Deleting an EXISTING payment on a cancelled charge must still succeed --
+--     -- that is the correction path, and refusing it would strand the mistake.
+--       update public.charges set lifecycle='open' where id='<HA>';  -- restore for 13-14
+-- 16. NEGATIVE (isolation) -- as A:
 --       select count(*) from public.charges where user_id='<B uuid>';  -- expect 0
 --
 -- ---------------- PART B CLEANUP -- required, and VERIFIED not assumed -------

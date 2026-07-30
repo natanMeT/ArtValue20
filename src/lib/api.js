@@ -658,7 +658,10 @@ export async function deleteCampaign(campaignId) {
 //
 // Every client-side rule invoked here is ADVISORY (a truthful pre-refusal). The
 // server is the authority: RLS for ownership, the five composite foreign keys
-// for same-owner relationships, the CHECK constraints for domains and bounds.
+// for same-owner relationships, the CHECK constraints for domains and bounds,
+// and trg_payments_reject_cancelled for "no payment against a cancelled charge"
+// — which is why createPayment does not pre-check the lifecycle: a client-side
+// snapshot of it could be stale, and the refusal is the server's to make.
 // ===================================================================
 
 /** The signed-in account's charges, soonest due first. RLS scopes the select. */

@@ -42,6 +42,7 @@
 //   * invoice_url <= 2048       -> charges_invoice_url_bounded
 //   * ownership                 -> RLS, four policies per table
 //   * same-owner relationships  -> the five COMPOSITE foreign keys
+//   * no payment on a cancelled charge -> trg_payments_reject_cancelled (23514)
 // When the two disagree, the SERVER wins and its refusal is surfaced as a
 // failure. This file never decides that a write succeeded.
 // ===================================================================

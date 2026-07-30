@@ -529,8 +529,21 @@ describe('PaymentModal · suggests the BALANCE, and is honest about overpayment'
   it('...but no NEW payment can be recorded against a cancelled charge', () => {
     expect(paymentModal).toContain("const cancelled = charge?.lifecycle === 'cancelled';");
     expect(paymentModal).toContain('disabled={saving || cancelled}');
-    expect(paymentModal).toContain('if (cancelled) return;'); // the rule, not just the button
+    expect(paymentModal).toContain('if (cancelled) return;'); // not just the button
     expect(paymentModal).toContain('החיוב בוטל, ולכן לא ניתן לרשום עליו תשלום חדש');
+  });
+
+  it('and the client guard is declared ADVISORY — the server is the authority', () => {
+    // Codex round 4, P2: this prop is a snapshot from when the modal opened, so
+    // another device cancelling the charge in between would walk straight past
+    // it, as would any direct API caller. The rule lives in
+    // trg_payments_reject_cancelled; the client only makes the refusal readable.
+    expect(paymentModal).toContain('trg_payments_reject_cancelled');
+    expect(paymentModal).toMatch(/ADVISORY/);
+    expect(api).toContain('trg_payments_reject_cancelled');
+    // createPayment deliberately does NOT pre-check the lifecycle client-side.
+    const createPayment = api.slice(api.indexOf('export async function createPayment('), api.indexOf('/** Delete ONE payment'));
+    expect(createPayment).not.toContain('cancelled');
   });
 
   it('offers a CORRECTION path — a mistyped payment can be removed', () => {
