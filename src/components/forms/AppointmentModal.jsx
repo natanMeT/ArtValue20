@@ -82,7 +82,7 @@ export default function AppointmentModal({
       onClose={onClose}
       title={initial ? 'עריכת רישום ביומן' : 'רישום חדש ביומן'}
       subtitle="תור, שיעור או אירוע — מתי, עם מי, וכמה זמן"
-      maxWidth={620}
+      maxWidth={680}
       footer={(
         <>
           <button className="btn btn-ghost" onClick={onClose}>ביטול</button>

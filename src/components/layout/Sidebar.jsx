@@ -26,7 +26,7 @@ export default function Sidebar({ open, onClose }) {
         </div>
 
         <button className="btn btn-primary btn-block sidebar-cta" onClick={() => { navigate('/intake'); onClose?.(); }}>
-          <Icon name="plus" size={18} /> ליד חדש
+          <Icon name="plus" size={18} /> לקוח חדש
         </button>
 
         <nav className="nav">

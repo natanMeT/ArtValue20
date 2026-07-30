@@ -30,7 +30,17 @@ export default function Pipeline() {
 
   return (
     <div>
-      <SectionHeader title="פייפליין" sub={`ניהול מכירות והתקדמות · שווי כולל ${formatCurrency(total)}`} />
+      <SectionHeader
+        title="פייפליין"
+        sub={`ניהול מכירות והתקדמות · שווי כולל ${formatCurrency(total)}`}
+        // Module-specific CTA — the pipeline is fed by client records, so its
+        // primary action is adding one, not the global new-lead button.
+        action={(
+          <button className="btn btn-primary" onClick={() => navigate('/intake')}>
+            <Icon name="userPlus" size={17} /> לקוח חדש
+          </button>
+        )}
+      />
       <div className="kanban">
         {PIPELINE_STAGES.map((stage) => {
           const items = byStage[stage.id] || [];

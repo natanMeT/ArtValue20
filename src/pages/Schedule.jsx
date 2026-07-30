@@ -175,7 +175,9 @@ export default function Schedule() {
         )}
       />
 
-      <div className="kpi-grid" style={{ marginBottom: 16 }}>
+      {/* kpi-grid-3: the base .kpi-grid is a hard 5-column grid, which laid these
+          three tiles out at 1/5 width each with two empty columns trailing. */}
+      <div className="kpi-grid kpi-grid-3" style={{ marginBottom: 16 }}>
         <Kpi label="להיום" value={counts.today} icon="clock" accent />
         <Kpi label="השבוע" value={counts.week} icon="calendar" />
         <Kpi label="מתוכננים" value={counts.planned} icon="check" />
@@ -205,11 +207,22 @@ export default function Schedule() {
             hint={tab === 'all'
               ? 'אפשר להוסיף תור, שיעור או אירוע — עם לקוח ומשימה, או בלעדיהם.'
               : 'הרשימות של היום והשבוע מציגות רישומים מתוכננים בלבד. רישום שבוטל או שכבר התקיים נשאר ביומן, תחת "הכל".'}
+            // Module-specific CTA. Reachable only past the cloud-mode guard
+            // above, so it can never offer a form that would persist nothing.
+            action={(
+              <button className="btn btn-primary" onClick={openNew} disabled={busy}>
+                <Icon name="plus" size={16} /> רישום חדש
+              </button>
+            )}
           />
         ) : (
           groups.map((g) => (
             <div key={g.day} style={{ marginBottom: 18 }}>
               <div className="panel-title" style={{ marginBottom: 8 }}>{g.day}</div>
+              {/* table-wrap: seven columns including a multi-button action cell
+                  overflow the card on narrow viewports; without this the row
+                  was cropped rather than scrollable. */}
+              <div className="table-wrap">
               <table className="table">
                 <thead>
                   <tr>
@@ -267,6 +280,7 @@ export default function Schedule() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           ))
         )}

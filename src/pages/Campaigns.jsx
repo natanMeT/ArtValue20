@@ -125,6 +125,7 @@ export default function Campaigns() {
           <label>
             שם הקמפיין
             <input
+              className="input"
               value={form.title}
               maxLength={CAMPAIGN_LIMITS.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
@@ -134,6 +135,7 @@ export default function Campaigns() {
           <label>
             מטרה
             <input
+              className="input"
               value={form.objective}
               maxLength={CAMPAIGN_LIMITS.objective}
               onChange={(e) => setForm({ ...form, objective: e.target.value })}
@@ -144,11 +146,14 @@ export default function Campaigns() {
         <div className="form-row">
           <label>
             תאריך התחלה
-            <input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
+            {/* className="input" + dir="ltr": these two were the only bare date
+                inputs in the product, so they inherited nothing and rendered as
+                white native boxes on the dark form. */}
+            <input className="input" type="date" dir="ltr" style={{ textAlign: 'right' }} value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
           </label>
           <label>
             תאריך סיום
-            <input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
+            <input className="input" type="date" dir="ltr" style={{ textAlign: 'right' }} value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
           </label>
         </div>
 
@@ -178,6 +183,7 @@ export default function Campaigns() {
         </div>
       ) : (
         <div className="card panel">
+          <div className="table-wrap">
           <table className="table">
             <thead>
               <tr>
@@ -219,6 +225,7 @@ export default function Campaigns() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>
