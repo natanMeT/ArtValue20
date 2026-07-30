@@ -392,6 +392,22 @@ describe('columns, bounds and defaults', () => {
     expect(code).toMatch(/service_date\s+date not null/);
   });
 
+  it('validates the timestamp columns the updated_at trigger writes', () => {
+    // Codex round 6, P2: `add column if not exists updated_at` no-ops on a
+    // pre-existing table, so an incompatible or GENERATED updated_at survives —
+    // the migration then succeeds, installs the trigger, and every later UPDATE
+    // fails inside set_updated_at() when it assigns now(). Checked BEFORE any
+    // trigger is installed, and asserted again afterwards.
+    expect(code).toContain('set_updated_at() assigns now() to it, so every update would fail');
+    expect(code).toContain('is not a plain assignable timestamptz with a default');
+    expect(code).toMatch(/\(is_generated <> 'never' or is_updatable = 'no'\)/);
+    expect(code).toMatch(/\('charges',\s*'created_at'\), \('charges',\s*'updated_at'\)/);
+    expect(code).toMatch(/\('payments',\s*'created_at'\), \('payments',\s*'updated_at'\)/);
+    // ...and it really is BEFORE the trigger creation.
+    expect(code.indexOf('set_updated_at() assigns now() to it'))
+      .toBeLessThan(code.indexOf('create trigger trg_charges_updated'));
+  });
+
   it('the migration asserts type, nullability, generated state and defaults itself', () => {
     expect(code).toContain("is_generated = 'never'");
     expect(code).toContain('column_default is not distinct from r.def');

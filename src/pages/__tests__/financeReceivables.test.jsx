@@ -360,7 +360,12 @@ describe('api · a payment writes to payments and to nothing else', () => {
     expect(bulk.indexOf("from('payments').insert(paymentRows)"))
       .toBeLessThan(bulk.indexOf(".update({ lifecycle: 'cancelled' })"));
     // What could not be imported is COUNTED, not silently dropped.
+    // Codex round 6, P2: a charge the CURRENT validator rejects is skipped, and
+    // that strands its payments too — both losses are counted and returned, so a
+    // restore cannot claim success while quietly losing receivables.
+    expect(bulk).toContain('chargesSkipped += 1');
     expect(bulk).toContain('paymentsSkipped');
+    expect(bulk).toContain('chargesSkipped, paymentsSkipped,');
     expect(bulk).toMatch(/charges: chargeRows\.length, payments: paymentRows\.length/);
   });
 

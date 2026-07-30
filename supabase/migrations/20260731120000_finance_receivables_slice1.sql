@@ -286,7 +286,47 @@ begin
     end if;
   end loop;
 
-  -- (g) PAYMENT STATUS MUST NOT BE A COLUMN. If some earlier hand-run left one
+  -- (g) THE TIMESTAMP COLUMNS THE updated_at TRIGGER WRITES.
+  -- `add column if not exists updated_at` no-ops on a pre-existing table, so an
+  -- `updated_at` of an incompatible type — or a GENERATED one — would survive
+  -- this migration untouched. The migration would then SUCCEED, install
+  -- trg_charges_updated / trg_payments_updated, and every subsequent edit or
+  -- cancellation would fail inside set_updated_at() when it assigns now(). The
+  -- failure would surface only on the first UPDATE, long after the apply.
+  -- Checked BEFORE any trigger is installed; a mismatch is a SAFE STOP because
+  -- changing the type of an existing timestamp column is a data decision.
+  for r in
+    select * from (values
+      ('charges',  'created_at'), ('charges',  'updated_at'),
+      ('payments', 'created_at'), ('payments', 'updated_at')
+    ) as t(tbl, col)
+  loop
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = r.tbl and column_name = r.col
+    ) then
+      if not exists (
+        select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = r.tbl and column_name = r.col
+          and data_type = 'timestamp with time zone'
+      ) then
+        raise exception 'Receivables SAFE STOP: public.%.% already exists and is not timestamptz (found %). set_updated_at() assigns now() to it, so every UPDATE would fail after this migration.',
+          r.tbl, r.col,
+          (select data_type from information_schema.columns
+            where table_schema = 'public' and table_name = r.tbl and column_name = r.col);
+      end if;
+      if exists (
+        select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = r.tbl and column_name = r.col
+          and (is_generated <> 'NEVER' or is_updatable = 'NO')
+      ) then
+        raise exception 'Receivables SAFE STOP: public.%.% already exists as a GENERATED or non-updatable column. The updated_at trigger assigns it directly and every UPDATE would fail.',
+          r.tbl, r.col;
+      end if;
+    end if;
+  end loop;
+
+  -- (h) PAYMENT STATUS MUST NOT BE A COLUMN. If some earlier hand-run left one
   -- behind, this migration will not quietly adopt it -- the whole design is that
   -- status is derived from the amounts and cannot be written.
   if exists (
@@ -1140,6 +1180,25 @@ begin
           r.child, r.con, r.setcol,
           coalesce(nullif(array_to_string(setcols, ', '), ''), '<all key columns>'), r.child;
       end if;
+    end if;
+  end loop;
+
+  -- ---- the timestamp columns the updated_at triggers write ----
+  for r in
+    select * from (values
+      ('charges',  'created_at'), ('charges',  'updated_at'),
+      ('payments', 'created_at'), ('payments', 'updated_at')
+    ) as t(tbl, col)
+  loop
+    if not exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = r.tbl and column_name = r.col
+        and data_type = 'timestamp with time zone'
+        and is_generated = 'NEVER' and is_updatable = 'YES'
+        and column_default is not null
+    ) then
+      raise exception 'Receivables FAILED: public.%.% is not a plain assignable timestamptz with a default. The updated_at trigger writes it on every UPDATE.',
+        r.tbl, r.col;
     end if;
   end loop;
 

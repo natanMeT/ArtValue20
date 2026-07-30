@@ -369,6 +369,12 @@ export async function bulkUpload(userId, data) {
   const chargeIdMap = {};
   const chargeRows = [];
   const cancelledChargeIds = [];
+  // A charge the CURRENT validator rejects (a legacy kind, a malformed date) is
+  // skipped rather than half-written — and skipping it also strands every
+  // payment that pointed at it, since no id mapping exists. Both losses are
+  // COUNTED and returned: an import that quietly loses receivables while
+  // reporting success is the false-success failure this codebase keeps closing.
+  let chargesSkipped = 0;
   for (const c of data.charges || []) {
     const v = validateCharge({
       ...c,
@@ -381,7 +387,7 @@ export async function bulkUpload(userId, data) {
       // is left to the validator so it stays consistent with the terms.
       dueDate: c.dueDateSource === 'manual' ? c.dueDate : '',
     });
-    if (!v.ok) continue;
+    if (!v.ok) { chargesSkipped += 1; continue; }
     const id = uuid();
     chargeIdMap[c.id] = id;
     chargeRows.push({
@@ -432,7 +438,8 @@ export async function bulkUpload(userId, data) {
   return {
     clients: clientRows.length, quotes: quoteRows.length, transactions: txRows.length,
     leads: leadRows.length, tasks: taskRows.length, businessProfile,
-    charges: chargeRows.length, payments: paymentRows.length, paymentsSkipped,
+    charges: chargeRows.length, payments: paymentRows.length,
+    chargesSkipped, paymentsSkipped,
   };
 }
 
