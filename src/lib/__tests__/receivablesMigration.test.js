@@ -249,8 +249,8 @@ describe('the cross-owner data proof runs BEFORE anything is altered', () => {
     expect(code).toContain("if r.required and to_regclass('public.' || r.tbl) is not null");
     // ...and the two columns the additive section DOES create are exempt, so the
     // check is not merely "refuse everything".
-    expect(code).toMatch(/\('charges',\s*'client_id',\s*'uuid',\s*'yes',\s*false\)/);
-    expect(code).toMatch(/\('charges',\s*'quote_id',\s*'text',\s*'yes',\s*false\)/);
+    expect(code).toMatch(/\('charges',\s*'client_id',\s*'uuid',\s*'yes',\s*false\s*,/);
+    expect(code).toMatch(/\('charges',\s*'quote_id',\s*'text',\s*'yes',\s*false\s*,/);
     expect(code).toContain('add column if not exists client_id       uuid');
   });
 
@@ -396,9 +396,31 @@ describe('columns, bounds and defaults', () => {
     // additively when absent).
     for (const col of ['kind', 'payment_terms', 'due_date_source', 'lifecycle', 'description', 'invoice_url']) {
       expect(code, `${col} must be shape-checked`).toMatch(
-        new RegExp(String.raw`\('charges',\s+'${col}',\s+'text',\s+'(no|yes)'\s*,\s*false\)`),
+        new RegExp(String.raw`\('charges',\s+'${col}',\s+'text',\s+'(no|yes)'\s*,\s*false\s*,`),
       );
     }
+  });
+
+  it('compares the expected DEFAULT pre-DDL, not only in the postflight', () => {
+    // Codex round 8, P2: type + nullability + generated state is not the full
+    // shape. `kind text NOT NULL DEFAULT 'deposit'` passes all three, and the
+    // postflight — which DOES require the exact default — aborts only after the
+    // ALTERs have run, mid-DDL, instead of at the promised pre-DDL SAFE STOP.
+    expect(code).toContain('already exists with default %, expected %');
+    expect(code).toContain('column_default is not distinct from r.def');
+    // The preflight list must carry the same four defaults the postflight does.
+    for (const [col, def] of [['kind', 'final'], ['payment_terms', 'immediate'],
+      ['due_date_source', 'computed'], ['lifecycle', 'open']]) {
+      expect(code, `${col} default must be declared in BOTH lists`).toMatch(
+        new RegExp(String.raw`\('charges',\s+'${col}',[^)]*'''${def}''::text'\)`, 'g'),
+      );
+      // ...twice: once in the preflight VALUES, once in the postflight VALUES.
+      const hits = code.match(new RegExp(String.raw`'''${def}''::text'`, 'g')) || [];
+      expect(hits.length, `${def} default should appear in both checks`).toBe(2);
+    }
+    // ...and the pre-DDL check really precedes the first ALTER of these tables.
+    expect(code.indexOf('already exists with default %, expected %'))
+      .toBeLessThan(code.indexOf('alter table public.charges add column if not exists'));
   });
 
   it('verifies the PRIMARY KEY of a pre-existing charges/payments table', () => {

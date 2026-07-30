@@ -197,13 +197,20 @@ begin
       -- section below CANNOT create it on a table that already exists and may
       -- hold rows. A missing one is a SAFE STOP. The two nullable link columns
       -- are `false`: they ARE added by `add column if not exists` further down.
-      ('charges',  'id',           'uuid',    'NO' , true ),
-      ('charges',  'user_id',      'uuid',    'NO' , true ),
-      ('charges',  'client_id',    'uuid',    'YES', false),
-      ('charges',  'quote_id',     'text',    'YES', false),
-      ('charges',  'amount_total', 'numeric', 'NO' , true ),
-      ('charges',  'service_date', 'date',    'NO' , true ),
-      ('charges',  'due_date',     'date',    'NO' , true ),
+      -- `def` = the DEFAULT this migration declares, compared HERE and not only
+      -- in the postflight. Type + nullability + generated state is not the full
+      -- shape: `kind text NOT NULL DEFAULT 'deposit'` passes all three, and the
+      -- postflight (which does require the exact default) aborts only AFTER the
+      -- ALTERs have run -- mid-DDL, instead of at the SAFE STOP this block
+      -- promises. Same expectations, checked twice: once before anything is
+      -- touched, once after everything is.
+      ('charges',  'id',              'uuid',    'NO' , true , null),
+      ('charges',  'user_id',         'uuid',    'NO' , true , null),
+      ('charges',  'client_id',       'uuid',    'YES', false, null),
+      ('charges',  'quote_id',        'text',    'YES', false, null),
+      ('charges',  'amount_total',    'numeric', 'NO' , true , null),
+      ('charges',  'service_date',    'date',    'NO' , true , null),
+      ('charges',  'due_date',        'date',    'NO' , true , null),
       -- EVERY additive business column too, not only the required ones. An
       -- earlier revision listed only the keys and the NOT NULL columns, which
       -- made this a "full shape" check that never looked at kind,
@@ -211,18 +218,18 @@ begin
       -- `add column if not exists` preserves an incompatible one, so an integer
       -- `kind` would survive here and fail later at `charges_kind_allowed` --
       -- mid-DDL, instead of at the pre-DDL SAFE STOP this block promises.
-      ('charges',  'kind',            'text', 'NO' , false),
-      ('charges',  'payment_terms',   'text', 'NO' , false),
-      ('charges',  'due_date_source', 'text', 'NO' , false),
-      ('charges',  'lifecycle',       'text', 'NO' , false),
-      ('charges',  'description',     'text', 'YES', false),
-      ('charges',  'invoice_url',     'text', 'YES', false),
-      ('payments', 'id',           'uuid',    'NO' , true ),
-      ('payments', 'user_id',      'uuid',    'NO' , true ),
-      ('payments', 'charge_id',    'uuid',    'NO' , true ),
-      ('payments', 'amount',       'numeric', 'NO' , true ),
-      ('payments', 'paid_at',      'date',    'NO' , true )
-    ) as t(tbl, col, typ, nullable, required)
+      ('charges',  'kind',            'text',    'NO' , false, '''final''::text'),
+      ('charges',  'payment_terms',   'text',    'NO' , false, '''immediate''::text'),
+      ('charges',  'due_date_source', 'text',    'NO' , false, '''computed''::text'),
+      ('charges',  'lifecycle',       'text',    'NO' , false, '''open''::text'),
+      ('charges',  'description',     'text',    'YES', false, null),
+      ('charges',  'invoice_url',     'text',    'YES', false, null),
+      ('payments', 'id',              'uuid',    'NO' , true , null),
+      ('payments', 'user_id',         'uuid',    'NO' , true , null),
+      ('payments', 'charge_id',       'uuid',    'NO' , true , null),
+      ('payments', 'amount',          'numeric', 'NO' , true , null),
+      ('payments', 'paid_at',         'date',    'NO' , true , null)
+    ) as t(tbl, col, typ, nullable, required, def)
   loop
     -- A PARTIAL table is refused OUTRIGHT, before any DDL.
     --
@@ -274,6 +281,23 @@ begin
       ) then
         raise exception 'Receivables SAFE STOP: public.%.% already exists as a GENERATED column. These values are client-assigned; a generated column can never be set explicitly.',
           r.tbl, r.col;
+      end if;
+
+      -- THE DEFAULT, checked HERE and not only in the postflight. A wrong one is
+      -- not cosmetic: `kind NOT NULL DEFAULT 'deposit'` silently books every
+      -- charge the app does not name as a deposit, and `description DEFAULT ''`
+      -- stores an empty string the read boundary then treats as absent.
+      -- `is not distinct from` so a NULL expectation compares correctly.
+      if not exists (
+        select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = r.tbl and column_name = r.col
+          and column_default is not distinct from r.def
+      ) then
+        raise exception 'Receivables SAFE STOP: public.%.% already exists with DEFAULT %, expected %. Nothing was changed -- review the table first.',
+          r.tbl, r.col,
+          coalesce((select column_default from information_schema.columns
+                     where table_schema = 'public' and table_name = r.tbl and column_name = r.col), '<null>'),
+          coalesce(r.def, '<null>');
       end if;
     end if;
   end loop;
