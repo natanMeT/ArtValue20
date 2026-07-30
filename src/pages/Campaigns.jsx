@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useStore } from '../store/store.jsx';
 import Icon from '../components/ui/Icon.jsx';
+import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
 import { SectionHeader, EmptyState } from '../components/ui/atoms.jsx';
 import { isSupabaseConfigured } from '../lib/supabase.js';
 import {
@@ -8,7 +9,7 @@ import {
 } from '../lib/api.js';
 import {
   CAMPAIGN_LIMITS, CAMPAIGN_QUOTA, CAMPAIGN_STATUS_LABELS, CAMPAIGN_STATUS_CLASS,
-  nextStatuses, canCreateWithin,
+  nextStatuses, canCreateWithin, countTasksForCampaign,
 } from '../lib/campaigns.js';
 
 // ===================================================================
@@ -48,13 +49,17 @@ function LocalUnavailable() {
 }
 
 export default function Campaigns() {
-  const { toast, session } = useStore();
+  const { data, toast, session } = useStore();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
+  // Campaign delete safety: the campaign awaiting confirmation, or null.
+  // `data.tasks` is read ONLY to count the link for the warning copy — no new
+  // query, and campaigns are cloud-only so tasks are always hydrated here.
+  const [toDelete, setToDelete] = useState(null);
 
   const userId = session?.user?.id || null;
 
@@ -112,6 +117,23 @@ export default function Campaigns() {
   };
 
   const atQuota = !canCreateWithin(items.length);
+
+  // Campaign delete safety. The confirmation is a WARNING, not a gate: the
+  // delete is offered whatever the count is. The count is what the client
+  // currently holds and can under-report, which is exactly why the copy says
+  // "ידועות N" and never "בדיוק N".
+  const linkedCount = toDelete ? countTasksForCampaign(data?.tasks, toDelete.id) : 0;
+  const deleteMessage = toDelete
+    ? (linkedCount > 0
+      ? `למחוק את הקמפיין "${toDelete.title}"? המשימות המקושרות לא יימחקו — אבל הקישור שלהן לקמפיין יוסר, ולא ניתן לשחזר אותו. ידועות ${linkedCount} משימות מקושרות.`
+      : `למחוק את הקמפיין "${toDelete.title}"? הפעולה אינה הפיכה.`)
+    : '';
+
+  const confirmDelete = () => {
+    if (!toDelete) return;
+    run(() => deleteCampaign(toDelete.id), 'הקמפיין נמחק');
+    setToDelete(null);
+  };
 
   return (
     <div>
@@ -212,10 +234,14 @@ export default function Campaigns() {
                           {CAMPAIGN_STATUS_LABELS[to]}
                         </button>
                       ))}
+                      {/* Delete safety: opens a confirmation instead of
+                          deleting on the spot. The FK is `on delete set null`,
+                          so deleting a campaign silently unlinks every task
+                          attached to it — the user is told before, not after. */}
                       <button
                         className="btn btn-sm btn-ghost"
                         disabled={busy}
-                        onClick={() => run(() => deleteCampaign(c.id), 'הקמפיין נמחק')}
+                        onClick={() => setToDelete(c)}
                       >
                         מחק
                       </button>
@@ -228,6 +254,13 @@ export default function Campaigns() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!toDelete}
+        onClose={() => setToDelete(null)}
+        onConfirm={confirmDelete}
+        message={deleteMessage}
+      />
     </div>
   );
 }

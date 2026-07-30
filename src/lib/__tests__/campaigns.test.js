@@ -3,7 +3,7 @@ import {
   CAMPAIGN_LIMITS, CAMPAIGN_QUOTA, CAMPAIGN_STATUSES, CAMPAIGN_TRANSITIONS,
   CAMPAIGN_STATUS_LABELS, CAMPAIGN_STATUS_CLASS,
   canTransition, nextStatuses, validateCampaign, canCreateWithin,
-  normalizeCampaignRow, sortCampaignsNewestFirst,
+  normalizeCampaignRow, sortCampaignsNewestFirst, countTasksForCampaign,
 } from '../campaigns.js';
 
 // ===================================================================
@@ -198,5 +198,52 @@ describe('sortCampaignsNewestFirst', () => {
     expect(input).toEqual(copy);
     expect(sortCampaignsNewestFirst(null)).toEqual([]);
     expect(sortCampaignsNewestFirst([null, undefined])).toEqual([]);
+  });
+});
+
+// Campaign delete safety — the count behind the confirmation copy.
+describe('countTasksForCampaign · the KNOWN link count (warning, never a gate)', () => {
+  const tasks = [
+    { id: 't1', campaignId: 'c1' },
+    { id: 't2', campaignId: 'c1' },
+    { id: 't3', campaignId: 'c2' },
+    { id: 't4', campaignId: null },
+    { id: 't5' },
+  ];
+
+  it('counts only the tasks pointing at that campaign', () => {
+    expect(countTasksForCampaign(tasks, 'c1')).toBe(2);
+    expect(countTasksForCampaign(tasks, 'c2')).toBe(1);
+  });
+
+  it('an unknown campaign counts zero (never throws, never matches loosely)', () => {
+    expect(countTasksForCampaign(tasks, 'c-does-not-exist')).toBe(0);
+  });
+
+  it('unlinked tasks — null and absent campaignId — are never counted', () => {
+    expect(countTasksForCampaign([{ campaignId: null }, {}], 'c1')).toBe(0);
+  });
+
+  it('a blank/missing campaign id counts zero rather than matching unlinked tasks', () => {
+    // The trap: str(null) === str(undefined) === '', so without the early
+    // return an empty id would match every UNLINKED task and the copy would
+    // claim links that do not exist.
+    expect(countTasksForCampaign(tasks, null)).toBe(0);
+    expect(countTasksForCampaign(tasks, '')).toBe(0);
+    expect(countTasksForCampaign(tasks, undefined)).toBe(0);
+  });
+
+  it('a missing or malformed task list is zero, not a crash', () => {
+    expect(countTasksForCampaign(null, 'c1')).toBe(0);
+    expect(countTasksForCampaign(undefined, 'c1')).toBe(0);
+    expect(countTasksForCampaign([], 'c1')).toBe(0);
+    expect(countTasksForCampaign([null, undefined], 'c1')).toBe(0);
+  });
+
+  it('is pure — it does not mutate the list it is given', () => {
+    const input = [{ id: 't1', campaignId: 'c1' }];
+    const copy = JSON.parse(JSON.stringify(input));
+    countTasksForCampaign(input, 'c1');
+    expect(input).toEqual(copy);
   });
 });
