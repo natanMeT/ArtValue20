@@ -50,6 +50,22 @@ describe('Dashboard · the conversion-rate KPI is replaced, not merely renamed',
     expect(dashboard.includes('לידים חדשים')).toBe(true);
   });
 
+  it('the guided demo tour describes the tiles the Dashboard actually renders', () => {
+    // Second instance of this defect class (§24 L-004): the KPI was removed from
+    // Dashboard.jsx, but the demo-tour narration still named it, so the product
+    // described a card that no longer existed. The repo-wide sweep found no
+    // third instance — every other "conversion"/"המרה" hit is landing-page
+    // marketing copy, type conversion, or the quote→project conversion.
+    const demo = read('../../components/ai/DemoMode.jsx');
+    expect(demo.includes('אחוז המרה')).toBe(false);
+    expect(demo.includes('דורש טיפול')).toBe(true);
+    // The tour must name the same four tiles the Dashboard renders.
+    for (const tile of ['הכנסות החודש', 'עסקאות פעילות', 'דורש טיפול', 'לידים חדשים']) {
+      expect(demo.includes(tile), `demo tour omits KPI tile: ${tile}`).toBe(true);
+      expect(dashboard.includes(tile), `Dashboard omits KPI tile: ${tile}`).toBe(true);
+    }
+  });
+
   it('the decided/accepted ratio that fed it is gone, but `closed` still works', () => {
     expect(dashboard.includes('const decided =')).toBe(false);
     // metrics.closed is still rendered ("עסקאות שנסגרו") so `accepted` must stay.

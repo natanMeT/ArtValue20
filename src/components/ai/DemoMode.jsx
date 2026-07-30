@@ -38,7 +38,10 @@ const STEPS = [
   {
     icon: 'dashboard',
     title: 'לוח הבקרה',
-    body: 'מסך הבית מציג את התמונה המלאה: הכנסות החודש, עסקאות פעילות, אחוז המרה, ולידים חדשים — בזמן אמת. למטה: סיכום פיננסי של 12 חודשים, פילוח לקוחות, ומה דורש תשומת לב היום.',
+    // The four tiles named here are the four the Dashboard actually renders.
+    // The old quote-ratio tile was replaced by "דורש טיפול" in the UI-polish
+    // slice, so this sentence used to describe a card that no longer exists.
+    body: 'מסך הבית מציג את התמונה המלאה: הכנסות החודש, עסקאות פעילות, דורש טיפול, ולידים חדשים — בזמן אמת. הכרטיס "מה דורש טיפול" מרכז את הפעולות הקרובות: משימות באיחור או להיום, חיובים באיחור, ולקוחות ללא פעולה מתוכננת. למטה: סיכום פיננסי של 12 חודשים ופילוח לקוחות.',
     to: '/',
     look: 'צפה בלוח הבקרה',
   },
