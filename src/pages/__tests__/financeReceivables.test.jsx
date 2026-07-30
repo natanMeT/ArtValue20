@@ -815,3 +815,192 @@ describe('Settings.importResultToast · BEHAVIOURAL (real shipped builder)', () 
     expect(settings).not.toContain("toast(counts ? `יובאו");
   });
 });
+
+// ===================================================================
+// Finance Charge Safe Delete.
+//
+// THE RULE: deleting a charge must never destroy a payment.
+//
+// It is enforced in public.delete_charge_if_unpaid, not here. What this block
+// defends is the CLIENT half: that the control is gated on the EXISTENCE of a
+// payment row rather than on `received`, and that a server refusal is reported
+// as a refusal. The gate is convenience; the tests say so where it matters.
+// ===================================================================
+
+// Build the shipped gating predicate out of Finance.jsx itself, with useMemo
+// stubbed. Executing the real lines is the point — a re-implementation here
+// could not catch the predicate being changed back to a sum.
+function makeHasPaymentRow(payments) {
+  const setSrc = finance.match(/const chargeIdsWithPayments = useMemo\([\s\S]*?\n  \);/);
+  const predSrc = finance.match(/const hasPaymentRow = .*;/);
+  if (!setSrc || !predSrc) throw new Error('gating predicate not found in Finance.jsx');
+  // eslint-disable-next-line no-new-func
+  return new Function('payments', 'useMemo', `${setSrc[0]}\n${predSrc[0]}\nreturn hasPaymentRow;`)(
+    payments, (fn) => fn(),
+  );
+}
+
+function makeDeleteChargeConfirmed(deps, charge) {
+  const m = finance.match(/const deleteChargeConfirmed = async \(\) => \{[\s\S]*?\n  \};/);
+  if (!m) throw new Error('deleteChargeConfirmed not found in Finance.jsx');
+  // eslint-disable-next-line no-new-func
+  return new Function('toDeleteCharge', 'setToDeleteCharge', 'dispatch', 'toast',
+    `${m[0]}\nreturn deleteChargeConfirmed;`)(
+    charge, deps.setToDeleteCharge, deps.dispatch, deps.toast,
+  );
+}
+
+function deleteDeps(dispatchImpl) {
+  const calls = { dispatched: [], toasts: [], cleared: 0 };
+  return {
+    calls,
+    setToDeleteCharge: (v) => { if (v === null) calls.cleared += 1; },
+    dispatch: (a) => { calls.dispatched.push(a); return dispatchImpl(a); },
+    toast: (m) => calls.toasts.push(m),
+  };
+}
+
+describe('Finance charge delete · the gate is ROW EXISTENCE, never a sum', () => {
+  it('a charge with no payment row is deletable', () => {
+    const has = makeHasPaymentRow([{ id: 'p1', chargeId: 'other', amount: 400 }]);
+    expect(has({ id: 'ch1' })).toBe(false);
+  });
+
+  it('a charge with a payment row is NOT deletable', () => {
+    const has = makeHasPaymentRow([{ id: 'p1', chargeId: 'ch1', amount: 400 }]);
+    expect(has({ id: 'ch1' })).toBe(true);
+  });
+
+  it('THE DEFECT THIS GATE EXISTS FOR: received === 0 while a payment row EXISTS', () => {
+    // `received` is a SUM over rows the client could parse. A row whose amount
+    // is unusable contributes 0 — so a `received === 0` gate would offer delete
+    // on a charge that still owns a payment row, and the FK CASCADE would take
+    // it. Existence does not have that failure mode.
+    const payments = [{ id: 'p1', chargeId: 'ch1', amount: 'junk' }];
+    expect(chargeReceived('ch1', payments)).toBe(0);        // the sum says "empty"...
+    expect(makeHasPaymentRow(payments)({ id: 'ch1' })).toBe(true); // ...existence says otherwise
+  });
+
+  it('an empty payments list gates nothing shut', () => {
+    expect(makeHasPaymentRow([])({ id: 'ch1' })).toBe(false);
+  });
+});
+
+describe('Finance.deleteChargeConfirmed · BEHAVIOURAL (real shipped handler)', () => {
+  it('dispatches DELETE_CHARGE exactly once, with the id, and toasts on success', async () => {
+    const deps = deleteDeps(() => Promise.resolve({ ok: true }));
+    await makeDeleteChargeConfirmed(deps, { id: 'ch1', amountTotal: 1000 })();
+    expect(deps.calls.dispatched).toEqual([{ type: 'DELETE_CHARGE', id: 'ch1' }]);
+    expect(deps.calls.toasts).toEqual(['החיוב נמחק']);
+    expect(deps.calls.cleared).toBe(1); // the dialog closes either way
+  });
+
+  it('a SERVER REFUSAL claims no success — the charge stays on screen', async () => {
+    // The RPC refuses (23514 / P0002); the store returns { ok: false } and shows
+    // its own error toast. This handler must add no success toast on top of it.
+    const deps = deleteDeps(() => Promise.resolve({ ok: false }));
+    await makeDeleteChargeConfirmed(deps, { id: 'ch1', amountTotal: 1000 })();
+    expect(deps.calls.dispatched).toHaveLength(1);
+    expect(deps.calls.toasts).toEqual([]);
+  });
+
+  it('no charge selected dispatches nothing at all', async () => {
+    const deps = deleteDeps(() => Promise.resolve({ ok: true }));
+    await makeDeleteChargeConfirmed(deps, null)();
+    expect(deps.calls.dispatched).toEqual([]);
+    expect(deps.calls.toasts).toEqual([]);
+  });
+});
+
+describe('Finance charge delete · JSX pins', () => {
+  it('BOTH tables gate the control on !hasPaymentRow(c) — open and cancelled', () => {
+    expect((finance.match(/\{!hasPaymentRow\(c\) && \(/g) || []).length).toBe(2);
+    expect((finance.match(/onClick=\{\(\) => setToDeleteCharge\(c\)\}/g) || []).length).toBe(2);
+  });
+
+  it('the gate is NOT written in terms of received / balance', () => {
+    // A negative control for the whole slice: the sum-based gate is the defect.
+    expect(finance).not.toMatch(/c\.received === 0 &&/);
+    expect(finance).not.toMatch(/received === 0 \? .*setToDeleteCharge/);
+    expect(finance).toContain('new Set(payments.map((p) => p.chargeId))');
+  });
+
+  it('the confirm dialog names the amount and states that no payments exist', () => {
+    expect(finance).toContain('onConfirm={deleteChargeConfirmed}');
+    expect(finance).toContain('open={!!toDeleteCharge}');
+    expect(finance).toContain('לא רשומים עליו תשלומים');
+    expect(finance).toContain('הפעולה אינה הפיכה');
+  });
+
+  it('the delete dialog is mounted INSIDE the cloud-only block — none of it exists in demo mode', () => {
+    const cloudBlock = finance.slice(finance.indexOf('{cloud && ('));
+    expect(cloudBlock).toContain('open={!!toDeleteCharge}');
+    // ...and the tables that carry the buttons are inside the cloud branch too.
+    const localBranch = finance.slice(
+      finance.indexOf('{!cloud ? <ReceivablesUnavailable /> : ('),
+      finance.indexOf('<TransactionModal'),
+    );
+    expect(localBranch).toContain('setToDeleteCharge');
+    expect(finance.slice(finance.indexOf('function ReceivablesUnavailable'), finance.indexOf('export default function Finance')))
+      .not.toContain('setToDeleteCharge');
+  });
+
+  it('the UI comments say the gate is convenience and the RPC is the enforcement', () => {
+    expect(finance).toContain('public.delete_charge_if_unpaid');
+    expect(finance).toMatch(/CONVENIENCE|convenience/);
+  });
+});
+
+describe('api.deleteCharge · goes through the RPC and switches on SQLSTATE', () => {
+  const fn = api.slice(api.indexOf('const CHARGE_DELETE_HAS_PAYMENTS'), api.indexOf('export async function createPayment('));
+  // CODE ONLY. The doc comment above deleteCharge NAMES the unsafe call it
+  // replaced, so a whole-text search would match the explanation instead of a
+  // regression — the same trap securityDefinerGrants.test.js strips for.
+  const stripJs = (src) => src
+    .split('\n').filter((l) => !l.trim().startsWith('*') && !l.trim().startsWith('//')).join('\n')
+    .replace(/\/\*[\s\S]*?\*\//g, '\n');
+  const fnCode = stripJs(fn);
+  const apiCode = stripJs(api);
+
+  it('calls the guarded RPC, never a direct table delete', () => {
+    expect(fnCode).toContain("supabase.rpc('delete_charge_if_unpaid', { p_charge_id: chargeId })");
+    // THE REGRESSION THIS PINS: the old body was a plain cascade-triggering
+    // delete. If it ever comes back, payments start disappearing again.
+    expect(fnCode).not.toContain("from('charges').delete()");
+    expect(apiCode).not.toMatch(/from\('charges'\)\s*\.delete\(\)/);
+  });
+
+  it('classifies by error.code only — never by message text', () => {
+    expect(fn).toContain("const CHARGE_DELETE_HAS_PAYMENTS = '23514'");
+    expect(fn).toContain("const CHARGE_DELETE_NOT_FOUND = 'P0002'");
+    expect(fn).toContain('error.code === CHARGE_DELETE_HAS_PAYMENTS');
+    expect(fn).toContain('error.code === CHARGE_DELETE_NOT_FOUND');
+    expect(fn).not.toMatch(/error\.message\.(includes|match|indexOf)/);
+  });
+
+  it('an UNRECOGNISED error is rethrown, not swallowed into a friendly lie', () => {
+    // `\r?` because this repo's JS sources are CRLF.
+    expect(fnCode).toMatch(/\n\s*throw error;\r?\n/);
+  });
+
+  it('both refusals carry a user-facing Hebrew message', () => {
+    expect(fn).toContain('לחיוב הזה רשומים תשלומים');
+    expect(fn).toContain('החיוב לא נמצא');
+    expect((fn.match(/engineError\(/g) || []).length).toBe(2);
+  });
+});
+
+describe('Gap 2 — cancelled-charge payments still count, now stated on screen', () => {
+  it('the behaviour is UNCHANGED: actualRevenue still counts them', () => {
+    const seed = { charges: [], payments: [], transactions: [], activity: [] };
+    let s = reducer(seed, { type: 'ADD_CHARGE', payload: { id: 'ch1', amountTotal: 1000, lifecycle: 'open' } });
+    s = reducer(s, { type: 'ADD_PAYMENT', payload: { id: 'p1', chargeId: 'ch1', amount: 400 } });
+    s = reducer(s, { type: 'CANCEL_CHARGE', id: 'ch1' });
+    expect(actualRevenue(s.payments, s.transactions).total).toBe(400);
+    expect(receivablesTotals(s.charges, s.payments).received).toBe(0);
+  });
+
+  it('and the screen now says so beside the number', () => {
+    expect(finance).toContain('הכנסה בפועל כוללת גם תשלומים שהתקבלו על חיובים שבוטלו');
+  });
+});

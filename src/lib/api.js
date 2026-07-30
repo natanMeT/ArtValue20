@@ -22,6 +22,7 @@ import {
 import {
   validateAppointment, normalizeAppointmentRow, sortByStart, APPOINTMENT_STATUSES,
 } from './schedule.js';
+import { engineError } from './userFacingError.js';
 
 const uuid = () =>
   (crypto?.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -790,15 +791,47 @@ export async function reopenCharge(chargeId) {
   return true;
 }
 
+// SQLSTATEs raised by public.delete_charge_if_unpaid. THE CODE IS THE CONTRACT —
+// never the message text, which is diagnostic, untranslated and free to change.
+const CHARGE_DELETE_HAS_PAYMENTS = '23514';
+const CHARGE_DELETE_NOT_FOUND = 'P0002';
+
 /**
- * Delete ONE charge. Its payments go with it — `payments_charge_same_owner_fk`
- * is ON DELETE CASCADE, because a payment that describes no charge is an
- * unattributed number, not a record. Cancelling is the non-destructive option
- * and is what the UI offers first.
+ * Delete ONE charge — and ONLY if it has no payment row.
+ *
+ * This goes through the `delete_charge_if_unpaid` RPC and NEVER through a plain
+ * `from('charges').delete()`. The direct delete is what this function used to
+ * do, and it was unsafe: `payments_charge_same_owner_fk` is ON DELETE CASCADE,
+ * so it silently destroyed every payment attached to the charge. Payments are
+ * the source of truth for received revenue; losing one moves actual revenue and
+ * cannot be undone.
+ *
+ * The Finance screen only offers the control when it holds no payment for the
+ * charge, but that check is a CONVENIENCE over possibly-stale client state. The
+ * RPC is the enforcement: it locks the charge, checks payment-row EXISTENCE
+ * server-side (not a sum, and not RLS-filtered), and refuses otherwise.
+ *
+ * Rejects with a `userMessage`-bearing Error on the two expected refusals, so
+ * the store renders truthful Hebrew instead of a generic failure.
  */
 export async function deleteCharge(chargeId) {
-  guard((await supabase.from('charges').delete().eq('id', chargeId)).error);
-  return true;
+  const { error } = await supabase.rpc('delete_charge_if_unpaid', { p_charge_id: chargeId });
+  if (!error) return true;
+  if (error.code === CHARGE_DELETE_HAS_PAYMENTS) {
+    throw engineError(
+      `delete_charge_if_unpaid refused ${chargeId}: the charge has payment rows`,
+      'לחיוב הזה רשומים תשלומים, ולכן אי אפשר למחוק אותו. אפשר לבטל אותו, או למחוק קודם את התשלומים.',
+    );
+  }
+  if (error.code === CHARGE_DELETE_NOT_FOUND) {
+    // Not-found and not-owned are the SAME code by design — the server does not
+    // distinguish them, and neither does this message.
+    throw engineError(
+      `delete_charge_if_unpaid: charge ${chargeId} not found for this account`,
+      'החיוב לא נמצא. ייתכן שהוא כבר נמחק — רענן/י את המסך.',
+    );
+  }
+  throw error;
 }
 
 /**
