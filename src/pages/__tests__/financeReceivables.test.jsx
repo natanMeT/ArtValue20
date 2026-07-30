@@ -369,6 +369,14 @@ describe('Finance page · cloud/local truthfulness', () => {
     expect(finance).toContain('actualRevenue(payments, data.transactions)');
   });
 
+  it('states, beside the number, the one duplicate the system cannot prevent', () => {
+    // Codex P1: both entry paths exist and nothing links a transaction to a
+    // charge, so the same receipt CAN be entered twice. The screen says so where
+    // it matters rather than the code claiming an unearned guarantee.
+    expect(finance).toContain('כסף שהתקבל עבור חיוב נרשם כאן בלבד, דרך ״רישום תשלום״');
+    expect(finance).toContain('יופיע פעמיים בהכנסה בפועל');
+  });
+
   it('the EXISTING transaction KPIs are untouched by this slice', () => {
     expect(finance).toContain('<StatCard label="סך הכנסות" value={totals.income}');
     expect(finance).toContain('<StatCard label="סך הוצאות" value={totals.expense}');

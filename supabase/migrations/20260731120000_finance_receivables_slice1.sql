@@ -8,8 +8,13 @@
 --                       and an open/cancelled lifecycle.
 --   public.payments  -- money actually received against a charge. THE SOURCE OF
 --                       TRUTH for received revenue. Nothing in the product
---                       creates an income `transaction` for a payment, so no
---                       shekel is ever counted twice.
+--                       creates an income `transaction` for a payment, in either
+--                       direction, so the system itself never records one
+--                       receipt twice. (It cannot stop a PERSON entering the
+--                       same receipt through both forms; the screen reports the
+--                       two parts separately and steers charge-backed money to
+--                       the payment path. Linking a transaction to a charge is a
+--                       later product decision -- see L6.)
 --
 -- AND IT HARDENS WHAT WAS ALREADY HERE. Five relationships between user-owned
 -- tables become COMPOSITE, same-owner foreign keys in this one migration:
@@ -85,6 +90,13 @@
 --   L4 No account-deletion cleanup beyond `on delete cascade` on user_id.
 --   L5 tasks.client_id remains a SINGLE-COLUMN FK. It is outside this slice's
 --      approved file/scope list and is reported, not fixed here.
+--   L6 A transaction cannot be linked to a charge, so a user who records the
+--      same receipt through BOTH forms is double-counted in "actual revenue".
+--      The system never does this to itself; only a person can. Enforcing one
+--      entry path -- or adding transactions.charge_id -- is a product decision
+--      beyond this slice. The screen reports payments and income transactions as
+--      separate figures so the duplicate is visible rather than hidden in a
+--      single total.
 -- ===================================================================
 
 -- ===================================================================
@@ -178,21 +190,43 @@ begin
   --     thing these columns are for.
   for r in
     select * from (values
-      ('charges',  'id',           'uuid',    'NO' ),
-      ('charges',  'user_id',      'uuid',    'NO' ),
-      ('charges',  'client_id',    'uuid',    'YES'),
-      ('charges',  'quote_id',     'text',    'YES'),
-      ('charges',  'amount_total', 'numeric', 'NO' ),
-      ('charges',  'service_date', 'date',    'NO' ),
-      ('charges',  'due_date',     'date',    'NO' ),
-      ('payments', 'id',           'uuid',    'NO' ),
-      ('payments', 'user_id',      'uuid',    'NO' ),
-      ('payments', 'charge_id',    'uuid',    'NO' ),
-      ('payments', 'amount',       'numeric', 'NO' ),
-      ('payments', 'paid_at',      'date',    'NO' )
-    ) as t(tbl, col, typ, nullable)
+      -- `required` = this column is NOT NULL with no default, so the additive
+      -- section below CANNOT create it on a table that already exists and may
+      -- hold rows. A missing one is a SAFE STOP. The two nullable link columns
+      -- are `false`: they ARE added by `add column if not exists` further down.
+      ('charges',  'id',           'uuid',    'NO' , true ),
+      ('charges',  'user_id',      'uuid',    'NO' , true ),
+      ('charges',  'client_id',    'uuid',    'YES', false),
+      ('charges',  'quote_id',     'text',    'YES', false),
+      ('charges',  'amount_total', 'numeric', 'NO' , true ),
+      ('charges',  'service_date', 'date',    'NO' , true ),
+      ('charges',  'due_date',     'date',    'NO' , true ),
+      ('payments', 'id',           'uuid',    'NO' , true ),
+      ('payments', 'user_id',      'uuid',    'NO' , true ),
+      ('payments', 'charge_id',    'uuid',    'NO' , true ),
+      ('payments', 'amount',       'numeric', 'NO' , true ),
+      ('payments', 'paid_at',      'date',    'NO' , true )
+    ) as t(tbl, col, typ, nullable, required)
   loop
-    -- Only inspect what is ALREADY there; a missing table/column is created below.
+    -- A PARTIAL table is refused OUTRIGHT, before any DDL.
+    --
+    -- If public.charges or public.payments already exists but is MISSING one of
+    -- these required columns, `create table if not exists` no-ops and the
+    -- `add column if not exists` section below does NOT add them: every one of
+    -- them is NOT NULL with no default, and adding such a column to a table that
+    -- may already hold rows requires a backfill decision this migration has no
+    -- basis to make. Skipping the check would push the failure to a later CHECK
+    -- or index statement, half-applied and much harder to read. So: SAFE STOP
+    -- here, with the missing column named.
+    if r.required and to_regclass('public.' || r.tbl) is not null and not exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = r.tbl and column_name = r.col
+    ) then
+      raise exception 'Receivables SAFE STOP: public.% already exists but is MISSING the required column %. It is NOT NULL with no default, so it cannot be added without a backfill decision. Nothing was changed -- review the table first.',
+        r.tbl, r.col;
+    end if;
+
+    -- Otherwise inspect what is there; a wholly absent table is created below.
     if exists (
       select 1 from information_schema.columns
       where table_schema = 'public' and table_name = r.tbl and column_name = r.col
@@ -499,9 +533,10 @@ do $$
 declare
   c record;
   parent_cols name[];
+  ref_col name;
 begin
   -- ---- quotes.client_id : single-column CASCADE -> composite CASCADE ----
-  select con.oid, con.conname, con.conkey, con.confdeltype, con.confrelid
+  select con.oid, con.conname, con.conkey, con.confkey, con.confdeltype, con.confrelid
     into c
     from pg_constraint con
    where con.conrelid = 'public.quotes'::regclass
@@ -514,6 +549,18 @@ begin
     if c.confrelid <> 'public.clients'::regclass then
       raise exception 'Receivables SAFE STOP: quotes.client_id FK % points at %, not public.clients.',
         c.conname, c.confrelid::regclass;
+    end if;
+    -- THE REFERENCED COLUMN, not merely the referenced TABLE. Checking
+    -- confrelid alone accepts an FK that points at some OTHER unique uuid
+    -- column on public.clients; this block would then drop it and silently
+    -- re-point the relationship at clients.id -- a schema decision this
+    -- migration never made, taken instead of the SAFE STOP it promises.
+    select a.attname into ref_col
+      from pg_attribute a
+     where a.attrelid = c.confrelid and a.attnum = c.confkey[1];
+    if ref_col is distinct from 'id'::name then
+      raise exception 'Receivables SAFE STOP: quotes.client_id FK % references public.clients(%), not clients(id). Not replaced -- re-pointing an existing relationship is not this migration''s decision.',
+        c.conname, coalesce(ref_col::text, '<unknown>');
     end if;
     if c.confdeltype <> 'c' then
       raise exception 'Receivables SAFE STOP: quotes.client_id FK % is not ON DELETE CASCADE (confdeltype=%). The existing delete action must be preserved exactly; this migration does not change it.',
@@ -535,7 +582,7 @@ begin
   end if;
 
   -- ---- transactions.client_id : single-column SET NULL -> composite SET NULL (client_id) ----
-  select con.oid, con.conname, con.conkey, con.confdeltype, con.confrelid
+  select con.oid, con.conname, con.conkey, con.confkey, con.confdeltype, con.confrelid
     into c
     from pg_constraint con
    where con.conrelid = 'public.transactions'::regclass
@@ -548,6 +595,18 @@ begin
     if c.confrelid <> 'public.clients'::regclass then
       raise exception 'Receivables SAFE STOP: transactions.client_id FK % points at %, not public.clients.',
         c.conname, c.confrelid::regclass;
+    end if;
+    -- THE REFERENCED COLUMN, not merely the referenced TABLE. Checking
+    -- confrelid alone accepts an FK that points at some OTHER unique uuid
+    -- column on public.clients; this block would then drop it and silently
+    -- re-point the relationship at clients.id -- a schema decision this
+    -- migration never made, taken instead of the SAFE STOP it promises.
+    select a.attname into ref_col
+      from pg_attribute a
+     where a.attrelid = c.confrelid and a.attnum = c.confkey[1];
+    if ref_col is distinct from 'id'::name then
+      raise exception 'Receivables SAFE STOP: transactions.client_id FK % references public.clients(%), not clients(id). Not replaced -- re-pointing an existing relationship is not this migration''s decision.',
+        c.conname, coalesce(ref_col::text, '<unknown>');
     end if;
     if c.confdeltype <> 'n' then
       raise exception 'Receivables SAFE STOP: transactions.client_id FK % is not ON DELETE SET NULL (confdeltype=%). The financial ledger must SURVIVE client deletion; this migration does not change that decision.',

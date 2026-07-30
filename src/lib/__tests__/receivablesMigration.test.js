@@ -122,6 +122,17 @@ describe('deletion semantics — preserved exactly, and never a bare SET NULL', 
     }
   });
 
+  it('verifies the REFERENCED COLUMN before dropping an existing key', () => {
+    // Codex P1: checking confrelid alone accepts an FK pointing at some OTHER
+    // unique uuid column on public.clients — this block would then drop it and
+    // silently re-point the relationship at clients.id, instead of the SAFE STOP
+    // it promises. The referenced attribute must be read from confkey.
+    expect(code).toContain('a.attnum = c.confkey[1]');
+    expect(code).toContain("if ref_col is distinct from 'id'::name then");
+    expect((code.match(/not clients\(id\)/g) || []).length).toBe(2); // quotes AND transactions
+    expect(code).toMatch(/select con\.oid, con\.conname, con\.conkey, con\.confkey, con\.confdeltype/);
+  });
+
   it('the EXISTING delete actions are preserved, not re-decided', () => {
     // quotes CASCADE and transactions SET NULL are the 20260717090000 contract.
     expect(constraintStatement('quotes_client_same_owner_fk')).toContain('on delete cascade');
@@ -172,6 +183,22 @@ describe('the cross-owner data proof runs BEFORE anything is altered', () => {
   it('counts quotes and transactions whose client belongs to another account', () => {
     expect(code).toMatch(/from public\.quotes q\s*\n\s*join public\.clients c on c\.id = q\.client_id\s*\n\s*where c\.user_id is distinct from q\.user_id/);
     expect(code).toMatch(/from public\.transactions t\s*\n\s*join public\.clients c on c\.id = t\.client_id\s*\n\s*where c\.user_id is distinct from t\.user_id/);
+  });
+
+  it('SAFE STOPs on a PARTIAL pre-existing charges/payments table', () => {
+    // Codex P2: `create table if not exists` no-ops on an existing table and the
+    // additive section adds only the NULLABLE columns — so a table missing
+    // service_date / due_date / amount_total (all NOT NULL, no default) would
+    // fail later, half-applied, at a CHECK or an index. The preflight names the
+    // missing column instead, and refuses.
+    expect(code).toContain('is MISSING the required column'.toLowerCase());
+    expect(code).toContain('cannot be added without a backfill decision');
+    expect(code).toContain("if r.required and to_regclass('public.' || r.tbl) is not null");
+    // ...and the two columns the additive section DOES create are exempt, so the
+    // check is not merely "refuse everything".
+    expect(code).toMatch(/\('charges',\s*'client_id',\s*'uuid',\s*'yes',\s*false\)/);
+    expect(code).toMatch(/\('charges',\s*'quote_id',\s*'text',\s*'yes',\s*false\)/);
+    expect(code).toContain('add column if not exists client_id       uuid');
   });
 
   it('SAFE STOPs on even one mismatch, and never reassigns ownership', () => {

@@ -13,6 +13,9 @@
 // a payment must never also create an income `transaction`: that would count the
 // same shekel twice. Legacy income transactions stay exactly as they are and are
 // added ALONGSIDE payments (see actualRevenue) — never merged into them.
+// That guarantee is about what the SYSTEM writes, not about what a person can
+// type: both entry forms still exist, so actualRevenue() returns the two parts
+// separately and the screen names them. See the note on that function.
 //
 // PAYMENT STATUS IS DERIVED, NEVER STORED. There is no status column on
 // public.charges and no way to write one:
@@ -305,12 +308,26 @@ export function receivablesTotals(charges, payments) {
 }
 
 /**
- * ACTUAL REVENUE, and the no-double-count rule in one function.
+ * ACTUAL REVENUE = payments + legacy income transactions.
  *
- * Payments are the truth for charge-backed revenue. Legacy income transactions
- * predate charges and are the truth for everything else. They are ADDED, never
- * merged: because recording a payment never creates a transaction (and nothing
- * in the product converts one into the other), no shekel can appear in both.
+ * WHAT IS GUARANTEED, AND WHAT IS NOT — stated precisely, because the loose
+ * version of this claim is wrong.
+ *
+ * GUARANTEED (structural): the SYSTEM never records the same receipt twice.
+ * Recording a payment writes one `payments` row and never a `transactions` row;
+ * nothing converts one into the other in either direction. So the two sums below
+ * can never both contain a row the product itself generated from one event.
+ *
+ * NOT GUARANTEED: that a PERSON cannot enter the same receipt twice — once
+ * through the transaction form and once through the payment form. Both paths
+ * exist on the Finance screen, and neither table carries a cross-reference that
+ * could detect it. That is why this function returns the two parts SEPARATELY
+ * rather than a single opaque total: a duplicate is then visible in the split,
+ * and the screen tells the user that charge-backed money belongs on the payment
+ * path. Enforcing a single path (or linking a transaction to a charge) is a
+ * product decision beyond this slice, and is recorded as such rather than
+ * quietly assumed away.
+ *
  * Expenses stay transaction-only and are untouched by this slice.
  */
 export function actualRevenue(payments, transactions) {

@@ -593,7 +593,9 @@ export async function deleteCampaign(campaignId) {
 // that is enforced in the IO layer: NOTHING below writes to `transactions`.
 // Recording a payment creates exactly ONE row, in `payments`. A parallel income
 // transaction would count the same shekel twice, and there is no code path here
-// that could create one.
+// that could create one. (What this cannot prevent is a user recording the same
+// receipt through the transaction form as well -- see the note on actualRevenue
+// in receivables.js and L6 in the migration.)
 //
 // There is no Storage side and no second write, so none of the Asset Library's
 // ordering rules apply: every operation below is ONE statement whose success or

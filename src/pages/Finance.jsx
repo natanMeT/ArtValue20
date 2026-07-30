@@ -331,6 +331,12 @@ export default function Finance() {
                   <div className="sub">
                     {`הכנסה בפועל: ${formatCurrency(revenue.total)} — מתוכה ${formatCurrency(revenue.fromPayments)} תשלומים על חיובים ו-${formatCurrency(revenue.fromTransactions)} הכנסות שנרשמו ישירות`}
                   </div>
+                  {/* The one thing the system cannot prevent for the user: the
+                      same receipt entered on both paths. Said plainly, next to
+                      the number it would distort. */}
+                  <div className="sub">
+                    כסף שהתקבל עבור חיוב נרשם כאן בלבד, דרך ״רישום תשלום״. רישום של אותו כסף גם כתנועת הכנסה יופיע פעמיים בהכנסה בפועל.
+                  </div>
                 </div>
                 <button className="btn btn-primary" onClick={() => setChargeEditing('new')}>
                   <Icon name="plus" size={18} /> חיוב חדש

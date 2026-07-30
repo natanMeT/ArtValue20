@@ -322,11 +322,29 @@ describe('actualRevenue — payments AND legacy income, with no double count', (
   });
 
   it('the same payment is counted exactly once', () => {
-    // The no-double-count guarantee is structural: nothing converts a payment
-    // into a transaction, so a payment can appear in only one of the two sums.
+    // The structural guarantee: nothing converts a payment into a transaction,
+    // so a payment can appear in only one of the two sums.
     const r = actualRevenue([{ chargeId: 'c1', amount: 600 }], []);
     expect(r.total).toBe(600);
     expect(r.fromTransactions).toBe(0);
+  });
+
+  it('the parts are returned SEPARATELY, because a human CAN enter both', () => {
+    // The limit of the guarantee, pinned rather than assumed away (Codex P1):
+    // the system never records one receipt twice, but a person can type the same
+    // 600 into the transaction form as well — and this function would then add
+    // them, exactly as it adds any two genuinely different receipts. It cannot
+    // tell the difference, so it does not pretend to: the split is what makes a
+    // duplicate visible, and the screen says which path charge money belongs on.
+    const r = actualRevenue([{ chargeId: 'c1', amount: 600 }], [{ type: 'income', amount: 600 }]);
+    expect(r.fromPayments).toBe(600);
+    expect(r.fromTransactions).toBe(600);
+    expect(r.total).toBe(1200);
+  });
+
+  it('the source states the limit of the guarantee rather than over-claiming it', () => {
+    expect(src).toContain('NOT GUARANTEED');
+    expect(src).not.toMatch(/no shekel can appear in both/);
   });
 
   it('hostile input yields zeroes, never NaN', () => {
