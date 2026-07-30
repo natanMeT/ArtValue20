@@ -320,8 +320,12 @@ export async function bulkUpload(userId, data) {
 
   const quoteRows = [];
   const itemRows = [];
+  // F1: quote ids are remapped like client ids, so an imported charge can point
+  // at the quote it came from instead of losing the link.
+  const quoteIdMap = {};
   for (const q of data.quotes || []) {
     const id = uuid();
+    quoteIdMap[q.id] = id;
     quoteRows.push({ id, user_id: userId, ...mapToRow(q, QUOTE_FIELDS), client_id: clientIdMap[q.clientId] || null });
     (q.items || []).forEach((it, i) =>
       itemRows.push({ user_id: userId, quote_id: id, description: it.desc || '', qty: Number(it.qty) || 1, price: Number(it.price) || 0, position: i })
@@ -357,7 +361,58 @@ export async function bulkUpload(userId, data) {
     }
   }
 
-  return { clients: clientRows.length, quotes: quoteRows.length, transactions: txRows.length, leads: leadRows.length, tasks: taskRows.length, businessProfile };
+  // F1: charges + payments are part of `data` (fetchAll returns them, and the
+  // Settings backup is a dump of the whole store), so an importer that skipped
+  // them would silently drop every receivable from a restore while still
+  // reporting success. Charges go through the SAME validator as a direct save,
+  // so a malformed row is skipped rather than half-written.
+  const chargeIdMap = {};
+  const chargeRows = [];
+  for (const c of data.charges || []) {
+    const v = validateCharge({
+      ...c,
+      // The remapped parents. An unknown id becomes NULL rather than a dangling
+      // reference — the composite FK would reject it, and losing a link is a far
+      // smaller loss than losing the charge.
+      clientId: clientIdMap[c.clientId] || null,
+      quoteId: quoteIdMap[c.quoteId] || null,
+      // A manual due date must survive the round trip verbatim; a computed one
+      // is left to the validator so it stays consistent with the terms.
+      dueDate: c.dueDateSource === 'manual' ? c.dueDate : '',
+    });
+    if (!v.ok) continue;
+    const id = uuid();
+    chargeIdMap[c.id] = id;
+    chargeRows.push({
+      id,
+      user_id: userId,
+      ...mapToRow(v.value, CHARGE_FIELDS),
+      // Lifecycle is preserved: a cancelled charge must not come back open.
+      lifecycle: c.lifecycle === 'cancelled' ? 'cancelled' : 'open',
+    });
+  }
+  if (chargeRows.length) guard((await supabase.from('charges').insert(chargeRows)).error);
+
+  // A payment whose charge did not survive the import is DROPPED, not orphaned:
+  // charge_id is NOT NULL and the composite FK would refuse it, so keeping it
+  // would fail the whole import. The count is returned so the caller can report
+  // what actually landed instead of implying everything did.
+  const paymentRows = [];
+  let paymentsSkipped = 0;
+  for (const p of data.payments || []) {
+    const chargeId = chargeIdMap[p.chargeId];
+    if (!chargeId) { paymentsSkipped += 1; continue; }
+    const v = validatePayment({ chargeId, amount: p.amount, paidAt: p.paidAt });
+    if (!v.ok) { paymentsSkipped += 1; continue; }
+    paymentRows.push({ id: uuid(), user_id: userId, ...mapToRow(v.value, PAYMENT_FIELDS) });
+  }
+  if (paymentRows.length) guard((await supabase.from('payments').insert(paymentRows)).error);
+
+  return {
+    clients: clientRows.length, quotes: quoteRows.length, transactions: txRows.length,
+    leads: leadRows.length, tasks: taskRows.length, businessProfile,
+    charges: chargeRows.length, payments: paymentRows.length, paymentsSkipped,
+  };
 }
 
 // Pure mapping helpers exported for focused unit tests (S0B + S0D).

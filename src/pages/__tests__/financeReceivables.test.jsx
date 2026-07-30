@@ -329,6 +329,29 @@ describe('api · a payment writes to payments and to nothing else', () => {
     expect(createPayment).toContain('normalizePaymentRow(res.data)');
   });
 
+  it('bulkUpload imports charges and payments — a restore must not drop them', () => {
+    // Codex round 2, P1: fetchAll returns charges/payments and the Settings
+    // backup is a dump of the whole store, so an importer that skipped them
+    // would silently lose every receivable while still reporting success.
+    const bulk = api.slice(api.indexOf('export async function bulkUpload('), api.indexOf('// Pure mapping helpers exported'));
+    expect(bulk.length).toBeGreaterThan(500);
+    expect(bulk).toContain("supabase.from('charges').insert(chargeRows)");
+    expect(bulk).toContain("supabase.from('payments').insert(paymentRows)");
+    // Parents are REMAPPED, exactly like clients — a raw old id would dangle.
+    expect(bulk).toContain('quoteIdMap[c.quoteId]');
+    expect(bulk).toContain('clientIdMap[c.clientId]');
+    expect(bulk).toContain('chargeIdMap[p.chargeId]');
+    expect(bulk).toContain('quoteIdMap[q.id] = id');
+    // Rows go through the SAME validators as a direct save.
+    expect(bulk).toContain('validateCharge(');
+    expect(bulk).toContain('validatePayment(');
+    // A cancelled charge must not come back open.
+    expect(bulk).toContain("lifecycle: c.lifecycle === 'cancelled' ? 'cancelled' : 'open'");
+    // What could not be imported is COUNTED, not silently dropped.
+    expect(bulk).toContain('paymentsSkipped');
+    expect(bulk).toMatch(/charges: chargeRows\.length, payments: paymentRows\.length/);
+  });
+
   it('the charge write map has no payment-status key — there is no such column', () => {
     const map = api.slice(api.indexOf('const CHARGE_FIELDS = {'), api.indexOf('const PAYMENT_FIELDS'));
     expect(map).not.toMatch(/\bstatus\b/);
@@ -467,6 +490,28 @@ describe('PaymentModal · suggests the BALANCE, and is honest about overpayment'
   it('warns before an overpayment instead of refusing it', () => {
     expect(paymentModal).toContain('willOverpay');
     expect(paymentModal).toContain('היתרה תוצג כאפס');
+  });
+
+  it('warns on an ALREADY PAID charge too — the balance-zero case', () => {
+    // Codex round 2, P2: a `balance > 0` conjunct suppressed the warning exactly
+    // when it mattered most. A paid charge has balance 0, the page still offers
+    // "record payment", so every amount is an overpayment and none was flagged.
+    expect(paymentModal).toContain('const willOverpay = Number(form.amount) > balance;');
+    expect(paymentModal).not.toMatch(/willOverpay = [^;]*balance > 0/);
+  });
+
+  it('offers a CORRECTION path — a mistyped payment can be removed', () => {
+    // Codex round 2, P2: DELETE_PAYMENT existed in api/store with nothing in the
+    // UI dispatching it, so a wrong amount permanently distorted actual revenue
+    // (cancelling the charge deliberately keeps its payments).
+    expect(paymentModal).toContain('ownPayments');
+    expect(paymentModal).toContain('onDelete(p)');
+    expect(paymentModal).toContain('תשלומים שנרשמו');
+    expect(paymentModal).toContain('אין עריכה של תשלום קיים');
+    // ...and the page really wires it to the durable dispatch.
+    expect(finance).toContain("dispatch({ type: 'DELETE_PAYMENT', id: payment.id })");
+    expect(finance).toContain('onDelete={deletePayment}');
+    expect(finance).toContain('payments={payments}');
   });
 
   it('shows the derived status and validates through the shared validator', () => {

@@ -168,6 +168,16 @@ export default function Finance() {
     }
   };
 
+  // The correction path for a mistyped payment. A payment is immutable by
+  // design, so a wrong one is DELETED and re-recorded — without this the error
+  // is permanent through the UI and permanently distorts actual revenue
+  // (cancelling the charge deliberately keeps its payments).
+  const deletePayment = async (payment) => {
+    if (!payment) return;
+    const res = await dispatch({ type: 'DELETE_PAYMENT', id: payment.id });
+    if (res?.ok !== false) toast('התשלום נמחק');
+  };
+
   const cancelCharge = async () => {
     if (!toCancel) return;
     const res = await dispatch({ type: 'CANCEL_CHARGE', id: toCancel.id });
@@ -429,8 +439,10 @@ export default function Finance() {
             open={!!payingCharge}
             onClose={() => setPayingCharge(null)}
             onSave={savePayment}
+            onDelete={deletePayment}
             charge={payingCharge}
             received={payingCharge ? chargeReceived(payingCharge.id, payments) : 0}
+            payments={payments}
             saving={paymentSaving}
           />
           <ConfirmDialog

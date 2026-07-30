@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import Modal from '../ui/Modal.jsx';
+import Icon from '../ui/Icon.jsx';
 import {
   validatePayment, openBalance, chargePaymentStatus,
   PAYMENT_STATUS_LABELS,
@@ -22,13 +23,17 @@ import { formatCurrency } from '../../lib/format.js';
 // ===================================================================
 
 export default function PaymentModal({
-  open, onClose, onSave, charge, received = 0, saving = false,
+  open, onClose, onSave, onDelete, charge, received = 0, payments = [], saving = false,
 }) {
   const [form, setForm] = useState({ amount: '', paidAt: '' });
   const [errors, setErrors] = useState([]);
 
   const balance = openBalance(charge?.amountTotal, received);
   const status = chargePaymentStatus(charge?.amountTotal, received);
+  // The payments of THIS charge, newest first — the correction list below.
+  const ownPayments = (Array.isArray(payments) ? payments : [])
+    .filter((p) => p && charge && p.chargeId === charge.id)
+    .sort((a, b) => String(b.paidAt || '').localeCompare(String(a.paidAt || '')));
 
   useEffect(() => {
     if (!open) return;
@@ -56,7 +61,11 @@ export default function PaymentModal({
     onSave(payload);
   };
 
-  const willOverpay = Number(form.amount) > balance && balance > 0;
+  // Deliberately WITHOUT a `balance > 0` conjunct. With that guard, an already
+  // paid or overpaid charge has balance 0, so every positive amount exceeded the
+  // balance and the warning was suppressed exactly when it was most warranted —
+  // the page still offers "record payment" on a paid charge.
+  const willOverpay = Number(form.amount) > balance;
 
   return (
     <Modal
@@ -127,6 +136,45 @@ export default function PaymentModal({
         {willOverpay && (
           <div className="sub">
             הסכום גדול מהיתרה הפתוחה. התשלום יירשם במלואו, החיוב יסומן כשולם והיתרה תוצג כאפס.
+          </div>
+        )}
+
+        {/* THE CORRECTION PATH. Without it a mistyped amount or date is
+            permanent through the UI and permanently distorts actual revenue —
+            cancelling the charge deliberately keeps its payments, so that is not
+            a way back either. Deleting a payment is the only correction: a
+            payment is immutable by design, so a wrong one is removed and
+            re-recorded rather than edited in place. */}
+        {ownPayments.length > 0 && (
+          <div>
+            <div className="panel-title" style={{ fontSize: '0.95rem', marginBottom: 6 }}>תשלומים שנרשמו</div>
+            <div className="table-wrap">
+              <table className="tbl">
+                <tbody>
+                  {ownPayments.map((p) => (
+                    <tr key={p.id}>
+                      <td className="muted">{p.paidAt || '—'}</td>
+                      <td className="tnum">{formatCurrency(p.amount)}</td>
+                      <td style={{ textAlign: 'end' }}>
+                        {onDelete && (
+                          <button
+                            className="icon-action del"
+                            onClick={() => onDelete(p)}
+                            disabled={saving}
+                            aria-label="מחיקת תשלום"
+                          >
+                            <Icon name="trash" size={15} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="sub" style={{ marginTop: 6 }}>
+              תשלום שנרשם בטעות נמחק ונרשם מחדש — אין עריכה של תשלום קיים.
+            </div>
           </div>
         )}
       </div>
