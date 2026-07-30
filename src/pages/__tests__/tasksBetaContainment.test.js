@@ -12,10 +12,20 @@ import { fileURLToPath } from 'node:url';
 const src = readFileSync(fileURLToPath(new URL('../Tasks.jsx', import.meta.url)), 'utf8');
 
 describe('Tasks.jsx — S0B durable + confirmed-write (source pins)', () => {
-  it('the S0A read-only containment is gone (no betaBlocked / BETA_MESSAGES / isSupabaseConfigured)', () => {
+  it('the S0A read-only containment is gone (no betaBlocked / BETA_MESSAGES / no page-level cloud gate)', () => {
     expect(src.includes('betaBlocked')).toBe(false);
     expect(src.includes('BETA_MESSAGES')).toBe(false);
-    expect(src.includes('isSupabaseConfigured')).toBe(false);
+    // Campaigns slice 3 narrowed this assertion, deliberately. It used to read
+    // `src.includes('isSupabaseConfigured') === false`. That bare-identifier form
+    // over-reached: it banned the NAME, when what S0B actually established is
+    // that Tasks must not be GATED on cloud mode — tasks work in local/demo.
+    // Slice 3 uses the flag for something different and additive: skipping the
+    // cloud-only campaign fetch. So pin the real rule instead — the flag may be
+    // read, but never to short-circuit the page or a mutation.
+    expect(/if \(!isSupabaseConfigured\) return <–/.test(src)).toBe(false);
+    expect(/isSupabaseConfigured\s*\?\s*</.test(src)).toBe(false);
+    const gateInLoadOnly = src.match(/if \(!isSupabaseConfigured\) return;/g) || [];
+    expect(gateInLoadOnly.length).toBeLessThanOrEqual(1); // the campaign loader only
   });
 
   it('save awaits the dispatch result and shows success only on { ok } (no false success)', () => {

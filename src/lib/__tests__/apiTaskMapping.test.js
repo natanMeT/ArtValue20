@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mapToRow, rowToTask, TASK_FIELDS, nullifyBlankDates, buildBulkTaskRows } from '../api.js';
+import { mapToRow, rowToTask, TASK_FIELDS, nullifyBlankDates, nullifyBlankUuids, buildBulkTaskRows } from '../api.js';
 
 // S0B — task camelCase ↔ snake_case mapping (both directions).
 describe('S0B · task API mapping', () => {
@@ -37,6 +37,7 @@ describe('S0B · task API mapping', () => {
       id: 'tk_1', projectId: 'pr_1', clientId: 'c1', title: 'x', status: 'review',
       priority: 'urgent', deadline: '2026-08-01', assignee: 'נתן', linkRef: 'r', notes: 'n',
       createdAt: '2026-07-22T10:00:00Z', updatedAt: '2026-07-22T11:00:00Z',
+      campaignId: null, // slice 3: absent campaign_id hydrates as null, never undefined
     });
   });
 
@@ -64,6 +65,47 @@ describe('S0B · optional date normalization (blank date → null at the DB boun
   });
 });
 
+// Campaigns slice 3 — the OPTIONAL task → campaign link. The column and its
+// composite FK have been live since 20260729120000; this slice is the first
+// client code that writes or reads them.
+describe('Campaigns slice 3 · task → campaign link mapping', () => {
+  it('write: campaignId maps to campaign_id', () => {
+    expect(mapToRow({ campaignId: 'cmp_1' }, TASK_FIELDS)).toEqual({ campaign_id: 'cmp_1' });
+  });
+
+  it('write: an explicit null unlinks (null must survive to the DB, not be dropped)', () => {
+    expect(mapToRow({ campaignId: null }, TASK_FIELDS)).toEqual({ campaign_id: null });
+  });
+
+  it('write: a task that never mentions a campaign writes no campaign_id at all', () => {
+    // mapToRow skips `undefined`, so Jake-originated and legacy callers are
+    // untouched by this slice — they neither set nor clear the link.
+    expect(mapToRow({ status: 'done' }, TASK_FIELDS)).toEqual({ status: 'done' });
+    expect('campaign_id' in mapToRow({ status: 'done' }, TASK_FIELDS)).toBe(false);
+  });
+
+  it("THE TRAP: a blank selection becomes null and NEVER travels as '' to a uuid column", () => {
+    // '' fails as 22P02 (invalid uuid syntax) BEFORE the FK is consulted, so it
+    // surfaces as a raw driver error rather than a domain refusal.
+    expect(nullifyBlankUuids(mapToRow({ campaignId: '' }, TASK_FIELDS))).toEqual({ campaign_id: null });
+    expect(nullifyBlankUuids(mapToRow({ campaignId: 'cmp_1' }, TASK_FIELDS))).toEqual({ campaign_id: 'cmp_1' });
+  });
+
+  it('never blanket-converts other empty strings (only the uuid column)', () => {
+    expect(nullifyBlankUuids(mapToRow({ notes: '', title: '', linkRef: '' }, TASK_FIELDS)))
+      .toEqual({ notes: '', title: '', link_ref: '' });
+  });
+
+  it('read: rowToTask hydrates campaign_id, and a deleted campaign reads as null', () => {
+    // The FK is `on delete set null`: deleting a campaign silently unlinks its
+    // tasks, so the row comes back with campaign_id null — identical in shape to
+    // a task that was never linked.
+    expect(rowToTask({ id: 't', title: 'x', campaign_id: 'cmp_1' }).campaignId).toBe('cmp_1');
+    expect(rowToTask({ id: 't', title: 'x', campaign_id: null }).campaignId).toBeNull();
+    expect(rowToTask({ id: 't', title: 'x' }).campaignId).toBeNull();
+  });
+});
+
 describe('S0B · bulkUpload task rows (import / local→cloud migration)', () => {
   it('builds a task row: fresh TEXT id, remapped client_id, retained project_id, user_id', () => {
     const rows = buildBulkTaskRows(
@@ -86,6 +128,19 @@ describe('S0B · bulkUpload task rows (import / local→cloud migration)', () =>
     expect(rows[0].project_id).toBeNull();
     expect(rows[0].deadline).toBeNull();
   });
+  it('REGRESSION GUARD (slice 3): an imported campaign id is DROPPED, never carried into the FK', () => {
+    // Adding campaignId to TASK_FIELDS made mapToRow carry an imported task's
+    // ORIGINAL campaign id through. There is no campaignIdMap — campaigns are
+    // not part of the import — so that id names a campaign this account does not
+    // own, and the composite FK would refuse the ENTIRE import with 23503. That
+    // would be a regression in a path that worked before this slice.
+    const rows = buildBulkTaskRows(
+      [{ id: 'tk_old', title: 't', campaignId: 'cmp_from_another_account' }],
+      'user-1', {},
+    );
+    expect(rows[0].campaign_id).toBeNull();
+  });
+
   it('empty / missing tasks is backward-compatible (returns [])', () => {
     expect(buildBulkTaskRows([], 'u', {})).toEqual([]);
     expect(buildBulkTaskRows(undefined, 'u')).toEqual([]);
