@@ -227,6 +227,42 @@ describe('deletion semantics — preserved exactly, and never a bare SET NULL', 
     expect(code).toMatch(/from unnest\(c\.confkey\) with ordinality/);
   });
 
+  it('validates EXISTING ROW VALUES against the new CHECKs, in PART 1', () => {
+    // Codex round 20, P2: PART 1 validated column SHAPE but never row CONTENTS.
+    // A pre-existing `kind = 'legacy'` passes every shape check, and the
+    // `add constraint charges_kind_allowed` in PART 3 then validates the rows
+    // and fails — after earlier statements have committed, and after the paired
+    // `drop constraint if exists`, leaving the table with NEITHER constraint.
+    expect(sql).toContain('-- (k1) existing row values vs. the check constraints this migration adds.');
+    expect(code).toContain('existing row(s) violating the constraint this migration adds');
+    expect(code).toContain("execute format('select count(*) from public.%i where not (%s)', r.tbl, r.pred)");
+    // Every CHECK this migration adds must have a matching row pre-validation.
+    for (const pred of ["kind in ('deposit', 'partial', 'final')",
+      "payment_terms in ('immediate', 'net30', 'net60', 'net90')",
+      "lifecycle in ('open', 'cancelled')",
+      "due_date_source in ('computed', 'manual')",
+      'amount_total > 0',
+      'description is null or length(description) <= 200',
+      'invoice_url is null or length(invoice_url) <= 2048',
+      'amount > 0']) {
+      expect(code, `no row pre-validation for: ${pred}`).toContain(`$chk$${pred}$chk$`);
+    }
+    // ...and it runs before the first altering statement.
+    expect(code.indexOf('existing row(s) violating the constraint this migration adds'))
+      .toBeLessThan(code.indexOf('create or replace function public.set_updated_at'));
+  });
+
+  it('validates EXISTING INDEX definitions in PART 1, not only in PART 3', () => {
+    // Codex round 20, P2: the round-15 index check lived in PART 3, so its SAFE
+    // STOP left the table, column, constraint and ownership statements above it
+    // committed on the statement-by-statement path.
+    expect(sql).toContain('-- (k2) existing indexes vs. the definitions this migration creates.');
+    expect(code).toContain('already exists with a different definition (%). expected using btree % %. nothing was changed.');
+    expect(code).toContain('already exists but is not valid and would never be used. nothing was changed.');
+    expect(code.indexOf('nothing was changed.'))
+      .toBeLessThan(code.indexOf('create table if not exists public.charges'));
+  });
+
   it('refuses an EXTRA foreign key over user_id, not just a wrong one', () => {
     // Codex round 17, P2: the block returned as soon as it found the correct
     // ownership key, so an ADDITIONAL key on user_id pointing elsewhere was
@@ -356,7 +392,11 @@ describe('the unique keys the composite FKs point at', () => {
     // every substring check and is a different object — brin cannot serve the
     // ordered due-date read. The access method is part of the definition, and is
     // required both in the text check and from the catalog (pg_am.amname).
-    expect((code.match(/position\('using btree ' in /g) || []).length).toBe(2);
+    // At least twice — the PART 1 pre-check, the PART 3 pre-create check and the
+    // postflight all require it. A floor rather than an exact count: the number
+    // of places moves whenever a check is relocated, and what matters is that no
+    // place judges an index without it.
+    expect((code.match(/position\('using btree ' in /g) || []).length).toBeGreaterThanOrEqual(2);
     expect(code).toContain("am.amname = 'btree'");
     expect(code).toContain('join pg_am am on am.oid = c.relam');
     expect(code).toContain('is not a btree');

@@ -111,6 +111,7 @@ do $$
 declare
   n_bad bigint;
   r record;
+  idx_def text;
 begin
   -- (a) Server version. `on delete set null (col)` is PG15+. Without this the
   -- failure would be a bare syntax error at an ALTER, pointing at the wrong
@@ -455,6 +456,86 @@ begin
   ) then
     raise exception 'Receivables SAFE STOP: public.charges already has a stored payment-status column. Payment status is DERIVED from amount_total and the sum of payments; a stored copy is free to drift and must not exist.';
   end if;
+
+  -- (k1) EXISTING ROW VALUES vs. the CHECK constraints this migration adds.
+  -- PART 1 validated column SHAPE but never row CONTENTS. A pre-existing table
+  -- holding `kind = 'legacy'` passes every shape check, and the `add constraint
+  -- charges_kind_allowed` in PART 3 then validates the existing rows and fails
+  -- -- by which point earlier statements have committed on the statement-by-
+  -- statement path, and the paired `drop constraint if exists` may have
+  -- committed too, leaving the table with NEITHER the old constraint nor the
+  -- new one. Checked here instead, against the same predicates.
+  for r in
+    select * from (values
+      ('charges',  'kind',            $chk$kind in ('deposit', 'partial', 'final')$chk$),
+      ('charges',  'payment_terms',   $chk$payment_terms in ('immediate', 'net30', 'net60', 'net90')$chk$),
+      ('charges',  'lifecycle',       $chk$lifecycle in ('open', 'cancelled')$chk$),
+      ('charges',  'due_date_source', $chk$due_date_source in ('computed', 'manual')$chk$),
+      ('charges',  'amount_total',    $chk$amount_total > 0$chk$),
+      ('charges',  'description',     $chk$description is null or length(description) <= 200$chk$),
+      ('charges',  'invoice_url',     $chk$invoice_url is null or length(invoice_url) <= 2048$chk$),
+      ('charges',  'invoice_url',     $chk$invoice_url is null or invoice_url ~* '^https?://[^[:space:]]'$chk$),
+      ('payments', 'amount',          $chk$amount > 0$chk$)
+    ) as t(tbl, col, pred)
+  loop
+    -- Skip when the table or the column is not there yet: PART 3 creates them,
+    -- and an empty new column cannot violate anything.
+    if to_regclass('public.' || r.tbl) is null then
+      continue;
+    end if;
+    if not exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = r.tbl and column_name = r.col
+    ) then
+      continue;
+    end if;
+
+    execute format('select count(*) from public.%I where not (%s)', r.tbl, r.pred) into n_bad;
+    if n_bad > 0 then
+      raise exception 'Receivables SAFE STOP: public.% has % existing row(s) violating the constraint this migration adds (%). Nothing was changed -- the data has to be corrected first, and deciding how is not this migration''s call.',
+        r.tbl, n_bad, r.pred;
+    end if;
+  end loop;
+
+  -- (k2) EXISTING INDEXES vs. the definitions this migration creates.
+  -- Same reason as (k1): `create index if not exists` is name-only, so a
+  -- same-named index over the wrong columns, predicate or access method has to
+  -- be caught BEFORE the first altering statement, not in PART 3 where the
+  -- SAFE STOP would leave everything above it committed. `indisvalid` too -- a
+  -- correctly shaped but invalid index would otherwise be deferred all the way
+  -- to the postflight.
+  for r in
+    select * from (values
+      ('idx_charges_user_due',    '(user_id, due_date)',     ''),
+      ('idx_charges_client_user', '(client_id, user_id)',    'WHERE (client_id IS NOT NULL)'),
+      ('idx_charges_quote_user',  '(quote_id, user_id)',     'WHERE (quote_id IS NOT NULL)'),
+      ('idx_payments_charge',     '(charge_id, user_id)',    ''),
+      ('idx_payments_user_paid',  '(user_id, paid_at DESC)', ''),
+      ('idx_quotes_client_user',  '(client_id, user_id)',    'WHERE (client_id IS NOT NULL)'),
+      ('idx_tx_client_user',      '(client_id, user_id)',    'WHERE (client_id IS NOT NULL)')
+    ) as t(idx, cols, pred)
+  loop
+    select indexdef into idx_def from pg_indexes
+     where schemaname = 'public' and indexname = r.idx;
+    if not found then
+      continue; -- created in PART 3
+    end if;
+    if position('USING btree ' in idx_def) = 0
+       or position(r.cols in idx_def) = 0
+       or (r.pred <> '' and position(r.pred in idx_def) = 0)
+       or (r.pred = '' and position(' WHERE ' in idx_def) > 0) then
+      raise exception 'Receivables SAFE STOP: index % already exists with a different definition (%). Expected USING btree % %. Nothing was changed.',
+        r.idx, idx_def, r.cols, r.pred;
+    end if;
+    if not exists (
+      select 1 from pg_index x
+      join pg_class c on c.oid = x.indexrelid
+      join pg_namespace ns on ns.oid = c.relnamespace
+      where ns.nspname = 'public' and c.relname = r.idx and x.indisvalid
+    ) then
+      raise exception 'Receivables SAFE STOP: index % already exists but is NOT VALID and would never be used. Nothing was changed.', r.idx;
+    end if;
+  end loop;
 
   -- (k) THE OWNERSHIP FOREIGN KEYS ON A PRE-EXISTING TABLE.
   -- This VALIDATION belongs here and not beside the repair in PART 3. PART 3
