@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useStore } from '../store/store.jsx';
+import { isSupabaseConfigured } from '../lib/supabase.js';
+import { listCampaigns } from '../lib/api.js';
 import { StaggerGroup, Reveal } from '../components/ui/motion.jsx';
 import CountUp from '../components/ui/CountUp.jsx';
 import Icon from '../components/ui/Icon.jsx';
@@ -44,9 +46,32 @@ export default function Tasks() {
   const [editing, setEditing] = useState(null);
   const [toDelete, setToDelete] = useState(null);
 
+  const [campaigns, setCampaigns] = useState([]);
+
   const tasks = data.tasks || [];
   const projName = (id) => (data.projects || []).find((p) => p.id === id)?.name || '—';
   const clientName = (id) => data.clients.find((c) => c.id === id)?.name || '—';
+  // Campaigns slice 3. Unlinked, and a link whose campaign row is gone, both
+  // read '—': the FK is `on delete set null`, so deleting a campaign silently
+  // unlinks its tasks and the id simply stops resolving. See the known gap in
+  // the PR — this slice does not warn before that delete.
+  const campaignName = (id) => campaigns.find((c) => c.id === id)?.title || '—';
+
+  // Campaigns slice 3 — PAGE-LOCAL and FAIL-SOFT, deliberately not part of
+  // fetchAll: a listCampaigns failure must never be able to break app hydration.
+  // Campaigns are cloud-only (no local reducer, no seed), so in local/demo mode
+  // this never runs and the list stays empty — which is exactly what suppresses
+  // the picker in TaskModal. A rejected load is swallowed to an empty list: the
+  // campaign column reads '—' and tasks stay fully usable without the link.
+  const loadCampaigns = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    try {
+      setCampaigns(await listCampaigns());
+    } catch {
+      setCampaigns([]);
+    }
+  }, []);
+  useEffect(() => { loadCampaigns(); }, [loadCampaigns]);
 
   const kpis = useMemo(() => ({
     today: tasks.filter((t) => t.status !== 'done' && isToday(t.deadline)).length,
@@ -120,7 +145,10 @@ export default function Tasks() {
           <div className="table-wrap">
             <table className="tbl">
               <thead>
-                <tr><th>משימה</th><th>לקוח</th><th>פרויקט</th><th>סטטוס</th><th>עדיפות</th><th>דדליין</th><th style={{ textAlign: 'end' }}>פעולה</th></tr>
+                {/* The campaign column follows the picker: it appears only where
+                    campaigns exist, so local/demo and campaign-less accounts do
+                    not get a column of dashes. */}
+                <tr><th>משימה</th><th>לקוח</th><th>פרויקט</th>{campaigns.length > 0 && <th>קמפיין</th>}<th>סטטוס</th><th>עדיפות</th><th>דדליין</th><th style={{ textAlign: 'end' }}>פעולה</th></tr>
               </thead>
               <tbody>
                 {list.map((t) => (
@@ -128,6 +156,7 @@ export default function Tasks() {
                     <td style={{ fontWeight: 500, maxWidth: 280 }}>{t.title}</td>
                     <td className="muted">{clientName(t.clientId)}</td>
                     <td className="muted">{projName(t.projectId)}</td>
+                    {campaigns.length > 0 && <td className="muted">{campaignName(t.campaignId)}</td>}
                     <td>
                       <select className="select mini-select" value={t.status} onChange={(e) => setStatus(t, e.target.value)}>
                         {TASK_STATUS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
@@ -150,7 +179,7 @@ export default function Tasks() {
         )}
       </div>
 
-      <TaskModal open={!!editing} onClose={() => setEditing(null)} onSave={save} projects={data.projects || []} clients={data.clients || []} initial={editing && editing !== 'new' ? editing : null} defaultAssignee={resolveDisplayName(session)} />
+      <TaskModal open={!!editing} onClose={() => setEditing(null)} onSave={save} projects={data.projects || []} clients={data.clients || []} campaigns={campaigns} initial={editing && editing !== 'new' ? editing : null} defaultAssignee={resolveDisplayName(session)} />
       <ConfirmDialog open={!!toDelete} onClose={() => setToDelete(null)} onConfirm={remove} message={`למחוק את המשימה "${toDelete?.title}"?`} />
     </div>
   );

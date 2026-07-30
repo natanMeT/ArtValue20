@@ -51,10 +51,17 @@ const LEAD_FIELDS = {
 };
 // S0B: task write map (camel → snake). created_at/updated_at are server-managed
 // (default now() + trigger) and are read-only (mapped back only in rowToTask).
+// Campaigns slice 3: `campaignId` joins the map so the OPTIONAL task → campaign
+// link is actually written. The column and its composite FK
+// (campaign_id, user_id) → campaigns (id, user_id) have existed and been live
+// since 20260729120000; until this slice nothing in the client referenced them,
+// so the link could never be set or read. See nullifyBlankUuids for why a blank
+// selection must not travel as ''.
 const TASK_FIELDS = {
   title: 'title', projectId: 'project_id', clientId: 'client_id',
   status: 'status', priority: 'priority', deadline: 'deadline',
   assignee: 'assignee', linkRef: 'link_ref', notes: 'notes',
+  campaignId: 'campaign_id',
 };
 // S0D: business_profile write map (camel → snake). user_id is the PK (from the
 // session), created_at/updated_at are server-managed. Values arrive already
@@ -103,6 +110,25 @@ function nullifyBlankDates(row) {
   return row;
 }
 
+// Campaigns slice 3. Same problem, different type: PostgreSQL rejects '' for a
+// `uuid` column too, and it fails as 22P02 (invalid input syntax) BEFORE the
+// foreign key is ever consulted — so an unselected campaign that travels as ''
+// produces a raw driver error, not a domain refusal. mapToRow skips `undefined`
+// but passes '' straight through, and nullifyBlankDates is deliberately scoped
+// to date columns, so neither one covers this.
+//
+// The form already coerces (TaskModal submits `campaignId || null`); this is the
+// SECOND line of defence at the DB boundary, so any other caller — an import, a
+// future Jake path, a direct api.updateTask — is safe by construction rather
+// than by remembering. Deliberately scoped: never a blanket '' → null.
+const BLANK_UUID_COLS = ['campaign_id'];
+function nullifyBlankUuids(row) {
+  for (const c of BLANK_UUID_COLS) {
+    if (c in row && row[c] === '') row[c] = null;
+  }
+  return row;
+}
+
 // ---- row → in-memory shape ----
 function rowToClient(r) {
   return {
@@ -139,6 +165,10 @@ function rowToTask(r) {
     title: r.title || '', status: r.status || 'new', priority: r.priority || 'normal',
     deadline: r.deadline || null, assignee: r.assignee || '', linkRef: r.link_ref || '',
     notes: r.notes || '', createdAt: r.created_at || null, updatedAt: r.updated_at || null,
+    // Campaigns slice 3: hydrate the optional campaign link. Absent/blank → null,
+    // so an unlinked task and a task whose campaign was deleted (the FK is
+    // `on delete set null`) are the same shape to every consumer.
+    campaignId: r.campaign_id || null,
   };
 }
 // S0D: hydrate a business_profile row THROUGH the shared validator, so a
@@ -275,10 +305,10 @@ export async function deleteLead(id) {
 
 // ---- tasks (S0B) ----
 export async function createTask(userId, task) {
-  guard((await supabase.from('tasks').insert({ id: task.id, user_id: userId, ...nullifyBlankDates(mapToRow(task, TASK_FIELDS)) })).error);
+  guard((await supabase.from('tasks').insert({ id: task.id, user_id: userId, ...nullifyBlankUuids(nullifyBlankDates(mapToRow(task, TASK_FIELDS))) })).error);
 }
 export async function updateTask(task) {
-  guard((await supabase.from('tasks').update(nullifyBlankDates(mapToRow(task, TASK_FIELDS))).eq('id', task.id)).error);
+  guard((await supabase.from('tasks').update(nullifyBlankUuids(nullifyBlankDates(mapToRow(task, TASK_FIELDS)))).eq('id', task.id)).error);
 }
 export async function deleteTask(id) {
   guard((await supabase.from('tasks').delete().eq('id', id)).error);
@@ -303,9 +333,18 @@ export async function upsertBusinessProfile(userId, profile) {
 // S0B: build task rows for bulkUpload — fresh TEXT id, client_id remapped
 // through clientIdMap, project_id retained (nullable text, no FK), blank
 // deadline → null. Pure + exported for focused tests. Empty/missing → [].
+//
+// Campaigns slice 3 — campaign_id is FORCED to null here, deliberately.
+// TASK_FIELDS gained `campaignId`, and without this line an imported task would
+// carry its ORIGINAL campaign id through unmapped: there is no campaignIdMap
+// (campaigns are not part of the import), so that id points at a campaign that
+// does not exist in this account. The composite FK would then refuse the whole
+// import with 23503 — a regression in a path that worked before this slice.
+// Import therefore produces UNLINKED tasks; linking is a UI action.
 export function buildBulkTaskRows(tasks, userId, clientIdMap = {}) {
   return (tasks || []).map((t) => nullifyBlankDates({
     id: uuid(), user_id: userId, ...mapToRow(t, TASK_FIELDS), client_id: clientIdMap[t.clientId] || null,
+    campaign_id: null,
   }));
 }
 
@@ -455,7 +494,7 @@ export async function bulkUpload(userId, data) {
 }
 
 // Pure mapping helpers exported for focused unit tests (S0B + S0D).
-export { uuid, mapToRow, rowToClient, rowToTask, rowToBusinessProfile, CLIENT_FIELDS, TASK_FIELDS, BUSINESS_PROFILE_FIELDS, nullifyBlankDates };
+export { uuid, mapToRow, rowToClient, rowToTask, rowToBusinessProfile, CLIENT_FIELDS, TASK_FIELDS, BUSINESS_PROFILE_FIELDS, nullifyBlankDates, nullifyBlankUuids };
 
 // ===================================================================
 // Asset Library slice 1 — durable cloud gallery images.
