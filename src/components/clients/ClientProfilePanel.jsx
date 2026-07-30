@@ -59,6 +59,11 @@ function Blank({ text }) {
   return <p className="dim" style={{ fontSize: '0.86rem', margin: 0 }}>{text}</p>;
 }
 
+// Hebrew counts read wrong in the plural form at exactly one ("1 הצעות"), and
+// these counters sit next to every section title, so the singular is spelled out
+// rather than numbered.
+const he = (n, one, many) => (n === 1 ? one : `${n} ${many}`);
+
 const NEXT_ACTION_SOURCE = {
   client: 'מעקב שהוגדר על הלקוח',
   task: 'המשימה הפתוחה הקרובה',
@@ -106,7 +111,7 @@ export default function ClientProfilePanel({
       </Section>
 
       {/* ---- יתרה / חיובים ---- */}
-      <Section title="חיובים ויתרה" count={`${money.openCharges.length} חיובים פתוחים`}>
+      <Section title="חיובים ויתרה" count={he(money.openCharges.length, 'חיוב פתוח אחד', 'חיובים פתוחים')}>
         <div className="detail-grid" style={{ marginBottom: money.charges.length ? 10 : 0 }}>
           <div className="detail-item"><div className="k">צפוי לחיוב</div><div className="v tnum">{formatCurrency(totals.expected)}</div></div>
           <div className="detail-item"><div className="k">התקבל</div><div className="v tnum">{formatCurrency(totals.received)}</div></div>
@@ -150,13 +155,15 @@ export default function ClientProfilePanel({
         )}
         {money.cancelledCount > 0 && (
           <p className="dim" style={{ fontSize: '0.76rem', marginTop: 8 }}>
-            {money.cancelledCount} חיובים מבוטלים אינם נכללים בסכומים שלמעלה.
+            {money.cancelledCount === 1
+              ? 'חיוב מבוטל אחד אינו נכלל בסכומים שלמעלה.'
+              : `${money.cancelledCount} חיובים מבוטלים אינם נכללים בסכומים שלמעלה.`}
           </p>
         )}
       </Section>
 
       {/* ---- תשלומים שהתקבלו ---- */}
-      <Section title="תשלומים שהתקבלו" count={`${money.payments.length} תשלומים`}>
+      <Section title="תשלומים שהתקבלו" count={he(money.payments.length, 'תשלום אחד', 'תשלומים')}>
         {money.payments.length === 0 ? (
           <Blank text="לא נרשמו תשלומים כנגד החיובים של הלקוח." />
         ) : (
@@ -177,7 +184,7 @@ export default function ClientProfilePanel({
       {/* ---- משימות קשורות ---- */}
       <Section
         title="משימות קשורות"
-        count={`${tasks.open.length} פתוחות · ${tasks.done.length} הושלמו`}
+        count={`${he(tasks.open.length, 'פתוחה אחת', 'פתוחות')} · ${he(tasks.done.length, 'הושלמה אחת', 'הושלמו')}`}
         action={<button className="btn btn-ghost btn-sm" onClick={go('/tasks')}>למשימות</button>}
       >
         {tasks.open.length === 0 && tasks.done.length === 0 ? (
@@ -210,7 +217,7 @@ export default function ClientProfilePanel({
       {/* ---- יומן ---- */}
       <Section
         title="תורים ושיעורים"
-        count={scheduleState === 'ready' ? `${profile.appointments.all.length} רישומים` : null}
+        count={scheduleState === 'ready' ? he(profile.appointments.all.length, 'רישום אחד', 'רישומים') : null}
         action={scheduleState === 'ready' ? <button className="btn btn-ghost btn-sm" onClick={go('/schedule')}>ליומן</button> : null}
       >
         {scheduleState !== 'ready' ? (
@@ -243,7 +250,7 @@ export default function ClientProfilePanel({
       {/* ---- הצעות מחיר ---- */}
       <Section
         title="הצעות מחיר מקושרות"
-        count={`${quotes.length} הצעות`}
+        count={he(quotes.length, 'הצעה אחת', 'הצעות')}
         action={<button className="btn btn-ghost btn-sm" onClick={go('/quotes')}>להצעות</button>}
       >
         {quotes.length === 0 ? (
