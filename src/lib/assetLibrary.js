@@ -138,6 +138,11 @@ export function normalizeAssetRow(row) {
     byteSize: Number(r.byte_size) || 0,
     createdAt: r.created_at ? Date.parse(r.created_at) : 0,
     kind: 'image',
+    // Slice 2. The column is NOT NULL DEFAULT false, so a row written before
+    // this slice reads as `false`, never undefined. Strict === true: any other
+    // value (null, 'f', 0, a missing column on an un-migrated database) means
+    // NOT a favorite. A star is never shown on a guess.
+    favorite: r.is_favorite === true,
     meta: sanitizeAssetMeta({
       source: r.source, prompt: r.prompt, preset: r.preset, engine: r.engine,
     }),
@@ -148,4 +153,24 @@ export function normalizeAssetRow(row) {
 /** Newest first — the order the gallery has always rendered in. */
 export function sortAssetsNewestFirst(items) {
   return [...(Array.isArray(items) ? items : [])].sort((a, b) => (b?.createdAt || 0) - (a?.createdAt || 0));
+}
+
+/**
+ * Slice 2 — the favorites tab.
+ *
+ * A FILTER, not a re-ordering: starring an item must not move it, so the
+ * gallery keeps its one ordering rule (newest first) in every tab. Order is
+ * preserved exactly as given.
+ */
+export function filterFavoriteAssets(items) {
+  return (Array.isArray(items) ? items : []).filter((it) => it?.favorite === true);
+}
+
+/**
+ * The next favorite state for a toggle. Pure so the UI never computes it
+ * inline: `!item.favorite` on an item whose flag is undefined would silently
+ * turn "unknown" into "true" and star something the server never confirmed.
+ */
+export function nextFavoriteState(item) {
+  return item?.favorite !== true;
 }
