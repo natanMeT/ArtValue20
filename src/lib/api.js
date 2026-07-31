@@ -619,6 +619,44 @@ export async function deleteAsset(storagePath, assetId) {
   return true;
 }
 
+/**
+ * Asset Library slice 2 — star / unstar ONE asset.
+ *
+ * Touches NO Storage: this is a single-column row update, so none of the
+ * create/delete ordering rules above apply. There is no second write whose
+ * failure could leave a half-state.
+ *
+ * WHY IT ASKS FOR THE ROW BACK. An update that RLS refuses is not an error —
+ * PostgREST reports success with ZERO rows affected, because "no row matched"
+ * is a legitimate outcome of a filtered update. Trusting the absent error would
+ * be a FALSE SUCCESS of exactly the class S0A exists to prevent. `.select()`
+ * makes the server state the evidence: one returned row means one row really
+ * changed, and the returned `is_favorite` is what the server stored, not what
+ * we asked for. Anything else REJECTS, and the caller re-reads the truth.
+ *
+ * The writable surface is ONE column. `is_favorite` is the only column
+ * `authenticated` holds an UPDATE grant on, so this statement is not merely the
+ * only update the client happens to send — it is the only one the server would
+ * accept.
+ */
+export async function setAssetFavorite(assetId, favorite) {
+  const next = favorite === true;
+  const res = await supabase
+    .from('assets')
+    .update({ is_favorite: next })
+    .eq('id', assetId)
+    .select('id, is_favorite');
+  guard(res.error);
+
+  const rows = res.data || [];
+  if (rows.length !== 1 || rows[0]?.is_favorite !== next) {
+    const err = new Error('העדכון לא נשמר. רענן ונסה שוב.');
+    err.userSafe = true;
+    throw err;
+  }
+  return next;
+}
+
 // ===================================================================
 // Campaigns slice 1 — the durable per-account BUSINESS campaign.
 //

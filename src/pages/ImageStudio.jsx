@@ -12,8 +12,8 @@ import Icon from '../components/ui/Icon.jsx';
 import { callAiGateway } from '../lib/aiGatewayClient.js';
 import { generateImage, downloadImage, isImageAiConfigured } from '../lib/hostedImage.js';
 import { createGalleryStore, srcToBlob, GALLERY_MAX, filterGalleryItems } from '../lib/galleryStore.js';
-import { listAssets, createAsset, deleteAsset } from '../lib/api.js';
-import { ASSET_QUOTA } from '../lib/assetLibrary.js';
+import { listAssets, createAsset, deleteAsset, setAssetFavorite } from '../lib/api.js';
+import { ASSET_QUOTA, filterFavoriteAssets, nextFavoriteState } from '../lib/assetLibrary.js';
 import { activeBrandPalette, withBrandPalette } from '../lib/brandPalette.js';
 import { AI_GATEWAY_INPUT_LIMITS } from '../lib/aiGatewayInput.js';
 import { CREATIVE_PRESETS, isTextImagePreset } from '../data/creativePresets.js';
@@ -215,7 +215,10 @@ export function disposeGalleryItems(items, revoke) {
 // The cloud adapter is durable (Supabase private bucket + owner-only rows).
 // The device adapter is the UNCHANGED per-account IndexedDB store — it is used
 // in local/demo only, and its database is never touched from cloud mode.
-export function createCloudAssetStore(userId, io = { listAssets, createAsset, deleteAsset }) {
+export function createCloudAssetStore(
+  userId,
+  io = { listAssets, createAsset, deleteAsset, setAssetFavorite },
+) {
   return {
     durable: true,
     userId,
@@ -224,6 +227,10 @@ export function createCloudAssetStore(userId, io = { listAssets, createAsset, de
     // enforced by the storage.objects INSERT policy on the server.
     add: (blob, meta, currentCount) => io.createAsset(userId, blob, meta, currentCount),
     remove: (item) => io.deleteAsset(item?.storagePath, item?.id),
+    // Slice 2. Present ONLY on the durable backing — favorites are a cloud
+    // column, and the page decides what to render by asking whether the
+    // capability exists, never by testing which mode it is in.
+    setFavorite: (item, next) => io.setAssetFavorite(item?.id, next),
   };
 }
 
@@ -234,6 +241,10 @@ export function createDeviceGalleryAdapter(store) {
     list: () => store.list(),
     add: (blob, meta) => store.add(blob, meta),
     remove: (item) => store.remove(item?.id),
+    // The device store has no favorites column and slice 2 does not add one to
+    // it. Absent, not a no-op stub: a stub would let the star render and then
+    // silently do nothing.
+    setFavorite: null,
   };
 }
 
@@ -367,8 +378,24 @@ export default function ImageStudio() {
     gateRef.current.setActiveStore(galleryStore);
     disposeGalleryItems(galleryRef.current); // outgoing account's URLs
     setGallery([]);
+    // Slice 2: the favorites tab does not exist on every backing, so a switch
+    // must not leave the view sitting on a tab this store cannot answer.
+    setGalleryTab('all');
     refreshGallery();
   }, [galleryStore]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Slice 2 — the tab set and the ONE place a tab is resolved to items.
+  // 'favorite' is handled here rather than inside filterGalleryItems because
+  // that helper belongs to the device store and knows only about `kind`.
+  const galleryTabs = [
+    { id: 'all', label: 'הכל' },
+    { id: 'image', label: 'תמונות' },
+    { id: 'video', label: 'וידאו' },
+    ...(galleryStore.setFavorite ? [{ id: 'favorite', label: 'מועדפים' }] : []),
+  ];
+  const galleryItemsForTab = (tab) => (
+    tab === 'favorite' ? filterFavoriteAssets(gallery) : filterGalleryItems(gallery, tab)
+  );
 
   // Jake handoff prefill (Phase 2): consume a router-state payload ONCE per
   // location entry — prefill the prompt (and mode, if the workflow maps to a
@@ -529,6 +556,20 @@ export default function ImageStudio() {
       if (galleryStore.durable) toast(userFacingError(e, 'מחיקת הפריט נכשלה'), 'error');
     }
     refreshGallery();
+  };
+
+  // Slice 2 — star / unstar. PERSIST-FIRST, with NO optimistic toggle: the star
+  // moves only after the server confirms the row, and on failure we re-read
+  // rather than keep a local guess. The screen therefore never shows a favorite
+  // state the database does not hold — the same rule the save path follows.
+  const toggleGalleryFavorite = async (item) => {
+    if (!galleryStore.setFavorite) return; // capability absent (device backing)
+    try {
+      await galleryStore.setFavorite(item, nextFavoriteState(item));
+    } catch (e) {
+      toast(userFacingError(e, 'עדכון המועדפים נכשל'), 'error');
+    }
+    await refreshGallery(); // success or failure, the server is what we render
   };
 
   // Assemble the selected gallery images into a montage video.
@@ -829,25 +870,23 @@ export default function ImageStudio() {
           <p className="dim" style={{ fontSize: '0.8rem', margin: '0 0 10px' }}>
             נשמרות עד {galleryMax} פריטים{galleryStore.durable ? ' · נשמר בענן בחשבון שלך' : ''}
           </p>
-          {/* Render-history filter: all / images / videos (animated WebP) */}
+          {/* Render-history filter: all / images / videos (animated WebP), plus
+              favorites on the durable backing. The video tab is UNCHANGED by
+              slice 2 — see the recorded follow-up. */}
           <div className="gallery-filters">
-            {[
-              { id: 'all', label: 'הכל' },
-              { id: 'image', label: 'תמונות' },
-              { id: 'video', label: 'וידאו' },
-            ].map((t) => (
+            {galleryTabs.map((t) => (
               <button
                 key={t.id}
                 type="button"
                 className={`gallery-filter ${galleryTab === t.id ? 'active' : ''}`}
                 onClick={() => setGalleryTab(t.id)}
               >
-                {t.label} ({filterGalleryItems(gallery, t.id).length})
+                {t.label} ({galleryItemsForTab(t.id).length})
               </button>
             ))}
           </div>
           <div className="gallery-grid">
-            {filterGalleryItems(gallery, galleryTab).map((g) => (
+            {galleryItemsForTab(galleryTab).map((g) => (
               <div key={g.id} className="gallery-item">
                 {/* A cloud item with no url is a DANGLING record: its row exists
                     but its file does not (an upload that failed after the row
@@ -866,6 +905,24 @@ export default function ImageStudio() {
                   )}
                 {g.kind === 'video' && <span className="gallery-kind"><Icon name="spark" size={11} /> וידאו</span>}
                 <div className="gallery-actions" onClick={(e) => e.stopPropagation()}>
+                  {/* Slice 2 — rendered only where the capability exists. The
+                      pressed state comes from the LAST SERVER READ, never from
+                      an optimistic local flip. */}
+                  {galleryStore.setFavorite && (
+                    <button
+                      className={`gallery-btn fav ${g.favorite ? 'on' : ''}`}
+                      type="button"
+                      // The stylesheet is out of scope for this slice, so the
+                      // ON state is carried inline — a star the user cannot
+                      // distinguish from an unstarred one is not a feature.
+                      style={g.favorite ? { color: 'var(--lime-deep)' } : { opacity: 0.72 }}
+                      aria-pressed={g.favorite === true}
+                      title={g.favorite ? 'הסרה מהמועדפים' : 'הוספה למועדפים'}
+                      onClick={() => toggleGalleryFavorite(g)}
+                    >
+                      <Icon name="spark" size={13} />
+                    </button>
+                  )}
                   <button className="gallery-btn del" title="מחיקה" onClick={() => removeGalleryItem(g)}><Icon name="trash" size={13} /></button>
                 </div>
               </div>
