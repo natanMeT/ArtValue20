@@ -234,6 +234,43 @@ export function createCloudAssetStore(
   };
 }
 
+// ===================================================================
+// VIDEO TAB TRUTHFULNESS.
+//
+// THE DEFECT. In cloud mode the gallery rendered an ACTIVE "וידאו" tab with a
+// live "(0)" count — a capability the product cannot deliver at all. The cloud
+// lane never produces video (`generateImage` in hostedImage.js never sets
+// `isVideo`; the flag is leftover from the retired local engine) and the server
+// CHECK is `kind = 'image'`, so that count is structurally incapable of ever
+// being anything but 0. A count of zero reads as "you have no videos yet",
+// which is a promise the product does not keep.
+//
+// THE FIX, deliberately minimal: the video CONCEPT stays visible — it is a real
+// part of the roadmap and hiding it would lose that — but in cloud mode it is
+// presented as what it is: not yet available. The tab is disabled and carries
+// no count, because the count is the part that lies.
+//
+// NOT DONE HERE, on purpose: no provider integration, no video schema, no
+// storage change, no generation lane. This slice only stops claiming an active
+// capability. Shipping video is a GENERATION-lane slice — animated WebP is
+// already an allowed MIME, so storage was never the blocker.
+//
+// DEVICE/local mode is UNCHANGED: its store can still hold legacy `kind:
+// 'video'` records, so there the tab remains real and counted.
+// ===================================================================
+export const VIDEO_COMING_SOON_HE = 'יצירת וידאו תתווסף בשלב הבא';
+
+export function galleryTabModel({ canFavorite = false, videoComingSoon = false } = {}) {
+  return [
+    { id: 'all', label: 'הכל' },
+    { id: 'image', label: 'תמונות' },
+    videoComingSoon
+      ? { id: 'video', label: 'וידאו', comingSoon: true, note: VIDEO_COMING_SOON_HE }
+      : { id: 'video', label: 'וידאו' },
+    ...(canFavorite ? [{ id: 'favorite', label: 'מועדפים' }] : []),
+  ];
+}
+
 export function createDeviceGalleryAdapter(store) {
   return {
     durable: false,
@@ -387,12 +424,10 @@ export default function ImageStudio() {
   // Slice 2 — the tab set and the ONE place a tab is resolved to items.
   // 'favorite' is handled here rather than inside filterGalleryItems because
   // that helper belongs to the device store and knows only about `kind`.
-  const galleryTabs = [
-    { id: 'all', label: 'הכל' },
-    { id: 'image', label: 'תמונות' },
-    { id: 'video', label: 'וידאו' },
-    ...(galleryStore.setFavorite ? [{ id: 'favorite', label: 'מועדפים' }] : []),
-  ];
+  const galleryTabs = galleryTabModel({
+    canFavorite: Boolean(galleryStore.setFavorite),
+    videoComingSoon: Boolean(galleryStore.durable),
+  });
   const galleryItemsForTab = (tab) => (
     tab === 'favorite' ? filterFavoriteAssets(gallery) : filterGalleryItems(gallery, tab)
   );
@@ -879,11 +914,27 @@ export default function ImageStudio() {
                 key={t.id}
                 type="button"
                 className={`gallery-filter ${galleryTab === t.id ? 'active' : ''}`}
-                onClick={() => setGalleryTab(t.id)}
+                // A coming-soon tab is inert in every sense: not clickable, not
+                // focusable as an action, and announced as unavailable. The
+                // stylesheet is untouched by this slice, so the muted look is
+                // carried inline.
+                disabled={t.comingSoon === true}
+                aria-disabled={t.comingSoon === true}
+                title={t.note || undefined}
+                style={t.comingSoon ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}
+                onClick={t.comingSoon ? undefined : () => setGalleryTab(t.id)}
               >
-                {t.label} ({galleryItemsForTab(t.id).length})
+                {/* NO COUNT for a coming-soon tab — the count is the part that
+                    lied: it could only ever render "(0)", which reads as
+                    "none yet" rather than "not available". */}
+                {t.comingSoon ? `${t.label} · בקרוב` : `${t.label} (${galleryItemsForTab(t.id).length})`}
               </button>
             ))}
+            {galleryTabs.some((t) => t.comingSoon) && (
+              <span className="dim" style={{ fontSize: '0.75rem', alignSelf: 'center' }}>
+                {VIDEO_COMING_SOON_HE}
+              </span>
+            )}
           </div>
           <div className="gallery-grid">
             {galleryItemsForTab(galleryTab).map((g) => (
