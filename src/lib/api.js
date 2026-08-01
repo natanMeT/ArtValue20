@@ -10,6 +10,7 @@ import { supabase } from './supabase.js';
 import { validateBusinessProfile, normalizeBusinessProfile } from './businessProfile.js';
 import {
   validateAssetUpload, sanitizeAssetMeta, normalizeAssetRow, sortAssetsNewestFirst,
+  normalizeCampaignLink,
 } from './assetLibrary.js';
 import {
   validateCampaign, canCreateWithin, canTransition,
@@ -655,6 +656,54 @@ export async function setAssetFavorite(assetId, favorite) {
     throw err;
   }
   return next;
+}
+
+/**
+ * Asset Library slice 3 — link ONE asset to a campaign, or unlink it.
+ *
+ * Touches NO Storage, exactly like setAssetFavorite: a single-column row update
+ * with no second write whose failure could leave a half-state.
+ *
+ * THE SERVER OWNS THE RULE THAT MATTERS. Passing another account's campaign id
+ * is refused by the composite foreign key (23503) — not by this function, and
+ * not by RLS, which cannot see a value it is not asked to filter on. Passing an
+ * id for a row this account does not own is refused by RLS, which reports
+ * SUCCESS WITH ZERO ROWS rather than an error. Both refusals must surface as
+ * failures here, and they arrive by two completely different routes:
+ *   * 23503 -> res.error -> guard() rethrows
+ *   * RLS   -> res.error is null, res.data is []  -> the row check below
+ * The second is the S0A false-success class. `.select()` is what makes the
+ * server's stored state the evidence instead of the absence of an error.
+ *
+ * @param campaignId a campaign uuid, or null to UNLINK. Callers must pass the
+ *   output of normalizeCampaignLink — '' would fail as 22P02 on a uuid column.
+ */
+export async function linkAssetCampaign(assetId, campaignId) {
+  const link = normalizeCampaignLink(campaignId);
+  if (!link.ok) {
+    const err = new Error('בחירת הקמפיין אינה תקינה. רענן ונסה שוב.');
+    err.userSafe = true;
+    throw err;
+  }
+
+  const res = await supabase
+    .from('assets')
+    .update({ campaign_id: link.value })
+    .eq('id', assetId)
+    .select('id, campaign_id');
+  guard(res.error);
+
+  const rows = res.data || [];
+  // Exactly one row, AND the value the server stored is the value we asked for.
+  // Comparing the returned column rather than assuming it is the difference
+  // between "the write was accepted" and "the write did what we intended".
+  const stored = normalizeCampaignLink(rows[0]?.campaign_id ?? null);
+  if (rows.length !== 1 || !stored.ok || stored.value !== link.value) {
+    const err = new Error('הקישור לקמפיין לא נשמר. רענן ונסה שוב.');
+    err.userSafe = true;
+    throw err;
+  }
+  return link.value;
 }
 
 // ===================================================================

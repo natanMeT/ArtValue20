@@ -143,6 +143,11 @@ export function normalizeAssetRow(row) {
     // value (null, 'f', 0, a missing column on an un-migrated database) means
     // NOT a favorite. A star is never shown on a guess.
     favorite: r.is_favorite === true,
+    // Slice 3. The optional campaign link. A value that is not a well-formed
+    // uuid reads as NOT LINKED rather than being carried through as a string:
+    // the column is uuid, so anything else cannot have come from the FK and
+    // must not be handed back to an update as if it had.
+    campaignId: isAssetUuid(r.campaign_id) ? str(r.campaign_id) : null,
     meta: sanitizeAssetMeta({
       source: r.source, prompt: r.prompt, preset: r.preset, engine: r.engine,
     }),
@@ -173,4 +178,60 @@ export function filterFavoriteAssets(items) {
  */
 export function nextFavoriteState(item) {
   return item?.favorite !== true;
+}
+
+// ===================================================================
+// Slice 3 — the optional asset -> campaign link.
+//
+// AUTHORITY, restated for this seam: the composite foreign key
+//   (campaign_id, user_id) -> campaigns (id, user_id)
+// is what makes a cross-account link impossible. Nothing in this file enforces
+// that, and nothing here may ever be presented as if it did. These helpers
+// exist so the UI cannot invent its own shapes.
+// ===================================================================
+
+/**
+ * Normalize a campaign selection from the UI into what the column accepts.
+ *
+ * WHY THIS IS NOT `value || null`. An HTML <select> yields the EMPTY STRING for
+ * its blank option, and '' sent to a uuid column fails as `22P02 invalid input
+ * syntax for type uuid` BEFORE the foreign key is ever evaluated — an opaque
+ * error for what is actually the ordinary "no campaign" case. TaskModal.jsx
+ * already documents this exact trap for tasks.campaign_id.
+ *
+ * @returns {{ ok: true, value: string|null } | { ok: false, value: null }}
+ *   ok+null  = unlink (blank selection)
+ *   ok+uuid  = link to that campaign
+ *   !ok      = a value that is neither, which is a bug in the caller, not a
+ *              user error — it is never silently coerced to "unlink".
+ */
+export function normalizeCampaignLink(v) {
+  if (v === null || v === undefined) return { ok: true, value: null };
+  if (typeof v !== 'string') return { ok: false, value: null };
+  const s = str(v);
+  if (!s) return { ok: true, value: null };
+  return isAssetUuid(s) ? { ok: true, value: s } : { ok: false, value: null };
+}
+
+/**
+ * Resolve what to SHOW for one asset's campaign link. THREE outcomes, not two.
+ *
+ *   { state: 'none' }            the asset is not linked
+ *   { state: 'named', label }    linked, and the campaign is known
+ *   { state: 'unknown' }         linked to an id we cannot resolve
+ *
+ * The third state is the point. An id can fail to resolve because the campaign
+ * was deleted (the FK nulled it server-side, but this snapshot predates that),
+ * because the campaign list failed to load, or because the list belongs to a
+ * different moment. In every one of those cases the screen must say so. Folding
+ * it into 'none' would tell the user an asset is unlinked while the database
+ * says otherwise, and inventing a label would be worse.
+ */
+export function campaignLabelForAsset(item, campaigns) {
+  const id = str(item?.campaignId);
+  if (!id) return { state: 'none' };
+  const list = Array.isArray(campaigns) ? campaigns : [];
+  const hit = list.find((c) => c && str(c.id) === id);
+  const label = str(hit?.title);
+  return label ? { state: 'named', label } : { state: 'unknown' };
 }

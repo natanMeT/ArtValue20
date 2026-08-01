@@ -12,8 +12,18 @@ import Icon from '../components/ui/Icon.jsx';
 import { callAiGateway } from '../lib/aiGatewayClient.js';
 import { generateImage, downloadImage, isImageAiConfigured } from '../lib/hostedImage.js';
 import { createGalleryStore, srcToBlob, GALLERY_MAX, filterGalleryItems } from '../lib/galleryStore.js';
-import { listAssets, createAsset, deleteAsset, setAssetFavorite } from '../lib/api.js';
-import { ASSET_QUOTA, filterFavoriteAssets, nextFavoriteState } from '../lib/assetLibrary.js';
+import {
+  listAssets, createAsset, deleteAsset, setAssetFavorite, linkAssetCampaign, listCampaigns,
+} from '../lib/api.js';
+import {
+  ASSET_QUOTA, filterFavoriteAssets, nextFavoriteState,
+  normalizeCampaignLink, campaignLabelForAsset,
+} from '../lib/assetLibrary.js';
+// Slice 3 — the canonical campaign status vocabulary, imported READ-ONLY so
+// this page cannot grow a second copy of it. (The naming boundary that
+// campaigns.js declares is against `src/creative/v2/**`, not against a screen
+// reading its labels; nothing here modifies that module.)
+import { CAMPAIGN_STATUS_LABELS } from '../lib/campaigns.js';
 import { activeBrandPalette, withBrandPalette } from '../lib/brandPalette.js';
 import { AI_GATEWAY_INPUT_LIMITS } from '../lib/aiGatewayInput.js';
 import { CREATIVE_PRESETS, isTextImagePreset } from '../data/creativePresets.js';
@@ -217,7 +227,7 @@ export function disposeGalleryItems(items, revoke) {
 // in local/demo only, and its database is never touched from cloud mode.
 export function createCloudAssetStore(
   userId,
-  io = { listAssets, createAsset, deleteAsset, setAssetFavorite },
+  io = { listAssets, createAsset, deleteAsset, setAssetFavorite, linkAssetCampaign },
 ) {
   return {
     durable: true,
@@ -231,6 +241,11 @@ export function createCloudAssetStore(
     // column, and the page decides what to render by asking whether the
     // capability exists, never by testing which mode it is in.
     setFavorite: (item, next) => io.setAssetFavorite(item?.id, next),
+    // Slice 3. Present ONLY on the durable backing, for the same reason as
+    // setFavorite: the campaign link is a cloud column, and the page decides
+    // what to render by asking whether the capability exists — never by
+    // testing which mode it is in.
+    setCampaign: (item, campaignId) => io.linkAssetCampaign(item?.id, campaignId),
   };
 }
 
@@ -260,6 +275,11 @@ export function createCloudAssetStore(
 // ===================================================================
 export const VIDEO_COMING_SOON_HE = 'יצירת וידאו תתווסף בשלב הבא';
 
+// Slice 3 — the states a campaign cannot leave (campaigns.js CAMPAIGN_TRANSITIONS
+// maps both to an empty list). Linking to one is ALLOWED — L11 — but the option
+// says so, because "informed, not restricted" is the whole decision.
+export const CAMPAIGN_TERMINAL_STATUSES = Object.freeze(['completed', 'cancelled']);
+
 export function galleryTabModel({ canFavorite = false, videoComingSoon = false } = {}) {
   return [
     { id: 'all', label: 'הכל' },
@@ -282,6 +302,10 @@ export function createDeviceGalleryAdapter(store) {
     // it. Absent, not a no-op stub: a stub would let the star render and then
     // silently do nothing.
     setFavorite: null,
+    // Slice 3: the device store has no campaign column and this slice does not
+    // add one. Absent, not a no-op stub — a stub would render the selector and
+    // then silently do nothing.
+    setCampaign: null,
   };
 }
 
@@ -370,6 +394,9 @@ export default function ImageStudio() {
   const [error, setError] = useState('');
   const [gallery, setGallery] = useState([]);
   const [galleryTab, setGalleryTab] = useState('all'); // all | image | video
+  // Slice 3 — the account's campaigns, for the per-asset selector. Cloud-only,
+  // and EMPTY is a legitimate state (no campaigns yet, or the read failed).
+  const [campaignOptions, setCampaignOptions] = useState([]);
   const [galleryBusy, setGalleryBusy] = useState(false);
   const [posterSrc, setPosterSrc] = useState(null);
   const [mockupOpen, setMockupOpen] = useState(false);
@@ -408,6 +435,35 @@ export default function ImageStudio() {
     if (!mayCommit()) { disposeGalleryItems(items); return; } // account switched mid-flight
     setGallery(items);
   };
+  // Slice 3 — the campaign list this page offers in the per-asset selector.
+  //
+  // WHY THIS PAGE READS IT ITSELF. Campaigns are not in the global store;
+  // Campaigns.jsx calls listCampaigns() directly, and this page must do the
+  // same. The rows come back already normalized by api.js; the only other thing
+  // taken from campaigns.js is the status LABEL map, read-only (see the import).
+  // Nothing here modifies that module, and the boundary it actually declares —
+  // against `src/creative/v2/**` — is untouched.
+  //
+  // CLOUD-ONLY: the device backing has no campaign column, so there is nothing
+  // to offer and no request is made.
+  //
+  // FAIL-SOFT, DELIBERATELY: a failed read leaves the list EMPTY and never
+  // blocks, toasts or empties the gallery. The consequence is stated honestly
+  // on screen — with no list, an asset that IS linked resolves to "campaign
+  // unknown" rather than to "no campaign". Failing toward the visible state.
+  //
+  // Gated on the SAME commit gate as the gallery, keyed on the same store
+  // identity, so account A's campaigns can never land after a switch to B.
+  const refreshCampaignOptions = async () => {
+    const store = galleryStore;
+    if (!store.setCampaign) return; // capability absent (device backing)
+    const mayCommit = gateRef.current.start(store);
+    let rows;
+    try { rows = await listCampaigns(); } catch { return; } // fail-soft: keep []
+    if (!mayCommit()) return; // account switched mid-flight
+    setCampaignOptions(rows || []);
+  };
+
   // S0F.1: re-read when the account (and therefore the gallery namespace)
   // changes, so a switch never leaves the previous account's list on screen.
   // Registering the new store also invalidates every in-flight read.
@@ -418,7 +474,9 @@ export default function ImageStudio() {
     // Slice 2: the favorites tab does not exist on every backing, so a switch
     // must not leave the view sitting on a tab this store cannot answer.
     setGalleryTab('all');
+    setCampaignOptions([]); // slice 3 — never carry the previous account's list
     refreshGallery();
+    refreshCampaignOptions();
   }, [galleryStore]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Slice 2 — the tab set and the ONE place a tab is resolved to items.
@@ -605,6 +663,26 @@ export default function ImageStudio() {
       toast(userFacingError(e, 'עדכון המועדפים נכשל'), 'error');
     }
     await refreshGallery(); // success or failure, the server is what we render
+  };
+
+  // Slice 3 — link / unlink ONE asset. Same rule as the star above: PERSIST
+  // FIRST, no optimistic local change, and re-read from the server whether it
+  // succeeded or failed, so the card never shows a link the database does not
+  // hold. A cross-account campaign id is refused by the composite foreign key
+  // and a non-owned row by RLS; both arrive here as a rejected promise.
+  const setGalleryCampaign = async (item, value) => {
+    if (!galleryStore.setCampaign) return; // capability absent (device backing)
+    const link = normalizeCampaignLink(value);
+    if (!link.ok) { // a <select> can only yield '' or one of our option values
+      toast('בחירת הקמפיין אינה תקינה', 'error');
+      return;
+    }
+    try {
+      await galleryStore.setCampaign(item, link.value);
+    } catch (e) {
+      toast(userFacingError(e, 'הקישור לקמפיין נכשל'), 'error');
+    }
+    await refreshGallery();
   };
 
   // Assemble the selected gallery images into a montage video.
@@ -976,6 +1054,62 @@ export default function ImageStudio() {
                   )}
                   <button className="gallery-btn del" title="מחיקה" onClick={() => removeGalleryItem(g)}><Icon name="trash" size={13} /></button>
                 </div>
+                {/* Slice 3 — the campaign link. Rendered only where the
+                    capability exists, exactly like the star above.
+                    The stylesheet is out of scope for this slice, so the few
+                    layout values needed are carried inline. */}
+                {galleryStore.setCampaign && (() => {
+                  const link = campaignLabelForAsset(g, campaignOptions);
+                  const selectId = `gallery-campaign-${g.id}`;
+                  return (
+                    <div style={{ padding: '6px 8px 8px', display: 'grid', gap: 4 }}>
+                      {/* A real <label>, not a placeholder option: the DevTools
+                          accessibility findings already on the tracker are
+                          about form fields without one, and this slice must
+                          not add a fifth. */}
+                      <label
+                        htmlFor={selectId}
+                        className="dim"
+                        style={{ fontSize: '0.68rem' }}
+                      >
+                        קמפיין
+                      </label>
+                      <select
+                        id={selectId}
+                        name={selectId}
+                        className="select"
+                        style={{ fontSize: '0.72rem', padding: '3px 6px' }}
+                        value={g.campaignId || ''}
+                        onChange={(e) => setGalleryCampaign(g, e.target.value)}
+                      >
+                        <option value="">— ללא קמפיין —</option>
+                        {/* EVERY status is offered, including completed and
+                            cancelled (declared limitation L11): a status filter
+                            here would be a client-only rule the server does not
+                            share. The status is shown so the choice is informed
+                            rather than restricted. */}
+                        {campaignOptions.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.title}{CAMPAIGN_TERMINAL_STATUSES.includes(c.status) ? ` · ${CAMPAIGN_STATUS_LABELS[c.status]}` : ''}
+                          </option>
+                        ))}
+                        {/* An asset linked to a campaign missing from the list
+                            must still round-trip: without this option the
+                            <select> would fall back to the blank one and read
+                            as "not linked", which is a lie about the database.
+                            It is disabled — re-selecting it would be a no-op. */}
+                        {link.state === 'unknown' && (
+                          <option value={g.campaignId} disabled>קמפיין לא ידוע</option>
+                        )}
+                      </select>
+                      {link.state === 'unknown' && (
+                        <span className="dim" style={{ fontSize: '0.66rem' }}>
+                          הנכס מקושר לקמפיין שאינו ברשימה — רענן/י את הדף
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             ))}
           </div>
