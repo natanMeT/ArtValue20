@@ -12,17 +12,28 @@ import {
   APPOINTMENT_KIND_LABELS, APPOINTMENT_STATUSES,
   APPOINTMENT_STATUS_LABELS, APPOINTMENT_STATUS_CLASS,
   listToday, listWeek, sortByStart, groupByDay, findOverlapIds,
-  formatTimeRange, scheduleCounts,
+  formatTimeRange, scheduleCounts, monthMatrix, timeLabel, WEEKDAY_LABELS,
 } from '../lib/schedule.js';
 
 // ===================================================================
-// Schedule Core slice 1 — the durable diary.
+// Schedule Core — the durable diary. Slice 1: the lists. Slice 2: the month.
 //
-// WHAT THIS SCREEN IS, AND WHAT IT IS NOT. It is a TODAY / THIS WEEK list with
-// create, edit and outcome. It is deliberately NOT a month grid: the grid is
-// the expensive half and proves nothing about durability, and the היום/השבוע
-// idiom is the one /tasks already uses, so the two screens read the same way.
-// A calendar view is a later slice.
+// WHAT THIS SCREEN IS. A TODAY / THIS WEEK list with create, edit and outcome,
+// in the same idiom /tasks uses, so the two screens read the same way. Slice 1
+// deliberately shipped WITHOUT the month grid — the grid is the expensive half
+// and proves nothing about durability, which had to be proven first.
+//
+// SLICE 2 ADDS THE MONTH GRID — and only a grid. It is READ-ONLY: no cell opens a
+// form, no appointment in a cell is clickable, and no write path reaches it.
+// `openEdit` exists and is used by the tables below, so wiring click-to-edit
+// later is one line; it is deliberately NOT wired here, so the month view adds
+// zero writable surface. Month navigation is local state over the rows already
+// in memory — there is no second server call.
+//
+// AN APPOINTMENT SITS IN THE CELL OF ITS `startAt`, ALWAYS. If `endAt` crosses
+// midnight or the end of the month, the appointment still appears exactly once,
+// on its start day. Same rule as the day grouping below, so a cell and a list
+// can never disagree.
 //
 // IT IS ALSO NOT THE GROWTH MONTHLY ACTION CALENDAR (`/growth/calendar`), which
 // plans activity VOLUME from an income target and persists nothing. This screen
@@ -42,8 +53,14 @@ import {
 const TABS = [
   { id: 'today', label: 'היום' },
   { id: 'week', label: 'השבוע' },
+  { id: 'month', label: 'חודש' },
   { id: 'all', label: 'הכל' },
 ];
+
+// How many appointments a single day cell prints before collapsing the rest
+// into a "+N". This truncates the DISPLAY, never the data — the +N always
+// states the real remainder.
+const CELL_ITEM_LIMIT = 3;
 
 function LocalUnavailable() {
   return (
@@ -81,6 +98,46 @@ function Kpi({ label, value, icon, accent }) {
   );
 }
 
+// The month grid. PURE PRESENTATION over a matrix the lib already built: it
+// takes no callbacks, holds no state and cannot write. Column order is the
+// document's dir="rtl" — WEEKDAY_LABELS is rendered in its natural order and
+// must never be reversed here, or Sunday lands on the left.
+function MonthGrid({ matrix }) {
+  if (!matrix) return null;
+  return (
+    <div className="month-grid" role="table" aria-label="לוח חודשי">
+      <div className="month-row month-head" role="row">
+        {WEEKDAY_LABELS.map((d) => (
+          <div key={d} className="month-hcell" role="columnheader">{d}</div>
+        ))}
+      </div>
+      {matrix.weeks.map((week) => (
+        <div className="month-row" role="row" key={week[0].day}>
+          {week.map((cell) => (
+            <div
+              key={cell.day}
+              role="cell"
+              className={`month-cell${cell.inMonth ? '' : ' outside'}${cell.isToday ? ' today' : ''}`}
+            >
+              <div className="month-daynum tnum">{cell.dayOfMonth}</div>
+              {cell.items.slice(0, CELL_ITEM_LIMIT).map((a) => (
+                <div className="month-item" key={a.id} title={`${APPOINTMENT_KIND_LABELS[a.kind]} · ${APPOINTMENT_STATUS_LABELS[a.status]}`}>
+                  <span className={`month-dot ${APPOINTMENT_STATUS_CLASS[a.status]}`} />
+                  <span className="month-item-time tnum" dir="ltr">{timeLabel(a.startAt)}</span>
+                  <span className="month-item-title">{a.title}</span>
+                </div>
+              ))}
+              {cell.items.length > CELL_ITEM_LIMIT && (
+                <div className="month-more">+{cell.items.length - CELL_ITEM_LIMIT} נוספים</div>
+              )}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Schedule() {
   const { data, toast, session } = useStore();
   const [items, setItems] = useState([]);
@@ -88,6 +145,9 @@ export default function Schedule() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [tab, setTab] = useState('today');
+  // Month navigation is purely a view offset over the rows already loaded.
+  // Changing it never triggers a fetch.
+  const [monthOffset, setMonthOffset] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
 
@@ -122,6 +182,13 @@ export default function Schedule() {
 
   const groups = useMemo(() => groupByDay(shown), [shown]);
   const overlapIds = useMemo(() => findOverlapIds(shown), [shown]);
+
+  // Built from ALL items, every status included — see monthMatrix. Only
+  // computed for the month tab.
+  const matrix = useMemo(
+    () => (tab === 'month' ? monthMatrix(items, now, monthOffset) : null),
+    [items, now, monthOffset, tab],
+  );
 
   if (!isSupabaseConfigured) return <LocalUnavailable />;
 
@@ -200,6 +267,30 @@ export default function Schedule() {
 
         {loading ? (
           <EmptyState icon="clock" title="טוען…" hint="קורא את היומן של החשבון" />
+        ) : tab === 'month' ? (
+          <>
+            <div className="month-nav">
+              <button className="btn btn-sm btn-ghost" onClick={() => setMonthOffset((n) => n - 1)}>
+                <Icon name="chevronR" size={16} />
+              </button>
+              <div className="month-label">{matrix?.label || ''}</div>
+              <button className="btn btn-sm btn-ghost" onClick={() => setMonthOffset((n) => n + 1)}>
+                <Icon name="chevronL" size={16} />
+              </button>
+              {monthOffset !== 0 && (
+                <button className="btn btn-sm btn-ghost" onClick={() => setMonthOffset(0)}>החודש</button>
+              )}
+            </div>
+            {/* table-wrap for the same reason the tables use it: seven columns
+                have a floor width, and below it the grid must SCROLL rather
+                than be cropped. */}
+            <div className="table-wrap">
+              <MonthGrid matrix={matrix} />
+            </div>
+            <div className="month-note muted">
+              הרשת מציגה את כל הרישומים לפי שעת ההתחלה, כולל שכבר התקיימו או בוטלו. רישום שנמשך מעבר לחצות מופיע ביום שבו התחיל.
+            </div>
+          </>
         ) : !groups.length ? (
           <EmptyState
             icon="calendar"
