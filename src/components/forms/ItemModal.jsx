@@ -61,42 +61,42 @@ export default function ItemModal({ open, onClose, onSave, initial }) {
     >
       <div className="form-grid">
         <div className="field">
-          <label>שם הפריט *</label>
-          <input className="input" value={form.name} onChange={set('name')} placeholder="לדוגמה: בקבוק יין מרלו 2021" style={err.name ? { borderColor: '#ef6f6f' } : undefined} autoFocus />
+          <label htmlFor="item-name">שם הפריט *</label>
+          <input id="item-name" className="input" value={form.name} onChange={set('name')} placeholder="לדוגמה: בקבוק יין מרלו 2021" style={err.name ? { borderColor: '#ef6f6f' } : undefined} autoFocus />
         </div>
         <div className="field">
-          <label>קטגוריה</label>
-          <select className="select" value={form.category} onChange={set('category')}>
+          <label htmlFor="item-category">קטגוריה</label>
+          <select id="item-category" className="select" value={form.category} onChange={set('category')}>
             {INVENTORY_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
         <div className="field">
-          <label>מק״ט / ברקוד</label>
-          <input className="input" value={form.sku} onChange={set('sku')} placeholder="SKU-001" dir="ltr" style={{ textAlign: 'right' }} />
+          <label htmlFor="item-sku">מק״ט / ברקוד</label>
+          <input id="item-sku" className="input" value={form.sku} onChange={set('sku')} placeholder="SKU-001" dir="ltr" style={{ textAlign: 'right' }} />
         </div>
         <div className="field">
-          <label>ספק</label>
-          <input className="input" value={form.supplier} onChange={set('supplier')} placeholder="שם הספק" />
+          <label htmlFor="item-supplier">ספק</label>
+          <input id="item-supplier" className="input" value={form.supplier} onChange={set('supplier')} placeholder="שם הספק" />
         </div>
         <div className="field">
-          <label>כמות במלאי *</label>
-          <input className="input tnum" value={form.qty} onChange={set('qty')} placeholder="0" inputMode="numeric" dir="ltr" style={{ textAlign: 'right', ...(err.qty ? { borderColor: '#ef6f6f' } : {}) }} />
+          <label htmlFor="item-qty">כמות במלאי *</label>
+          <input id="item-qty" className="input tnum" value={form.qty} onChange={set('qty')} placeholder="0" inputMode="numeric" dir="ltr" style={{ textAlign: 'right', ...(err.qty ? { borderColor: '#ef6f6f' } : {}) }} />
         </div>
         <div className="field">
-          <label>סף התראת מלאי נמוך</label>
-          <input className="input tnum" value={form.lowThreshold} onChange={set('lowThreshold')} placeholder="5" inputMode="numeric" dir="ltr" style={{ textAlign: 'right' }} />
+          <label htmlFor="item-low-threshold">סף התראת מלאי נמוך</label>
+          <input id="item-low-threshold" className="input tnum" value={form.lowThreshold} onChange={set('lowThreshold')} placeholder="5" inputMode="numeric" dir="ltr" style={{ textAlign: 'right' }} />
         </div>
         <div className="field">
-          <label>מחיר מכירה ליחידה (₪)</label>
-          <input className="input tnum" value={form.unitPrice} onChange={set('unitPrice')} placeholder="0" inputMode="numeric" dir="ltr" style={{ textAlign: 'right' }} />
+          <label htmlFor="item-unit-price">מחיר מכירה ליחידה (₪)</label>
+          <input id="item-unit-price" className="input tnum" value={form.unitPrice} onChange={set('unitPrice')} placeholder="0" inputMode="numeric" dir="ltr" style={{ textAlign: 'right' }} />
         </div>
         <div className="field">
-          <label>עלות ליחידה (₪)</label>
-          <input className="input tnum" value={form.cost} onChange={set('cost')} placeholder="0" inputMode="numeric" dir="ltr" style={{ textAlign: 'right' }} />
+          <label htmlFor="item-cost">עלות ליחידה (₪)</label>
+          <input id="item-cost" className="input tnum" value={form.cost} onChange={set('cost')} placeholder="0" inputMode="numeric" dir="ltr" style={{ textAlign: 'right' }} />
         </div>
         <div className="field full">
-          <label>הערה</label>
-          <input className="input" value={form.note} onChange={set('note')} placeholder="מיקום במחסן, פרטים נוספים..." />
+          <label htmlFor="item-note">הערה</label>
+          <input id="item-note" className="input" value={form.note} onChange={set('note')} placeholder="מיקום במחסן, פרטים נוספים..." />
         </div>
       </div>
     </Modal>

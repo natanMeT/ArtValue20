@@ -10,6 +10,11 @@
 //     no wrapping, no `id`. Sighted users are fine; a screen reader announces a
 //     blank field. Fixing those is an `id`/`htmlFor` or shared-component
 //     decision across ~120 sites and is EXPLICITLY OUT OF SCOPE HERE.
+//     ⚠️ 109 WAS THE COUNT WHEN A1 SHIPPED, AND IT IS NO LONGER CURRENT.
+//     A2 closed Login's 2 (→ 107) and A3 closed ItemModal's 9 (→ 98).
+//     ⚠️ THAT NUMBER IS A MEASURED SCAN RESULT, NOT AN INVARIANT THIS FILE
+//     ENFORCES — nothing here fails when the bucket moves, so treat it as a
+//     comment that must be edited by hand each slice, exactly as it was here.
 //
 //   • 31 "no visible label" — nameless to EVERYONE who cannot infer the control
 //     from its position. Slice A1 fixed the 10 of those that sit on the list
@@ -376,8 +381,14 @@ describe('accessibility A2 — Login labels are programmatically associated', ()
         else seen.set(id, where);
       }
     }
-    expect(seen.has('login-email') && seen.has('login-password'),
-      'the scan did not even find the two ids it is meant to police').toBe(true);
+    // Sentinel: the scan must actually find the ids it exists to police, or a
+    // broken walker would report "no duplicates" forever. Extended by A3 —
+    // every literal id this work has added so far is named here on purpose.
+    for (const id of ['login-email', 'login-password',
+      'item-name', 'item-category', 'item-sku', 'item-supplier', 'item-qty',
+      'item-low-threshold', 'item-unit-price', 'item-cost', 'item-note']) {
+      expect(seen.has(id), `the scan did not even find "${id}", one of the ids it is meant to police`).toBe(true);
+    }
     expect(dupes).toEqual([]);
   });
 
@@ -403,5 +414,167 @@ describe('accessibility A2 — Login labels are programmatically associated', ()
     const mutated = real.replace('htmlFor="login-email"', 'htmlFor="login-emial"');
     expect(mutated).not.toBe(real);
     expect(unpairedLoginFields(mutated).some((p) => p.id === 'login-email')).toBe(true);
+  });
+});
+
+// ===================================================================
+// ACCESSIBILITY SLICE A3 — ItemModal's nine `.field` blocks are associated.
+//
+// A2 proved the pattern on Login (2 controls). A3 is the first slice INSIDE the
+// bucket proper: nine `<div class="field"><label>…</label><input/></div>` blocks
+// in one modal, fixed with `id` + `htmlFor` and nothing else.
+//
+// ⚠️ WHY LITERAL IDS ARE APPROVED HERE — THE SAME TEST A2 HAD TO PASS.
+// A literal id is only safe on a control that cannot render twice at once. That
+// was ESTABLISHED, not assumed, and the load-bearing facts are pinned below:
+//   1. <ItemModal> is mounted at EXACTLY ONE site — Inventory.jsx.
+//   2. Inventory.jsx mounts no other modal and has ZERO `.field` blocks of its
+//      own, so nothing on that page can collide with these ids.
+//   3. Modal.jsx renders `{open && (…)}`, so the fields UNMOUNT when closed —
+//      two instances can never coexist even across open/close.
+//   4. None of the nine sits inside a `.map()`.
+// Anything failing 1–4 must derive its id from a domain key instead. The
+// repo-wide duplicate-id guard above is the backstop, and it now also polices
+// these nine.
+//
+// ⚠️ WHAT THIS CANNOT PROVE, unchanged since A1: no jsdom and no
+// @testing-library exist here, so no test computes a rendered accessible NAME.
+// This asserts the attributes that produce it. Unlike A2, the rendered result
+// is NOT agent-measurable either — Inventory sits behind sign-in, so the
+// DOM-level evidence has to come from an authenticated QA session.
+// ===================================================================
+describe('accessibility A3 — ItemModal .field labels are programmatically associated', () => {
+  const ITEM_MODAL = 'components/forms/ItemModal.jsx';
+  const A3_IDS = [
+    'item-name', 'item-category', 'item-sku', 'item-supplier', 'item-qty',
+    'item-low-threshold', 'item-unit-price', 'item-cost', 'item-note',
+  ];
+
+  /** THE CHECKER. Both the assertions and every negative control call this, so
+   *  a mutation cannot pass here while failing in a re-implementation. */
+  function unpairedItemFields(source = null) {
+    const abs = path.join(SRC, ITEM_MODAL);
+    const controls = controlsIn(abs, source);
+    const labels = labelsIn(abs, source);
+    const problems = [];
+    for (const id of A3_IDS) {
+      const control = controls.find((c) => c.attrs.id === id);
+      if (!control) { problems.push({ id, reason: 'no control carries that id' }); continue; }
+      if (!labels.some((l) => l.attrs.htmlFor === id)) problems.push({ id, reason: 'no label htmlFor points at it' });
+    }
+    return problems;
+  }
+
+  it('POSITIVE CONTROL: the walker finds ItemModal\'s controls and labels at all', () => {
+    const controls = controlsIn(path.join(SRC, ITEM_MODAL));
+    const labels = labelsIn(path.join(SRC, ITEM_MODAL));
+    expect(controls.length, 'no controls parsed — the guard would pass by finding nothing').toBeGreaterThanOrEqual(9);
+    expect(labels.length, 'no labels parsed — the guard would pass by finding nothing').toBeGreaterThanOrEqual(9);
+  });
+
+  it('all nine fields have an id AND a label that references it', () => {
+    expect(unpairedItemFields()).toEqual([]);
+  });
+
+  it('every htmlFor in ItemModal resolves to a control id in the same file', () => {
+    const ids = new Set(controlsIn(path.join(SRC, ITEM_MODAL)).map((c) => c.attrs.id).filter(Boolean));
+    for (const l of labelsIn(path.join(SRC, ITEM_MODAL))) {
+      if (l.attrs.htmlFor) {
+        expect(ids.has(l.attrs.htmlFor), `ItemModal.jsx:${l.line} htmlFor="${l.attrs.htmlFor}" points at no control`).toBe(true);
+      }
+    }
+  });
+
+  // No label may be left behind: a partially-converted modal is the worst
+  // outcome, because the fixed fields make the unfixed ones look intentional.
+  it('NO label in ItemModal is left without a htmlFor', () => {
+    for (const l of labelsIn(path.join(SRC, ITEM_MODAL))) {
+      expect(l.attrs.htmlFor, `ItemModal.jsx:${l.line} label still names nothing`).toBeTruthy();
+    }
+  });
+
+  // ⚠️ THE SINGLETON PREMISE, ASSERTED RATHER THAN TRUSTED. If someone mounts
+  // ItemModal a second time, the literal ids silently become duplicates and the
+  // association this slice added breaks without any visible symptom.
+  it('SINGLETON PREMISE: <ItemModal> is mounted at exactly one site', () => {
+    const mounts = [];
+    (function walkDir(dir) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) { if (e.name !== '__tests__') walkDir(p); }
+        else if (e.name.endsWith('.jsx') && p !== path.join(SRC, ITEM_MODAL)) {
+          if (/<ItemModal[\s/>]/.test(fs.readFileSync(p, 'utf8'))) {
+            mounts.push(path.relative(SRC, p).replace(/\\/g, '/'));
+          }
+        }
+      }
+    })(SRC);
+    expect(mounts, 'a second mount site invalidates the literal-id decision — derive ids from a domain key instead')
+      .toEqual(['pages/Inventory.jsx']);
+  });
+
+  // The other half of the premise: the host page must not carry `.field` blocks
+  // that could collide once the modal is open over it.
+  it('SINGLETON PREMISE: Inventory.jsx has no .field blocks of its own', () => {
+    const src = fs.readFileSync(path.join(SRC, 'pages/Inventory.jsx'), 'utf8');
+    expect(src).not.toContain('className="field"');
+  });
+
+  // A3 is id/htmlFor only — the same boundary A2 held.
+  it('SCOPE: ItemModal uses id/htmlFor, not a wrapping label, not useId, not a shared Field', () => {
+    const src = fs.readFileSync(path.join(SRC, ITEM_MODAL), 'utf8');
+    expect(src, 'A3 must not introduce useId').not.toContain('useId');
+    expect(src, 'A3 must not introduce a shared Field component').not.toContain('<Field');
+    // DOM shape unchanged: still nine `.field` divs, each with a sibling label.
+    expect(src.match(/className="field/g) || []).toHaveLength(9);
+  });
+
+  // Scope guard: A3 must not have spilled into the files the spec excluded.
+  // ⚠️ ImageStudio.jsx is NOT in this list — it already carried one EXPRESSION
+  // `htmlFor` before any accessibility slice existed, so asserting zero there
+  // would fail for a reason unrelated to this slice.
+  it('SCOPE: A3 did not start the other .field files', () => {
+    const untouched = ['components/forms/ProjectModal.jsx', 'components/forms/TaskModal.jsx',
+      'components/onboarding/OnboardingWizard.jsx', 'components/settings/BusinessContextEditor.jsx'];
+    for (const f of untouched) {
+      expect(fs.readFileSync(path.join(SRC, f), 'utf8'),
+        `${f}: A3 is ItemModal-only — this file belongs to a later slice`).not.toContain('htmlFor');
+    }
+  });
+
+  // NEGATIVE CONTROLS — each drives the SAME checker the assertions use.
+  it('NEGATIVE: removing a htmlFor from the real source is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, ITEM_MODAL), 'utf8');
+    const mutated = real.replace(' htmlFor="item-qty"', '');
+    expect(mutated, 'mutation did not apply — the control would be vacuous').not.toBe(real);
+    expect(unpairedItemFields(mutated).some((p) => p.id === 'item-qty'
+      && p.reason === 'no label htmlFor points at it')).toBe(true);
+  });
+
+  it('NEGATIVE: removing an id from the real source is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, ITEM_MODAL), 'utf8');
+    const mutated = real.replace(' id="item-category"', '');
+    expect(mutated).not.toBe(real);
+    expect(unpairedItemFields(mutated).some((p) => p.id === 'item-category'
+      && p.reason === 'no control carries that id')).toBe(true);
+  });
+
+  it('NEGATIVE: a htmlFor/id typo mismatch is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, ITEM_MODAL), 'utf8');
+    const mutated = real.replace('htmlFor="item-unit-price"', 'htmlFor="item-unitprice"');
+    expect(mutated).not.toBe(real);
+    expect(unpairedItemFields(mutated).some((p) => p.id === 'item-unit-price')).toBe(true);
+  });
+
+  // ⚠️ THE CLASS THIS SLICE IS MOST EXPOSED TO. Copying a literal id into a
+  // second place is the failure the A2 rule exists to prevent, so prove the
+  // repo-wide duplicate-id guard actually catches it rather than assuming it.
+  it('NEGATIVE: a duplicated literal id would be caught by the duplicate scan', () => {
+    const real = fs.readFileSync(path.join(SRC, ITEM_MODAL), 'utf8');
+    const mutated = real.replace(' id="item-note"', ' id="item-name"');
+    expect(mutated).not.toBe(real);
+    const ids = controlsIn(path.join(SRC, ITEM_MODAL), mutated)
+      .map((c) => c.attrs.id).filter((id) => id && !/[`${}]/.test(id));
+    expect(ids.length - new Set(ids).size, 'the duplicate was not detected').toBeGreaterThan(0);
   });
 });
