@@ -184,6 +184,7 @@ export default function Outreach() {
           <div className="row gap-2 wrap">
             <input
               className="input grow"
+              aria-label="נישה או תחום לייצור רעיונות לידים"
               style={{ minWidth: 220 }}
               value={niche}
               onChange={(e) => setNiche(e.target.value)}

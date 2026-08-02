@@ -107,7 +107,7 @@ export default function Inventory() {
       <div className="toolbar">
         <div className="search-box">
           <span className="ico"><Icon name="search" size={18} /></span>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש פריט, מק״ט, קטגוריה או ספק..." />
+          <input aria-label="חיפוש במלאי" value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש פריט, מק״ט, קטגוריה או ספק..." />
         </div>
         <div className="filter-tabs hide-scroll" style={{ overflowX: 'auto', maxWidth: '100%' }}>
           {FILTERS.map((f) => (

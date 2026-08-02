@@ -62,7 +62,7 @@ export default function Pipeline() {
                       <span className="dim" style={{ fontSize: '0.72rem' }}>{formatDateShort(c.date)}</span>
                     </div>
                     {c.nextAction && <div className="next-action" style={{ marginTop: 8, padding: '7px 10px', fontSize: '0.78rem' }}><Icon name="arrow" size={12} /><span>{c.nextAction}</span></div>}
-                    <select className="select mini-select" style={{ marginTop: 8, width: '100%' }} value={c.pipelineStage || 'lead'} onChange={(e) => move(c, e.target.value)}>
+                    <select className="select mini-select" aria-label={`העברת ${c.name} לשלב אחר בפייפליין`} style={{ marginTop: 8, width: '100%' }} value={c.pipelineStage || 'lead'} onChange={(e) => move(c, e.target.value)}>
                       {PIPELINE_STAGES.map((s) => <option key={s.id} value={s.id}>העבר ל: {s.label}</option>)}
                     </select>
                   </motion.div>
