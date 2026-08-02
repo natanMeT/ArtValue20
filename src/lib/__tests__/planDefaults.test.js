@@ -233,14 +233,35 @@ describe('planDefaults — provenance vocabulary', () => {
 describe('planDefaults — isolation (read-only, deterministic)', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const source = readFileSync(resolve(here, '../planDefaults.js'), 'utf8');
+  // CRLF-SAFE on purpose. `\r` is a line terminator in JS regex, so `.` does not
+  // match it and `/\/\/.*$/` never anchors on a CRLF line -- the stripper would
+  // silently stop removing line comments on a Windows checkout, and every guard
+  // below would then be asserting against COMMENT TEXT instead of code. That is
+  // not a hypothetical: it is exactly how this file first failed.
   const code = source
     .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n')
-    .map((l) => l.replace(/\/\/.*$/, ''))
+    .split(/\r?\n/)
+    .map((l) => l.replace(/\/\/[^\r\n]*/, ''))
     .join('\n');
 
   it('positive control: the stripped source still contains the deriver', () => {
     expect(code).toContain('export function derivePlanDefaults');
+  });
+
+  it('positive control: the stripper really removes line comments, CRLF included', () => {
+    const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '')
+      .split(/\r?\n/).map((l) => l.replace(/\/\/[^\r\n]*/, '')).join('\n');
+    expect(strip('const a = 1; // Date.now() mentioned\r\nconst b = 2;')).not.toContain('Date.now(');
+    expect(strip('const a = 1; // Date.now() mentioned\nconst b = 2;')).not.toContain('Date.now(');
+    expect(strip('/* Date.now() in a block */\r\nconst c = 3;')).not.toContain('Date.now(');
+    // ...and does NOT eat real code
+    expect(strip('const t = Date.now();\r\n')).toContain('Date.now(');
+  });
+
+  it('the source really does mention Date.now in a COMMENT — so the strip matters', () => {
+    // If this ever stops being true the guard below becomes vacuous, and the
+    // positive control above is what keeps it honest.
+    expect(source).toContain('Date.now()');
   });
 
   it('imports no data layer', () => {

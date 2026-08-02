@@ -29,17 +29,37 @@ const nav = read('../../components/layout/sidebarNav.js');
 const helper = read('../../lib/planDefaults.js');
 
 /** Source with block comments and line comments stripped — so a claim can
- *  never be satisfied by a comment that merely mentions the right words. */
+ *  never be satisfied by a comment that merely mentions the right words.
+ *
+ *  CRLF-SAFE on purpose. `\r` is a line terminator in JS regex, so `.` does not
+ *  match it and `/\/\/.*$/` never anchors on a CRLF line. On a Windows checkout
+ *  that stripper silently stops removing line comments, and every guard below
+ *  starts asserting against COMMENT TEXT instead of code — passing or failing
+ *  for the wrong reason. That is exactly how this file first failed. */
 const strip = (src) => src
   .replace(/\/\*[\s\S]*?\*\//g, '')
-  .split('\n')
-  .map((l) => l.replace(/\/\/.*$/, ''))
+  .split(/\r?\n/)
+  .map((l) => l.replace(/\/\/[^\r\n]*/, ''))
   .join('\n');
 
 const code = strip(page);
 const appCode = strip(app);
 
 describe('MonthlyPlan — positive controls (the pins are looking at real code)', () => {
+  it('the comment stripper really strips, on CRLF as well as LF', () => {
+    expect(strip('const a = 1; // dispatch mentioned\r\nconst b = 2;')).not.toContain('dispatch');
+    expect(strip('const a = 1; // dispatch mentioned\nconst b = 2;')).not.toContain('dispatch');
+    expect(strip('/* localStorage in a block */\r\nconst c = 3;')).not.toContain('localStorage');
+    // ...and does NOT eat real code
+    expect(strip('el.dispatchEvent(e);\r\n')).toContain('dispatch');
+  });
+
+  it('the page really mentions the forbidden words in COMMENTS — so the strip matters', () => {
+    // Keeps the read-only guards from becoming vacuous if the comments change.
+    expect(page).toContain('no store dispatch');
+    expect(page).toContain('no localStorage');
+  });
+
   it('the stripped page still contains its component and its render tree', () => {
     expect(code).toContain('export default function MonthlyPlan');
     expect(code).toContain('planFromTargets');
