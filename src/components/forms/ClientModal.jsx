@@ -67,36 +67,36 @@ export default function ClientModal({ open, onClose, onSave, initial }) {
     >
       <div className="form-grid">
         <div className="field">
-          <label>שם הלקוח / חברה *</label>
-          <input className="input" value={form.name} onChange={set('name')} placeholder="לדוגמה: אורורה סטודיו" style={err.name ? { borderColor: '#ef6f6f' } : undefined} />
+          <label htmlFor="client-name">שם הלקוח / חברה *</label>
+          <input id="client-name" className="input" value={form.name} onChange={set('name')} placeholder="לדוגמה: אורורה סטודיו" style={err.name ? { borderColor: '#ef6f6f' } : undefined} />
         </div>
         <div className="field">
-          <label>איש קשר *</label>
-          <input className="input" value={form.contact} onChange={set('contact')} placeholder="שם מלא" style={err.contact ? { borderColor: '#ef6f6f' } : undefined} />
+          <label htmlFor="client-contact">איש קשר *</label>
+          <input id="client-contact" className="input" value={form.contact} onChange={set('contact')} placeholder="שם מלא" style={err.contact ? { borderColor: '#ef6f6f' } : undefined} />
         </div>
         <div className="field">
-          <label>טלפון</label>
-          <input className="input" value={form.phone} onChange={set('phone')} placeholder="050-0000000" inputMode="tel" dir="ltr" style={{ textAlign: 'right', ...(err.phone ? { borderColor: '#ef6f6f' } : {}) }} />
+          <label htmlFor="client-phone">טלפון</label>
+          <input id="client-phone" className="input" value={form.phone} onChange={set('phone')} placeholder="050-0000000" inputMode="tel" dir="ltr" style={{ textAlign: 'right', ...(err.phone ? { borderColor: '#ef6f6f' } : {}) }} />
         </div>
         <div className="field">
-          <label>אימייל</label>
-          <input className="input" value={form.email} onChange={set('email')} placeholder="name@email.com" dir="ltr" style={{ textAlign: 'right', ...(err.email ? { borderColor: '#ef6f6f' } : {}) }} />
+          <label htmlFor="client-email">אימייל</label>
+          <input id="client-email" className="input" value={form.email} onChange={set('email')} placeholder="name@email.com" dir="ltr" style={{ textAlign: 'right', ...(err.email ? { borderColor: '#ef6f6f' } : {}) }} />
         </div>
         <div className="field">
-          <label>סטטוס</label>
-          <select className="select" value={form.status} onChange={set('status')}>
+          <label htmlFor="client-status">סטטוס</label>
+          <select id="client-status" className="select" value={form.status} onChange={set('status')}>
             {CLIENT_STATUS_EXT.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
         </div>
         <div className="field">
-          <label>שווי פרויקט (₪){form.status === 'completed_paid' ? ' *' : ''}</label>
-          <input className="input tnum" value={form.value} onChange={set('value')} placeholder="0" inputMode="numeric" dir="ltr" style={{ textAlign: 'right', ...(err.value ? { borderColor: '#ef6f6f' } : {}) }} />
+          <label htmlFor="client-value">שווי פרויקט (₪){form.status === 'completed_paid' ? ' *' : ''}</label>
+          <input id="client-value" className="input tnum" value={form.value} onChange={set('value')} placeholder="0" inputMode="numeric" dir="ltr" style={{ textAlign: 'right', ...(err.value ? { borderColor: '#ef6f6f' } : {}) }} />
         </div>
         {form.status === 'completed_paid' && (
           <>
             <div className="field">
-              <label>תאריך תשלום</label>
-              <input className="input" type="date" value={form.paidDate} onChange={set('paidDate')} dir="ltr" style={{ textAlign: 'right' }} />
+              <label htmlFor="client-paid-date">תאריך תשלום</label>
+              <input id="client-paid-date" className="input" type="date" value={form.paidDate} onChange={set('paidDate')} dir="ltr" style={{ textAlign: 'right' }} />
             </div>
             <div className="field full">
               <div className="row gap-2" style={{ alignItems: 'flex-start', background: 'color-mix(in srgb, var(--surface) 86%, #d4ff3f 14%)', border: '1px solid rgba(212,255,63,0.3)', borderRadius: 12, padding: '10px 12px' }}>
@@ -114,28 +114,28 @@ export default function ClientModal({ open, onClose, onSave, initial }) {
           </>
         )}
         <div className="field">
-          <label>סוג פרויקט</label>
-          <select className="select" value={form.projectType} onChange={set('projectType')}>
+          <label htmlFor="client-project-type">סוג פרויקט</label>
+          <select id="client-project-type" className="select" value={form.projectType} onChange={set('projectType')}>
             {PROJECT_TYPES.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
         </div>
         <div className="field">
-          <label>מקור הליד</label>
-          <select className="select" value={form.source} onChange={set('source')}>
+          <label htmlFor="client-source">מקור הליד</label>
+          <select id="client-source" className="select" value={form.source} onChange={set('source')}>
             {LEAD_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         <div className="field">
-          <label>פעולה הבאה</label>
-          <input className="input" value={form.nextAction} onChange={set('nextAction')} placeholder="לדוגמה: לשלוח הצעת מחיר / להתקשר מחר" />
+          <label htmlFor="client-next-action">פעולה הבאה</label>
+          <input id="client-next-action" className="input" value={form.nextAction} onChange={set('nextAction')} placeholder="לדוגמה: לשלוח הצעת מחיר / להתקשר מחר" />
         </div>
         <div className="field">
-          <label>תאריך פעולה הבאה</label>
-          <input className="input" type="date" value={form.nextActionDate || ''} onChange={(e) => setForm((f) => ({ ...f, nextActionDate: e.target.value || null }))} dir="ltr" style={{ textAlign: 'right' }} />
+          <label htmlFor="client-next-action-date">תאריך פעולה הבאה</label>
+          <input id="client-next-action-date" className="input" type="date" value={form.nextActionDate || ''} onChange={(e) => setForm((f) => ({ ...f, nextActionDate: e.target.value || null }))} dir="ltr" style={{ textAlign: 'right' }} />
         </div>
         <div className="field full">
-          <label>הערות</label>
-          <textarea className="textarea" value={form.notes} onChange={set('notes')} placeholder="פרטים נוספים על הלקוח או הפרויקט..." />
+          <label htmlFor="client-notes">הערות</label>
+          <textarea id="client-notes" className="textarea" value={form.notes} onChange={set('notes')} placeholder="פרטים נוספים על הלקוח או הפרויקט..." />
         </div>
       </div>
     </Modal>
