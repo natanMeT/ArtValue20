@@ -11,7 +11,8 @@
 //     blank field. Fixing those is an `id`/`htmlFor` or shared-component
 //     decision across ~120 sites and is EXPLICITLY OUT OF SCOPE HERE.
 //     ⚠️ 109 WAS THE COUNT WHEN A1 SHIPPED, AND IT IS NO LONGER CURRENT.
-//     A2 closed Login's 2 (→ 107) and A3 closed ItemModal's 9 (→ 98).
+//     A2 closed Login's 2 (→ 107), A3 closed ItemModal's 9 (→ 98) and A4
+//     closed ClientModal's 12 (→ 86).
 //     ⚠️ THAT NUMBER IS A MEASURED SCAN RESULT, NOT AN INVARIANT THIS FILE
 //     ENFORCES — nothing here fails when the bucket moves, so treat it as a
 //     comment that must be edited by hand each slice, exactly as it was here.
@@ -386,7 +387,10 @@ describe('accessibility A2 — Login labels are programmatically associated', ()
     // every literal id this work has added so far is named here on purpose.
     for (const id of ['login-email', 'login-password',
       'item-name', 'item-category', 'item-sku', 'item-supplier', 'item-qty',
-      'item-low-threshold', 'item-unit-price', 'item-cost', 'item-note']) {
+      'item-low-threshold', 'item-unit-price', 'item-cost', 'item-note',
+      'client-name', 'client-contact', 'client-phone', 'client-email',
+      'client-status', 'client-value', 'client-paid-date', 'client-project-type',
+      'client-source', 'client-next-action', 'client-next-action-date', 'client-notes']) {
       expect(seen.has(id), `the scan did not even find "${id}", one of the ids it is meant to police`).toBe(true);
     }
     expect(dupes).toEqual([]);
@@ -576,5 +580,183 @@ describe('accessibility A3 — ItemModal .field labels are programmatically asso
     const ids = controlsIn(path.join(SRC, ITEM_MODAL), mutated)
       .map((c) => c.attrs.id).filter((id) => id && !/[`${}]/.test(id));
     expect(ids.length - new Set(ids).size, 'the duplicate was not detected').toBeGreaterThan(0);
+  });
+});
+
+// ===================================================================
+// ACCESSIBILITY SLICE A4 — ClientModal's twelve `.field` blocks.
+//
+// ⚠️ WHY THIS FILE AND NOT THE ONES WITH MORE GAPS — A GATE A3 DID NOT APPLY.
+// A3 fixed ItemModal, which is CORRECT but UNREACHABLE: `Inventory.jsx` returns
+// <BetaUnavailable/> early whenever `isSupabaseConfigured`, so in cloud mode the
+// page body — and therefore <ItemModal> — never renders at all. The same is true
+// of Projects (ProjectModal, ProjectDetail), Templates and Activity, which are
+// the very files that top the remaining-gap count. A fix nobody can reach cannot
+// be owner-QA'd against the exact Production artifact.
+//
+// A4 therefore adds a THIRD condition to the A2 rule, and asserts it below:
+//   REACHABILITY — the module must render in cloud mode.
+//   SINGLETON    — mounted once, cannot render twice concurrently.
+//   NOT REPEATED — not inside a `.map()`.
+// `/clients` carries no `betaHidden` flag, is absent from BETA_HIDDEN_MODULES,
+// and `Clients.jsx` has no BetaUnavailable early return — so the modal is
+// reachable by a signed-in owner and the twelve labels can actually be clicked.
+//
+// ⚠️ ONE FIELD IS CONDITIONAL. `client-paid-date` renders only while status is
+// `completed_paid`. That does not weaken the literal id — a conditional control
+// still renders at most once — but it does mean the DOM assertion for it only
+// holds in that state, which QA has to know.
+// ===================================================================
+describe('accessibility A4 — ClientModal .field labels are programmatically associated', () => {
+  const CLIENT_MODAL = 'components/forms/ClientModal.jsx';
+  const A4_IDS = [
+    'client-name', 'client-contact', 'client-phone', 'client-email',
+    'client-status', 'client-value', 'client-paid-date', 'client-project-type',
+    'client-source', 'client-next-action', 'client-next-action-date', 'client-notes',
+  ];
+
+  /** THE CHECKER — shared by the assertions and every negative control. */
+  function unpairedClientFields(source = null) {
+    const abs = path.join(SRC, CLIENT_MODAL);
+    const controls = controlsIn(abs, source);
+    const labels = labelsIn(abs, source);
+    const problems = [];
+    for (const id of A4_IDS) {
+      const control = controls.find((c) => c.attrs.id === id);
+      if (!control) { problems.push({ id, reason: 'no control carries that id' }); continue; }
+      if (!labels.some((l) => l.attrs.htmlFor === id)) problems.push({ id, reason: 'no label htmlFor points at it' });
+    }
+    return problems;
+  }
+
+  it('POSITIVE CONTROL: the walker finds ClientModal\'s controls and labels at all', () => {
+    expect(controlsIn(path.join(SRC, CLIENT_MODAL)).length,
+      'no controls parsed — the guard would pass by finding nothing').toBeGreaterThanOrEqual(12);
+    expect(labelsIn(path.join(SRC, CLIENT_MODAL)).length,
+      'no labels parsed — the guard would pass by finding nothing').toBeGreaterThanOrEqual(12);
+  });
+
+  it('all twelve fields have an id AND a label that references it', () => {
+    expect(unpairedClientFields()).toEqual([]);
+  });
+
+  it('every htmlFor in ClientModal resolves to a control id in the same file', () => {
+    const ids = new Set(controlsIn(path.join(SRC, CLIENT_MODAL)).map((c) => c.attrs.id).filter(Boolean));
+    for (const l of labelsIn(path.join(SRC, CLIENT_MODAL))) {
+      if (l.attrs.htmlFor) {
+        expect(ids.has(l.attrs.htmlFor), `ClientModal.jsx:${l.line} htmlFor="${l.attrs.htmlFor}" points at no control`).toBe(true);
+      }
+    }
+  });
+
+  it('NO label in ClientModal is left without a htmlFor', () => {
+    for (const l of labelsIn(path.join(SRC, CLIENT_MODAL))) {
+      expect(l.attrs.htmlFor, `ClientModal.jsx:${l.line} label still names nothing`).toBeTruthy();
+    }
+  });
+
+  // ⚠️ THE GATE A3 MISSED, NOW ENFORCED. If someone later adds a
+  // BetaUnavailable early return to Clients.jsx, this slice silently becomes
+  // unreachable exactly as A3 did — and this test is how that gets noticed.
+  it('REACHABILITY: /clients renders in cloud mode — no BetaUnavailable, no betaHidden', () => {
+    const page = fs.readFileSync(path.join(SRC, 'pages/Clients.jsx'), 'utf8');
+    expect(page, 'Clients.jsx must not gate itself behind BetaUnavailable').not.toContain('BetaUnavailable');
+
+    const nav = fs.readFileSync(path.join(SRC, 'components/layout/sidebarNav.js'), 'utf8');
+    const clientsEntry = nav.split('\n').find((l) => l.includes("to: '/clients'")) || '';
+    expect(clientsEntry, 'the /clients nav entry disappeared').toBeTruthy();
+    expect(clientsEntry, '/clients must not become betaHidden — the modal would be unreachable in cloud mode').not.toContain('betaHidden');
+
+    const beta = fs.readFileSync(path.join(SRC, 'lib/betaCapabilities.js'), 'utf8');
+    const hidden = beta.split('\n').find((l) => l.includes('BETA_HIDDEN_MODULES = ')) || '';
+    expect(hidden, 'BETA_HIDDEN_MODULES line not found — the reachability check would be vacuous').toBeTruthy();
+    expect(hidden).not.toContain("'clients'");
+  });
+
+  it('SINGLETON PREMISE: <ClientModal> is mounted at exactly one site', () => {
+    const mounts = [];
+    (function walkDir(dir) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) { if (e.name !== '__tests__') walkDir(p); }
+        else if (e.name.endsWith('.jsx') && p !== path.join(SRC, CLIENT_MODAL)) {
+          if (/<ClientModal[\s/>]/.test(fs.readFileSync(p, 'utf8'))) {
+            mounts.push(path.relative(SRC, p).replace(/\\/g, '/'));
+          }
+        }
+      }
+    })(SRC);
+    expect(mounts, 'a second mount site invalidates the literal-id decision — derive ids from a domain key instead')
+      .toEqual(['pages/Clients.jsx']);
+  });
+
+  // ⚠️ Clients.jsx ALSO renders a second raw <Modal> (the client detail panel),
+  // which is why this page needed a check ItemModal's did not. The two are
+  // mutually exclusive in the UI, but the durable guarantee is simpler and is
+  // what gets asserted: the host page declares no `client-` id of its own, so
+  // even if both dialogs were mounted at once nothing could collide.
+  it('HOST PAGE: Clients.jsx declares no client-* literal id of its own', () => {
+    for (const c of controlsIn(path.join(SRC, 'pages/Clients.jsx'))) {
+      expect(c.attrs.id === undefined || !String(c.attrs.id).startsWith('client-'),
+        `Clients.jsx:${c.line} declares ${c.attrs.id}, which could collide with ClientModal`).toBe(true);
+    }
+  });
+
+  it('SCOPE: ClientModal uses id/htmlFor, not a wrapping label, not useId, not a shared Field', () => {
+    const src = fs.readFileSync(path.join(SRC, CLIENT_MODAL), 'utf8');
+    expect(src, 'A4 must not introduce useId').not.toContain('useId');
+    expect(src, 'A4 must not introduce a shared Field component').not.toContain('<Field');
+    // DOM shape unchanged: 12 labelled `.field` blocks plus the unlabelled
+    // `field full` notice row that holds the paid-status text and no control.
+    expect(src.match(/className="field/g) || []).toHaveLength(13);
+  });
+
+  it('SCOPE: A4 did not start the other .field files', () => {
+    const untouched = ['components/forms/ProjectModal.jsx', 'components/forms/TaskModal.jsx',
+      'components/onboarding/OnboardingWizard.jsx', 'components/settings/BusinessContextEditor.jsx'];
+    for (const f of untouched) {
+      expect(fs.readFileSync(path.join(SRC, f), 'utf8'),
+        `${f}: A4 is ClientModal-only — this file belongs to a later slice`).not.toContain('htmlFor');
+    }
+  });
+
+  // NEGATIVE CONTROLS — each drives the SAME checker the assertions use.
+  it('NEGATIVE: removing a htmlFor from the real source is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, CLIENT_MODAL), 'utf8');
+    const mutated = real.replace(' htmlFor="client-email"', '');
+    expect(mutated, 'mutation did not apply — the control would be vacuous').not.toBe(real);
+    expect(unpairedClientFields(mutated).some((p) => p.id === 'client-email'
+      && p.reason === 'no label htmlFor points at it')).toBe(true);
+  });
+
+  it('NEGATIVE: removing an id from the real source is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, CLIENT_MODAL), 'utf8');
+    const mutated = real.replace(' id="client-status"', '');
+    expect(mutated).not.toBe(real);
+    expect(unpairedClientFields(mutated).some((p) => p.id === 'client-status'
+      && p.reason === 'no control carries that id')).toBe(true);
+  });
+
+  it('NEGATIVE: a htmlFor/id typo mismatch is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, CLIENT_MODAL), 'utf8');
+    const mutated = real.replace('htmlFor="client-project-type"', 'htmlFor="client-projecttype"');
+    expect(mutated).not.toBe(real);
+    expect(unpairedClientFields(mutated).some((p) => p.id === 'client-project-type')).toBe(true);
+  });
+
+  // The conditional field is the one most likely to be dropped by a later edit,
+  // because it is invisible unless the status is `completed_paid`.
+  it('NEGATIVE: dropping the conditional paid-date pairing is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, CLIENT_MODAL), 'utf8');
+    const mutated = real.replace(' id="client-paid-date"', '');
+    expect(mutated).not.toBe(real);
+    expect(unpairedClientFields(mutated).some((p) => p.id === 'client-paid-date')).toBe(true);
+  });
+
+  it('NEGATIVE: a reachability regression on Clients.jsx would be caught', () => {
+    const real = fs.readFileSync(path.join(SRC, 'pages/Clients.jsx'), 'utf8');
+    const mutated = `${real}\n// BetaUnavailable\n`;
+    expect(mutated).toContain('BetaUnavailable');
+    expect(real, 'the real file must be clean, or the control proves nothing').not.toContain('BetaUnavailable');
   });
 });
