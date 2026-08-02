@@ -109,7 +109,7 @@ export default function Clients() {
       <div className="toolbar">
         <div className="search-box">
           <span className="ico"><Icon name="search" size={18} /></span>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש לפי שם, איש קשר, אימייל..." />
+          <input aria-label="חיפוש לקוחות" value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש לפי שם, איש קשר, אימייל..." />
         </div>
         <div className="filter-tabs">
           {FILTERS.map((f) => (
@@ -243,6 +243,7 @@ export default function Clients() {
               <div className="row gap-2" style={{ alignItems: 'center' }}>
                 <select
                   className="select mini-select"
+                  aria-label="שלב בפייפליין"
                   value={detail.pipelineStage || 'lead'}
                   onChange={(e) => { dispatch({ type: 'UPDATE_CLIENT', payload: { id: detail.id, pipelineStage: e.target.value } }); setDetail({ ...detail, pipelineStage: e.target.value }); toast('עודכן שלב בפייפליין'); }}
                 >

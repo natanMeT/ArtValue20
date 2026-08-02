@@ -65,7 +65,7 @@ export default function Assets() {
       <div className="toolbar">
         <div className="search-box">
           <span className="ico"><Icon name="search" size={18} /></span>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש קובץ, קישור, לקוח או פרויקט..." />
+          <input aria-label="חיפוש בנכסים" value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש קובץ, קישור, לקוח או פרויקט..." />
         </div>
         <div className="filter-tabs hide-scroll" style={{ overflowX: 'auto', maxWidth: '100%' }}>
           {FILTERS.map((f) => (

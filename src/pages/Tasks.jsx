@@ -158,7 +158,7 @@ export default function Tasks() {
                     <td className="muted">{projName(t.projectId)}</td>
                     {campaigns.length > 0 && <td className="muted">{campaignName(t.campaignId)}</td>}
                     <td>
-                      <select className="select mini-select" value={t.status} onChange={(e) => setStatus(t, e.target.value)}>
+                      <select className="select mini-select" aria-label={`סטטוס המשימה: ${t.title}`} value={t.status} onChange={(e) => setStatus(t, e.target.value)}>
                         {TASK_STATUS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                       </select>
                     </td>

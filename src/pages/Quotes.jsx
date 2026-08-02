@@ -204,7 +204,7 @@ export default function Quotes() {
                 </div>
 
                 {/* status selector */}
-                <select className="select" value={quote.status} onChange={(e) => setStatus(quote, e.target.value)} style={{ height: 38, padding: '0 36px 0 12px', fontSize: '0.84rem' }}>
+                <select className="select" aria-label={`שינוי סטטוס להצעה ${quote.number}`} value={quote.status} onChange={(e) => setStatus(quote, e.target.value)} style={{ height: 38, padding: '0 36px 0 12px', fontSize: '0.84rem' }}>
                   {QUOTE_STATUS.map((s) => <option key={s} value={s}>שינוי סטטוס · {STATUS_LABELS[s]}</option>)}
                 </select>
 

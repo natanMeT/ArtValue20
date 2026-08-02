@@ -148,7 +148,7 @@ function TasksTab({ project, data, dispatch, toast }) {
           <tbody>{tasks.map((t) => (
             <tr key={t.id} style={t.status === 'done' ? { opacity: 0.55 } : undefined}>
               <td style={{ fontWeight: 500 }}>{t.title}</td>
-              <td><select className="select mini-select" value={t.status} onChange={(e) => setStatus(t, e.target.value)}>{TASK_STATUS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></td>
+              <td><select className="select mini-select" aria-label={`סטטוס המשימה: ${t.title}`} value={t.status} onChange={(e) => setStatus(t, e.target.value)}>{TASK_STATUS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></td>
               <td><span className={`badge ${studioBadgeClass(t.priority)}`}><span className="dot" />{labelOf(TASK_PRIORITY, t.priority)}</span></td>
               <td className="muted" style={{ whiteSpace: 'nowrap' }}>{t.deadline ? formatDateShort(t.deadline) : '—'}</td>
               <td className="muted">{t.assignee}</td>

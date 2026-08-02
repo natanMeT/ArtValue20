@@ -56,6 +56,7 @@ function GateCard({ gate, onDelete, onCancel }) {
         <div className="ai-confirm-q">🔒 מחיקת כל {gate.entityLabel} ({gate.items.length}) — הזן קוד אישור כדי להמשיך</div>
         <input
           className="ai-gate-code" type="password" inputMode="numeric" autoFocus
+          aria-label="קוד אישור למחיקה"
           value={code} onChange={(e) => setCode(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') submitCode(); }}
           placeholder="קוד אישור"
