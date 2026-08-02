@@ -20,6 +20,7 @@ import Projects from './pages/Projects.jsx';
 import ProjectDetail from './pages/ProjectDetail.jsx';
 import Tasks from './pages/Tasks.jsx';
 import Schedule from './pages/Schedule.jsx';
+import MonthlyPlan from './pages/MonthlyPlan.jsx';
 import Pipeline from './pages/Pipeline.jsx';
 import Assets from './pages/Assets.jsx';
 import Templates from './pages/Templates.jsx';
@@ -131,6 +132,15 @@ function MainRoutes() {
             /schedule and is NOT /growth/calendar, which plans activity volume
             and persists nothing. */}
         <Route path="/schedule" element={<Schedule />} />
+        {/* Monthly Plan — READ-ONLY planner over the account's own durable data.
+            Deliberately OUTSIDE GrowthBetaGate: it persists nothing, creates
+            nothing and links nowhere into Growth OS, so the containment reason
+            that gates /growth (datasets that are not account-aware, and screens
+            that imply a save) does not apply to it. Gating it would be false in
+            the opposite direction — hiding a screen that IS truthful.
+            This is NOT /schedule (durable appointments) and NOT /growth/calendar
+            (the same math over demo lead data, still contained). */}
+        <Route path="/plan" element={<MonthlyPlan />} />
         <Route path="/pipeline" element={<Pipeline />} />
         <Route path="/assets" element={<Assets />} />
         <Route path="/templates" element={<Templates />} />

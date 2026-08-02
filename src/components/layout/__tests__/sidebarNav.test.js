@@ -22,8 +22,13 @@ const isRegisteredRoute = (to) => appSrc.includes(`path="${to}"`);
 // Schedule Core slice 1 added '/schedule' (יומן) — the second `cloudOnly` item,
 // for the same reason. It is NOT '/growth/calendar', which is a Growth planning
 // board that persists nothing and stays in EXPECTED_GROWTH_ROUTES below.
+// Monthly Plan added '/plan' — a READ-ONLY planner. It is the first nav item
+// carrying NEITHER flag: it persists nothing (so nothing to contain in cloud)
+// and needs no cloud storage (so nothing to hide locally). It sits in
+// צמיחה ולידים but is NOT a Growth OS route — it is outside GrowthBetaGate and
+// links nowhere into Growth, so it belongs here, not in EXPECTED_GROWTH_ROUTES.
 const EXPECTED_MAIN_ROUTES = [
-  '/', '/clients', '/outreach', '/projects', '/tasks', '/schedule', '/pipeline',
+  '/', '/clients', '/outreach', '/projects', '/tasks', '/schedule', '/plan', '/pipeline',
   '/quotes', '/diagnose', '/studio', '/campaigns',
   '/finance', '/activity', '/inventory', '/assets', '/templates',
 ];
