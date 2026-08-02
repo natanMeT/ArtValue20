@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { validateAppointment, listToday } from '../../lib/schedule.js';
+import { stripComments } from '../../lib/__tests__/support/sourceScan.js';
 
 // ===================================================================
 // Schedule Core slice 1 — the Schedule screen.
@@ -243,5 +244,141 @@ describe('nothing else was touched', () => {
     const block = api.slice(api.indexOf('Schedule Core slice 1'));
     expect(block).not.toMatch(/\.from\('tasks'\)/);
     expect(block).not.toMatch(/\.from\('clients'\)/);
+  });
+});
+
+// ===================================================================
+// Slice 2 — the month grid. The claims THIS block exists to defend:
+//   5. the month view is READ-ONLY — no cell opens a form and no write path
+//      reaches it, so the tab adds zero writable surface;
+//   6. it adds NO server call — month navigation is a view offset over rows
+//      that are already in memory;
+//   7. Schedule's calendar and the Growth OS monthly action calendar stay
+//      separate, now pinned in BOTH import directions;
+//   8. placement is by startAt alone, stated to the user on the screen itself.
+// ===================================================================
+
+const lib = read('../../lib/schedule.js');
+const growthCalendar = read('../../data/growthCalendar.js');
+
+// The month grid component, isolated, so the assertions below cannot be
+// satisfied by unrelated code elsewhere in the page.
+const monthGrid = page.slice(page.indexOf('function MonthGrid'), page.indexOf('export default function Schedule'));
+
+describe('the month tab exists and is wired to the pure helper', () => {
+  it('the tab is registered, between השבוע and הכל', () => {
+    const ids = [...page.slice(page.indexOf('const TABS'), page.indexOf('const CELL_ITEM_LIMIT'))
+      .matchAll(/id: '(\w+)'/g)].map((m) => m[1]);
+    expect(ids).toEqual(['today', 'week', 'month', 'all']);
+  });
+
+  it('the grid is built by monthMatrix, and only for the month tab', () => {
+    expect(page).toContain("tab === 'month' ? monthMatrix(items, now, monthOffset) : null");
+  });
+
+  it('the seven column headers come from the shared Sunday-first vocabulary', () => {
+    expect(monthGrid).toContain('WEEKDAY_LABELS.map');
+    expect(lib).toContain("WEEKDAY_LABELS = Object.freeze(['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'])");
+  });
+
+  it('RTL column order comes from the document, never from a second flip', () => {
+    // <html dir="rtl"> already puts column 1 on the right. A reverse() here, or
+    // a direction/row-reverse rule on the grid, would flip it back to the left.
+    expect(monthGrid).not.toMatch(/WEEKDAY_LABELS[\s\S]{0,40}reverse\(\)/);
+    expect(monthGrid).not.toMatch(/weeks[\s\S]{0,40}reverse\(\)/);
+    // CSS comments are stripped first, and `direction` is anchored to a
+    // declaration boundary — otherwise a COMMENT naming .month-grid, or the
+    // legitimate `flex-direction: column` on a cell, satisfies a naive regex.
+    // CRLF-safe: \s covers \r, so a Windows checkout reads the same.
+    const css = read('../../styles/app.css');
+    const block = css.slice(css.indexOf('.month-nav')).replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(block).not.toMatch(/(^|[;{\s])direction\s*:/);
+    expect(block).not.toMatch(/row-reverse/);
+    // POSITIVE CONTROL: the assertion can actually see a declaration here.
+    expect(block).toMatch(/(^|[;{\s])overflow\s*:/);
+  });
+});
+
+describe('the month view is READ-ONLY', () => {
+  it('the grid component takes no callback and renders no interactive control', () => {
+    expect(monthGrid).not.toMatch(/onClick|onChange|onSubmit/);
+    expect(monthGrid).not.toMatch(/<button/);
+    expect(monthGrid).not.toMatch(/openEdit|openNew|setModalOpen|setEditing/);
+  });
+
+  it('no write helper is reachable from the month branch', () => {
+    const branch = page.slice(page.indexOf("tab === 'month' ? ("), page.indexOf(') : !groups.length ? ('));
+    expect(branch).not.toMatch(/createAppointment|updateAppointment|deleteAppointment|setAppointmentStatus/);
+    expect(branch).not.toMatch(/openEdit|openNew/);
+    // The only buttons in the branch are the month navigators.
+    expect([...branch.matchAll(/onClick=\{\(\) => (\w+)/g)].map((m) => m[1]))
+      .toEqual(['setMonthOffset', 'setMonthOffset', 'setMonthOffset']);
+  });
+
+  it('click-to-edit stays UNWIRED even though the safe pattern exists', () => {
+    // openEdit is real and used by the tables — deliberately not reached from a
+    // cell, so the month view adds no writable surface. Enabling it later is a
+    // separate, explicitly approved slice.
+    expect(page).toContain('const openEdit = (a) =>');
+    expect(monthGrid).not.toContain('openEdit');
+  });
+});
+
+describe('the month view adds NO server call', () => {
+  it('the page still fetches in exactly one place', () => {
+    expect((page.match(/listAppointments\(/g) || [])).toHaveLength(1);
+  });
+
+  it('changing the month moves an offset and nothing else', () => {
+    expect(page).toContain('const [monthOffset, setMonthOffset] = useState(0)');
+    const branch = page.slice(page.indexOf("tab === 'month' ? ("), page.indexOf(') : !groups.length ? ('));
+    expect(branch).not.toMatch(/load\(\)|listAppointments/);
+  });
+
+  it('the clock is STILL read once, in lazy state', () => {
+    // Re-asserted here because the month grid is the first consumer that could
+    // have reached for its own `new Date()` to decide "today".
+    expect((page.match(/new Date\(\)/g) || [])).toHaveLength(1);
+    expect(lib).toContain('const todayKey = civilKey(new Date(ref));');
+  });
+});
+
+describe('Schedule calendar vs Growth OS calendar — pinned in BOTH directions', () => {
+  // Comments are stripped with the PARSER-backed stripper the local-engine gate
+  // uses, not a regex — both files legitimately NAME the other in their naming
+  // -boundary comments, and a hand-rolled stripper is the exact defect class
+  // sourceScan.js was rewritten to remove.
+  it('the schedule page and module import nothing from Growth', () => {
+    for (const [src, name] of [[page, 'Schedule.jsx'], [lib, 'schedule.js']]) {
+      const code = stripComments(src, name);
+      expect(code).not.toContain('growthCalendar');
+      expect(code).not.toMatch(/from '[^']*\/pages\/growth\//);
+      expect(code).not.toMatch(/from '[^']*\/data\/growth/);
+    }
+  });
+
+  it('growthCalendar.js imports nothing from the schedule module', () => {
+    // The direction that was NOT covered before slice 2: a month grid on both
+    // sides makes borrowing "the calendar helper" the obvious wrong move.
+    const code = stripComments(growthCalendar, 'growthCalendar.js');
+    expect(code).not.toMatch(/from '[^']*schedule/);
+    expect(code).not.toContain('monthMatrix');
+    expect(code).not.toContain('appointments');
+  });
+
+  it('/growth/calendar is still registered exactly once and still gated', () => {
+    expect((app.match(/path="\/growth\/calendar"/g) || [])).toHaveLength(1);
+    const line = app.split('\n').find((l) => l.includes('path="/growth/calendar"'));
+    expect(line).toContain('GrowthBetaGate');
+  });
+});
+
+describe('placement by startAt is stated to the user, not only in a comment', () => {
+  it('the screen says so under the grid', () => {
+    expect(page).toContain('רישום שנמשך מעבר לחצות מופיע ביום שבו התחיל');
+  });
+
+  it('and says that every status is shown, unlike the agenda tabs', () => {
+    expect(page).toContain('כולל שכבר התקיימו או בוטלו');
   });
 });

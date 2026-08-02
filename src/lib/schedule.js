@@ -380,3 +380,109 @@ export function scheduleCounts(items, now) {
     total: all.length,
   };
 }
+
+// ---------------- month grid (slice 2) ----------------
+//
+// READ-ONLY BY CONSTRUCTION. Nothing below writes, validates or normalizes a
+// payload — it only ARRANGES rows that `listAppointments` already returned into
+// calendar cells. There is no new server call and no new writable surface.
+//
+// STILL NOT THE GROWTH MONTHLY ACTION CALENDAR. `/growth/calendar` plans
+// activity VOLUME from an income target and persists nothing; this arranges
+// real `public.appointments` rows. The import ban stated at the top of this
+// file covers everything here, and a test pins it in BOTH directions.
+//
+// PLACEMENT IS BY `startAt` ALONE — the same rule `groupByDay` already uses, so
+// a cell and a list can never disagree about which day an appointment is on.
+// An appointment whose `endAt` crosses midnight, or the end of the month,
+// appears ONCE, in the cell of its START. See N2.
+
+export const WEEKDAY_LABELS = Object.freeze(['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש']);
+
+const MONTH_LABELS = Object.freeze([
+  'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
+  'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר',
+]);
+
+/** 'YYYY-MM-DD' from a local Date, matching dayKey's format exactly. */
+const civilKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+/**
+ * The half-open window [start, end) of a local calendar MONTH: the month
+ * containing `ref`, shifted by `offset` months.
+ *
+ * Built from numeric parts, exactly like localDayWindow, so a December `+1`
+ * rolls the YEAR by construction rather than by arithmetic this file would own.
+ * Half-open for the same reason: midnight on the 1st belongs to the month that
+ * is starting, never to both and never to neither.
+ */
+export function monthWindow(ref, offset = 0) {
+  const dt = new Date(ref);
+  if (Number.isNaN(dt.getTime())) return null;
+  const n = Number.isFinite(offset) ? Math.trunc(offset) : 0;
+  const start = new Date(dt.getFullYear(), dt.getMonth() + n, 1, 0, 0, 0, 0);
+  const end = new Date(start.getFullYear(), start.getMonth() + 1, 1, 0, 0, 0, 0);
+  return { start, end };
+}
+
+/**
+ * The month grid: `{ label, window, weeks }`, where `weeks` is an array of rows
+ * of exactly 7 cells `{ day, inMonth, isToday, items }`.
+ *
+ * WEEK STARTS SUNDAY. `getDay()` is already 0 = Sunday, which is the Hebrew
+ * week, so no shifting happens here and none may be added. The RIGHT-to-left
+ * column order is the document's `dir="rtl"`, not an array reversal — reversing
+ * here would flip twice and land Sunday on the left.
+ *
+ * LEADING / TRAILING CELLS CARRY THEIR APPOINTMENTS. They render muted, but
+ * hiding their rows would show an empty week at the month boundary while the
+ * account genuinely has something booked there — a false empty, which is the
+ * one failure mode this product refuses. Each appointment still appears exactly
+ * once in the returned matrix.
+ *
+ * DST-SAFE. Cells advance by CIVIL date (`new Date(y, m, d + i)`), never by
+ * adding 24h of milliseconds: a 23- or 25-hour day would otherwise drop or
+ * duplicate a date.
+ *
+ * EVERY STATUS IS SHOWN — unlike listToday / listWeek, which are agendas and
+ * drop anything not `planned`. A month is a review of what happened as well as
+ * what is coming; filtering to open rows would render every past day empty.
+ */
+export function monthMatrix(items, ref, offset = 0) {
+  const window = monthWindow(ref, offset);
+  if (!window) return null;
+
+  const { start } = window;
+  const year = start.getFullYear();
+  const month = start.getMonth();
+
+  const byDay = new Map();
+  for (const a of sortByStart(items)) {
+    const key = dayKey(a?.startAt);
+    if (!key) continue;
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key).push(a);
+  }
+
+  const todayKey = civilKey(new Date(ref));
+  const leading = start.getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const trailing = 6 - new Date(year, month, daysInMonth).getDay();
+  const total = leading + daysInMonth + trailing;
+
+  const weeks = [];
+  for (let i = 0; i < total; i += 1) {
+    const cellDate = new Date(year, month, 1 - leading + i, 0, 0, 0, 0);
+    const key = civilKey(cellDate);
+    if (i % 7 === 0) weeks.push([]);
+    weeks[weeks.length - 1].push({
+      day: key,
+      dayOfMonth: cellDate.getDate(),
+      inMonth: cellDate.getMonth() === month && cellDate.getFullYear() === year,
+      isToday: key === todayKey,
+      items: byDay.get(key) || [],
+    });
+  }
+
+  return { label: `${MONTH_LABELS[month]} ${year}`, window, weeks };
+}

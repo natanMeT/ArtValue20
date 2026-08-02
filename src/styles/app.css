@@ -2842,3 +2842,65 @@ body:has(.poster-scrim) .agent-reminder {
 .pp-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .pp-hint { margin: 0; font-size: 0.72rem; line-height: 1.5; }
 .creative-workflow-badge.cwm-engine-browser { color: #d8b4fe; }
+
+/* ---- Schedule month grid (Schedule slice 2) ----
+   READ-ONLY. No cell is focusable or clickable: nothing here opens a form, and
+   no hover/active affordance may be added that would suggest otherwise.
+   Column order comes from the document's dir="rtl" — the labels are rendered
+   in natural Sunday-first order, so RIGHT is Sunday. Never reverse the array
+   and never set direction here, or the two flips cancel and Sunday moves left. */
+.month-nav {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 10px;
+}
+.month-label { font-weight: 700; font-size: 0.95rem; min-width: 120px; text-align: center; }
+.month-note { margin-top: 10px; font-size: 0.72rem; line-height: 1.6; }
+
+/* min-width is the FLOOR that makes .table-wrap scroll instead of crushing the
+   seven columns into unreadable slivers. Cropping is what it prevents. */
+.month-grid {
+  min-width: 640px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.month-row { display: grid; grid-template-columns: repeat(7, 1fr); }
+.month-hcell {
+  padding: 6px 4px; text-align: center;
+  font-size: 0.72rem; font-weight: 700; color: var(--text-3);
+}
+/* Inner hairlines only — the outer frame is on .month-grid. Drawn with
+   start/top edges (and dropped on the first column) rather than a full border
+   plus a negative margin: the half-pixel margin left the wrapper 1px
+   scrollable at every width, which reads as an overflow that is not one. */
+.month-cell {
+  min-height: 96px;
+  padding: 6px;
+  border-inline-start: 1px solid var(--border);
+  border-block-start: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 3px;
+  overflow: hidden;
+}
+.month-row > .month-cell:first-child { border-inline-start: 0; }
+/* Muted, but NOT empty: a leading/trailing cell still prints its appointments,
+   because hiding them would show a false empty week at the month boundary. */
+.month-cell.outside { background: var(--surface-2); }
+.month-cell.outside .month-daynum { color: var(--text-3); }
+.month-cell.today { border-color: var(--lime-deep); }
+.month-daynum { font-size: 0.75rem; font-weight: 700; color: var(--text-2); }
+.month-item {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 0.68rem; line-height: 1.4;
+  white-space: nowrap; overflow: hidden;
+}
+.month-dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; background: var(--text-3); }
+.month-dot.badge-payment { background: #cfb228; }
+.month-dot.badge-completed { background: var(--lime-deep); }
+.month-dot.badge-lost { background: var(--text-3); }
+.month-item-time { color: var(--text-3); flex: 0 0 auto; }
+.month-item-title { overflow: hidden; text-overflow: ellipsis; }
+.month-more { font-size: 0.66rem; color: var(--text-3); }
+
+@media (max-width: 680px) {
+  .month-cell { min-height: 72px; }
+}
