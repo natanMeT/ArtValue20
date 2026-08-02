@@ -1016,7 +1016,21 @@ export default function ImageStudio() {
           </div>
           <div className="gallery-grid">
             {galleryItemsForTab(galleryTab).map((g) => (
-              <div key={g.id} className="gallery-item">
+              // THE GRID CELL. `.gallery-item` is `aspect-ratio: 3/4` with
+              // `overflow: hidden`, and `.gallery-item img` is `height: 100%`,
+              // so the image alone consumes the whole tile. Every other control
+              // inside it (.gallery-actions, .gallery-check) is absolutely
+              // positioned for exactly that reason.
+              //
+              // MEASURED, not assumed: when the campaign selector was a normal
+              // in-flow child of the tile it began at y=220 inside a 196px box
+              // and rendered with select_visible_px = 0 — present in the DOM and
+              // completely clipped. The fix is structural: the tile keeps its
+              // aspect-ratio and clipping UNCHANGED, and the selector is its
+              // SIBLING inside this wrapper cell. No stylesheet change, so no
+              // other screen can be affected.
+              <div key={g.id} style={{ display: 'grid', gap: 6 }}>
+              <div className="gallery-item">
                 {/* A cloud item with no url is a DANGLING record: its row exists
                     but its file does not (an upload that failed after the row
                     was written). It is shown — not hidden — so the user can see
@@ -1054,15 +1068,17 @@ export default function ImageStudio() {
                   )}
                   <button className="gallery-btn del" title="מחיקה" onClick={() => removeGalleryItem(g)}><Icon name="trash" size={13} /></button>
                 </div>
+              </div>
                 {/* Slice 3 — the campaign link. Rendered only where the
                     capability exists, exactly like the star above.
-                    The stylesheet is out of scope for this slice, so the few
-                    layout values needed are carried inline. */}
+                    OUTSIDE the tile on purpose — see the wrapper comment above.
+                    The stylesheet is untouched, so the few layout values needed
+                    are carried inline. */}
                 {galleryStore.setCampaign && (() => {
                   const link = campaignLabelForAsset(g, campaignOptions);
                   const selectId = `gallery-campaign-${g.id}`;
                   return (
-                    <div style={{ padding: '6px 8px 8px', display: 'grid', gap: 4 }}>
+                    <div style={{ display: 'grid', gap: 3 }}>
                       {/* A real <label>, not a placeholder option: the DevTools
                           accessibility findings already on the tracker are
                           about form fields without one, and this slice must
@@ -1078,7 +1094,7 @@ export default function ImageStudio() {
                         id={selectId}
                         name={selectId}
                         className="select"
-                        style={{ fontSize: '0.72rem', padding: '3px 6px' }}
+                        style={{ fontSize: '0.72rem', padding: '3px 6px', width: '100%', maxWidth: '100%' }}
                         value={g.campaignId || ''}
                         onChange={(e) => setGalleryCampaign(g, e.target.value)}
                       >
