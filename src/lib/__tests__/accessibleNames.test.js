@@ -55,10 +55,38 @@ function attrText(attr, src) {
   return '';
 }
 
+/** Every <label> in a file, with its attributes flattened. Used by the A2
+ *  pairing assertions: a `htmlFor` only names a control if some control really
+ *  carries that exact `id`, so both sides have to be read. */
+export function labelsIn(file, source = null) {
+  const src = source === null ? fs.readFileSync(file, 'utf8') : source;
+  const ast = parse(src, parserOptionsFor(file));
+  const out = [];
+  const seen = new Set();
+  (function walk(node) {
+    if (!node || typeof node !== 'object' || seen.has(node)) return;
+    seen.add(node);
+    if (node.type === 'JSXOpeningElement' && node.name?.type === 'JSXIdentifier'
+        && node.name.name === 'label') {
+      const attrs = {};
+      for (const a of node.attributes) {
+        if (a.type === 'JSXAttribute' && a.name?.type === 'JSXIdentifier') attrs[a.name.name] = attrText(a, src);
+      }
+      out.push({ attrs, line: src.slice(0, node.start).split('\n').length });
+    }
+    for (const k of Object.keys(node)) {
+      const v = node[k];
+      if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === 'object' && typeof v.type === 'string') walk(v);
+    }
+  })(ast);
+  return out;
+}
+
 /** Every input/select/textarea in a file, with its attributes flattened.
  *  Walks the AST generically rather than importing a traversal dependency. */
-export function controlsIn(file) {
-  const src = fs.readFileSync(file, 'utf8');
+export function controlsIn(file, source = null) {
+  const src = source === null ? fs.readFileSync(file, 'utf8') : source;
   const ast = parse(src, parserOptionsFor(file));
   const out = [];
   const seen = new Set();
@@ -217,8 +245,10 @@ describe('accessibility A1 — nameless list-screen controls carry an aria-label
     expect(problems.some((p) => p.file === target)).toBe(true);
   });
 
-  // Scope guard: this slice must NOT have started the 109-control `.field` work.
-  it('SCOPE: no id/htmlFor pairing was introduced by this slice', () => {
+  // Scope guard: A1 must NOT have started the `.field` work. Login (slice A2)
+  // is deliberately NOT in this list — it is the one file where htmlFor is the
+  // point, and it is guarded by its own block below.
+  it('SCOPE: A1 stayed aria-label-only in the files it touched', () => {
     const touched = ['pages/Clients.jsx', 'pages/Inventory.jsx', 'pages/Assets.jsx',
       'pages/Outreach.jsx', 'pages/Tasks.jsx', 'pages/ProjectDetail.jsx',
       'pages/Pipeline.jsx', 'pages/Quotes.jsx', 'components/ai/Assistant.jsx'];
@@ -226,5 +256,152 @@ describe('accessibility A1 — nameless list-screen controls carry an aria-label
       expect(fs.readFileSync(path.join(SRC, f), 'utf8'),
         `${f}: slice A1 is aria-label only — htmlFor belongs to the separate .field slice`).not.toContain('htmlFor');
     }
+  });
+});
+
+// ===================================================================
+// ACCESSIBILITY SLICE A2 — Login's two fields are PROGRAMMATICALLY associated.
+//
+// A1 covered controls with NO label at all. Login is the other class: it has
+// correct visible Hebrew labels (`אימייל`, `סיסמה`) that name nothing, because
+// no `htmlFor` points at any `id`. A screen reader announced two unnamed edit
+// fields, and clicking the label did not focus the input — on the one screen
+// every user must pass through.
+//
+// A2 is `id` + `htmlFor` ONLY. It does NOT wrap the control in the label, does
+// NOT introduce a shared <Field>, does NOT use useId and touches NO CSS —
+// `.field label` is a DESCENDANT selector (index.css:321), so leaving the DOM
+// shape alone means the styling cannot move.
+//
+// ⚠️ LITERAL IDS ARE SAFE HERE FOR A SPECIFIC REASON, NOT AS A GENERAL RULE.
+// `App.jsx` renders <Login /> only when `supabaseEnabled && !session`, and the
+// routed app is not rendered at the same time — a proven singleton, exactly one
+// instance. Anything that can render more than once concurrently MUST derive a
+// stable id from its own domain key instead, which is what the three existing
+// sites already do (`gallery-campaign-${g.id}`, `plan-${f.key}`, `gc-${f.key}`).
+// Copying a literal id into a repeated component would produce DUPLICATE IDS,
+// which are invalid and SILENTLY break the very association this slice adds.
+// ===================================================================
+describe('accessibility A2 — Login labels are programmatically associated', () => {
+  const LOGIN = 'pages/Login.jsx';
+  const PAIRS = [
+    { id: 'login-email', type: 'email' },
+    { id: 'login-password', type: 'password' },
+  ];
+
+  /** THE CHECKER. Returns one problem per unsatisfied pairing. Both the
+   *  assertions and the negative controls call this, so a mutation cannot pass
+   *  here while failing in a re-implementation. */
+  function unpairedLoginFields(source = null) {
+    const abs = path.join(SRC, LOGIN);
+    const controls = controlsIn(abs, source);
+    const labels = labelsIn(abs, source);
+    const problems = [];
+    for (const p of PAIRS) {
+      const control = controls.find((c) => c.attrs.id === p.id);
+      if (!control) { problems.push({ id: p.id, reason: 'no control carries that id' }); continue; }
+      if (control.attrs.type !== p.type) problems.push({ id: p.id, reason: `wrong control type ${control.attrs.type}` });
+      if (!labels.some((l) => l.attrs.htmlFor === p.id)) problems.push({ id: p.id, reason: 'no label htmlFor points at it' });
+    }
+    return problems;
+  }
+
+  it('POSITIVE CONTROL: the walker finds Login\'s controls and labels at all', () => {
+    const controls = controlsIn(path.join(SRC, LOGIN));
+    const labels = labelsIn(path.join(SRC, LOGIN));
+    expect(controls.length, 'no controls parsed — the guard would pass by finding nothing').toBeGreaterThanOrEqual(2);
+    expect(labels.length, 'no labels parsed — the guard would pass by finding nothing').toBeGreaterThanOrEqual(2);
+  });
+
+  it('both Login fields have an id AND a label that references it', () => {
+    expect(unpairedLoginFields()).toEqual([]);
+  });
+
+  // The whole point of the slice is the association, so assert the pairing in
+  // BOTH directions rather than trusting that two attributes merely exist.
+  it('every htmlFor in Login resolves to a control id in the same file', () => {
+    const ids = new Set(controlsIn(path.join(SRC, LOGIN)).map((c) => c.attrs.id).filter(Boolean));
+    for (const l of labelsIn(path.join(SRC, LOGIN))) {
+      if (l.attrs.htmlFor) {
+        expect(ids.has(l.attrs.htmlFor), `Login.jsx:${l.line} htmlFor="${l.attrs.htmlFor}" points at no control`).toBe(true);
+      }
+    }
+  });
+
+  // Password managers and autofill depend on these. The slice must not have
+  // disturbed them while adding the ids.
+  it('autoComplete and autoFocus survived the change', () => {
+    const src = fs.readFileSync(path.join(SRC, LOGIN), 'utf8');
+    expect(src).toContain('autoComplete="username"');
+    expect(src).toContain('autoComplete="current-password"');
+    expect(src).toContain('autoFocus');
+  });
+
+  // A2 is id/htmlFor only. Wrapping would change the DOM shape and would need a
+  // CSS rule that does not exist for `.field`.
+  it('SCOPE: Login uses id/htmlFor, not a wrapping label and not useId', () => {
+    const src = fs.readFileSync(path.join(SRC, LOGIN), 'utf8');
+    expect(src, 'A2 must not introduce useId').not.toContain('useId');
+    for (const l of labelsIn(path.join(SRC, LOGIN))) {
+      expect(l.attrs.htmlFor, 'every Login label must name a control explicitly').toBeTruthy();
+    }
+  });
+
+  // ⚠️ DUPLICATE-ID GUARD. A literal id repeated anywhere in src/ is invalid
+  // HTML and silently breaks label association — the exact defect this work
+  // exists to fix. Only LITERAL ids can be compared statically; expression ids
+  // (`gallery-campaign-${g.id}`) are excluded because their uniqueness is a
+  // runtime property this scan cannot decide, and pretending otherwise would be
+  // a check that looks stronger than it is.
+  it('no literal id is used twice anywhere in src/**/*.jsx', () => {
+    const files = [];
+    (function walkDir(dir) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) { if (e.name !== '__tests__') walkDir(p); }
+        else if (e.name.endsWith('.jsx')) files.push(p);
+      }
+    })(SRC);
+    expect(files.length, 'no .jsx files scanned').toBeGreaterThan(20);
+
+    const seen = new Map();
+    const dupes = [];
+    for (const f of files) {
+      for (const c of controlsIn(f)) {
+        const id = c.attrs.id;
+        // Literal only: an expression id contains a template/interpolation.
+        if (!id || /[`${}]/.test(id)) continue;
+        const where = `${path.relative(SRC, f).replace(/\\/g, '/')}:${c.line}`;
+        if (seen.has(id)) dupes.push(`${id} — ${seen.get(id)} and ${where}`);
+        else seen.set(id, where);
+      }
+    }
+    expect(seen.has('login-email') && seen.has('login-password'),
+      'the scan did not even find the two ids it is meant to police').toBe(true);
+    expect(dupes).toEqual([]);
+  });
+
+  // NEGATIVE CONTROLS — each drives the SAME checker the assertions use.
+  it('NEGATIVE: removing htmlFor from the real source is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, LOGIN), 'utf8');
+    const mutated = real.replace(' htmlFor="login-email"', '');
+    expect(mutated, 'mutation did not apply — the control would be vacuous').not.toBe(real);
+    expect(unpairedLoginFields(mutated).some((p) => p.id === 'login-email'
+      && p.reason === 'no label htmlFor points at it')).toBe(true);
+  });
+
+  it('NEGATIVE: removing the id from the real source is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, LOGIN), 'utf8');
+    const mutated = real.replace(/\r?\n\s*id="login-password"/, '');
+    expect(mutated).not.toBe(real);
+    expect(unpairedLoginFields(mutated).some((p) => p.id === 'login-password'
+      && p.reason === 'no control carries that id')).toBe(true);
+  });
+
+  it('NEGATIVE: a htmlFor/id typo mismatch is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, LOGIN), 'utf8');
+    const mutated = real.replace('htmlFor="login-email"', 'htmlFor="login-emial"');
+    expect(mutated).not.toBe(real);
+    expect(unpairedLoginFields(mutated).some((p) => p.id === 'login-email')).toBe(true);
   });
 });

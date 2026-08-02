@@ -52,8 +52,9 @@ export default function Login() {
 
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="field">
-            <label>אימייל</label>
+            <label htmlFor="login-email">אימייל</label>
             <input
+              id="login-email"
               className="input" type="email" value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="name@email.com" dir="ltr" style={{ textAlign: 'right' }}
@@ -61,8 +62,9 @@ export default function Login() {
             />
           </div>
           <div className="field">
-            <label>סיסמה</label>
+            <label htmlFor="login-password">סיסמה</label>
             <input
+              id="login-password"
               className="input" type="password" value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••" dir="ltr" style={{ textAlign: 'right' }}
