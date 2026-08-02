@@ -35,6 +35,11 @@ export const NAV_SECTIONS = [
     label: 'צמיחה ולידים',
     items: [
       { to: '/outreach', label: 'מחקר לידים', icon: 'send' },
+      // Monthly Plan — read-only planner. NEITHER flag applies: it persists
+      // nothing (so it is not betaHidden — there is no false success to
+      // contain) and it needs no cloud storage (so it is not cloudOnly — in the
+      // local demo it simply derives from the seed data). Shown in both modes.
+      { to: '/plan', label: 'תוכנית חודשית', icon: 'trendUp' },
       // Campaigns slice 1 — durable cloud module, so it is the INVERSE of
       // `betaHidden`: shown in cloud mode, hidden in the local demo where it has
       // no durable storage. The route stays registered either way and renders a
