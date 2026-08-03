@@ -10,6 +10,7 @@ import { chatJake, forceActionsJake, draftWithJake } from '../../lib/gemini.js';
 import { isSupabaseConfigured } from '../../lib/supabase.js';
 import { extractActions, executeActions, describeActions, detectBulkDelete, buildBulkDeleteGate } from '../../lib/jakeAgent.js';
 import { partitionJakeActions, BETA_MESSAGES } from '../../lib/betaCapabilities.js';
+import { executeBulkDelete } from '../../lib/bulkDeleteOutcome.js';
 import { activePack } from '../../lib/jakePack.js';
 import { withBusinessBrain } from '../../lib/jakeBusinessContext.js';
 import { applyJakePrefill } from '../../lib/jakePrefill.js';
@@ -41,10 +42,29 @@ function GateCard({ gate, onDelete, onCancel }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [selected, setSelected] = useState(() => new Set(gate.items.map((i) => i.id)));
+  // The delete is now AWAITED, which opens a window (the cloud round-trip) in
+  // which this card is still mounted and its button still live. Without a guard
+  // a second click would dispatch the same ids again. `busy` drives the visible
+  // disabled state; `runningRef` is what actually enforces it, because a ref is
+  // updated SYNCHRONOUSLY — two clicks in one tick both read the pre-render
+  // `busy === false`, but the second one sees `runningRef.current === true`.
+  const [busy, setBusy] = useState(false);
+  const runningRef = useRef(false);
 
   const submitCode = () => {
     if (code.trim() === CONFIRM_CODE) { setError(''); setStage('select'); }
     else { setError('קוד שגוי. נסה שוב.'); setCode(''); }
+  };
+  // Fire the delete exactly once and keep the card disabled for the whole
+  // round-trip. Reset in `finally` so a future refactor that leaves the card
+  // mounted cannot strand it permanently dead (on the current flow the card
+  // unmounts, because every outcome replaces the message at its index).
+  const submitDelete = async () => {
+    if (runningRef.current) return;
+    runningRef.current = true;
+    setBusy(true);
+    try { await onDelete([...selected]); }
+    finally { runningRef.current = false; setBusy(false); }
   };
   const toggle = (id) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const allOn = selected.size === gate.items.length && gate.items.length > 0;
@@ -84,8 +104,12 @@ function GateCard({ gate, onDelete, onCancel }) {
         ))}
       </div>
       <div className="ai-confirm-actions">
-        <button className="btn btn-sm ai-confirm-yes" disabled={!selected.size} onClick={() => onDelete([...selected])}>מחק נבחרים ({selected.size})</button>
-        <button className="btn btn-sm btn-ghost" onClick={onCancel}>ביטול</button>
+        <button className="btn btn-sm ai-confirm-yes" disabled={busy || !selected.size} onClick={submitDelete}>
+          {busy ? 'מוחק…' : `מחק נבחרים (${selected.size})`}
+        </button>
+        {/* Cancel is disabled mid-flight too: it replaces this message and unmounts
+            the card, which would hide an in-flight delete rather than stop it. */}
+        <button className="btn btn-sm btn-ghost" disabled={busy} onClick={onCancel}>ביטול</button>
       </div>
     </div>
   );
@@ -532,13 +556,25 @@ export default function Assistant() {
   };
   const RISK_HE = { low: 'נמוך', medium: 'בינוני', high: 'גבוה' };
 
-  // Bulk delete after a passed code gate: dispatch a DELETE for each picked id.
-  const runBulkDelete = (idx, gate, ids) => {
-    ids.forEach((id) => dispatch({ type: gate.dispatchType, id }));
-    toast(`נמחקו ${ids.length} ✓`);
-    const all = ids.length === gate.items.length;
+  // Bulk delete after a passed code gate: dispatch a DELETE for each picked id
+  // and report ONLY what the store confirmed.
+  //
+  // This mirrors `confirmAction` (the single-delete path) rather than
+  // `approvePreview`: it awaits every result and refuses to claim a deletion it
+  // did not see settle. Before this, the promises were discarded and the ✓ toast
+  // fired in the same tick as the dispatches — so a refused cloud delete still
+  // reported success, and the claim persisted into chat history.
+  //
+  // The dispatch fan-out lives in `executeBulkDelete` (a pure module) so the
+  // decision path can be executed by a test with a mocked dispatch rather than
+  // pinned by reading this file. It stays PARALLEL — dispatch is called for
+  // every id before the first await, exactly the concurrency the pre-fix
+  // `forEach` had — preserves id↔result pairing, and never throws.
+  const runBulkDelete = async (idx, gate, ids) => {
+    const outcome = await executeBulkDelete(dispatch, gate, ids);
+    if (outcome.toast) toast(outcome.toast.text, outcome.toast.kind);
     setMessages((m) => m.map((mm, i) => (i === idx
-      ? { role: 'assistant', system: true, text: `✓ נמחקו ${ids.length} ${gate.entityLabel}${all ? ' (הכל)' : ` מתוך ${gate.items.length}`}.` }
+      ? { role: 'assistant', system: true, text: outcome.text }
       : mm)));
   };
   const cancelGate = (idx) => {
