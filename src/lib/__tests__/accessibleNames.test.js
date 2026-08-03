@@ -11,8 +11,8 @@
 //     blank field. Fixing those is an `id`/`htmlFor` or shared-component
 //     decision across ~120 sites and is EXPLICITLY OUT OF SCOPE HERE.
 //     ⚠️ 109 WAS THE COUNT WHEN A1 SHIPPED, AND IT IS NO LONGER CURRENT.
-//     A2 closed Login's 2 (→ 107), A3 closed ItemModal's 9 (→ 98) and A4
-//     closed ClientModal's 12 (→ 86).
+//     A2 closed Login's 2 (→ 107), A3 closed ItemModal's 9 (→ 98), A4
+//     closed ClientModal's 12 (→ 86) and A5 closed TaskModal's 9 (→ 77).
 //     ⚠️ THAT NUMBER IS A MEASURED SCAN RESULT, NOT AN INVARIANT THIS FILE
 //     ENFORCES — nothing here fails when the bucket moves, so treat it as a
 //     comment that must be edited by hand each slice, exactly as it was here.
@@ -537,8 +537,12 @@ describe('accessibility A3 — ItemModal .field labels are programmatically asso
   // ⚠️ ImageStudio.jsx is NOT in this list — it already carried one EXPRESSION
   // `htmlFor` before any accessibility slice existed, so asserting zero there
   // would fail for a reason unrelated to this slice.
+  // ⚠️ `TaskModal.jsx` WAS on this list and was REMOVED by A5, which is the
+  // approved slice that fixed it. The list means "not yet started", not "must
+  // never be touched" — leaving a completed file here would fail CI for the
+  // very work that was authorised.
   it('SCOPE: A3 did not start the other .field files', () => {
-    const untouched = ['components/forms/ProjectModal.jsx', 'components/forms/TaskModal.jsx',
+    const untouched = ['components/forms/ProjectModal.jsx',
       'components/onboarding/OnboardingWizard.jsx', 'components/settings/BusinessContextEditor.jsx'];
     for (const f of untouched) {
       expect(fs.readFileSync(path.join(SRC, f), 'utf8'),
@@ -711,8 +715,10 @@ describe('accessibility A4 — ClientModal .field labels are programmatically as
     expect(src.match(/className="field/g) || []).toHaveLength(13);
   });
 
+  // ⚠️ `TaskModal.jsx` WAS on this list and was REMOVED by A5 — see the same
+  // note on the A3 copy above.
   it('SCOPE: A4 did not start the other .field files', () => {
-    const untouched = ['components/forms/ProjectModal.jsx', 'components/forms/TaskModal.jsx',
+    const untouched = ['components/forms/ProjectModal.jsx',
       'components/onboarding/OnboardingWizard.jsx', 'components/settings/BusinessContextEditor.jsx'];
     for (const f of untouched) {
       expect(fs.readFileSync(path.join(SRC, f), 'utf8'),
@@ -758,5 +764,259 @@ describe('accessibility A4 — ClientModal .field labels are programmatically as
     const mutated = `${real}\n// BetaUnavailable\n`;
     expect(mutated).toContain('BetaUnavailable');
     expect(real, 'the real file must be clean, or the control proves nothing').not.toContain('BetaUnavailable');
+  });
+});
+
+// ===================================================================
+// ACCESSIBILITY SLICE A5 — TaskModal's nine `.field` blocks.
+//
+// The three A4 conditions again, and this time the SECOND one is NOT satisfied
+// the easy way — which is the whole reason this block is longer than A4's:
+//
+//   REACHABILITY — PASSES. `/tasks` carries neither `betaHidden` nor
+//     `cloudOnly`, `Tasks.jsx` has no BetaUnavailable early return, and
+//     'tasks' is absent from BETA_HIDDEN_MODULES. A signed-in owner opens the
+//     dialog from the `משימה חדשה` button with NO existing task record, so QA
+//     needs no write of any kind.
+//   NOT REPEATED — PASSES. Neither mount site is inside a `.map()`.
+//   SINGLETON — ⚠️ NOT BY MOUNT COUNT. <TaskModal> is mounted at TWO sites,
+//     `pages/Tasks.jsx` and `pages/ProjectDetail.jsx`. A4 could simply assert
+//     "exactly one mount"; here that assertion would be false, so the literal
+//     ids are justified by a DIFFERENT, stated argument and each half of it is
+//     pinned below:
+//       (a) the two hosts are bound to DISTINCT routes (`/tasks` and
+//           `/projects/:id`), so they are mutually exclusive by routing; and
+//       (b) App.jsx wraps the page in <AnimatePresence mode="wait">, so the
+//           outgoing page finishes exiting BEFORE the incoming one mounts —
+//           the two hosts cannot be in the DOM at the same time even mid-
+//           transition; and
+//       (c) `Modal.jsx` renders `{open && …}` inside its own AnimatePresence,
+//           so a CLOSED TaskModal contributes ZERO DOM nodes. Two `task-*` ids
+//           in one document therefore requires two OPEN dialogs, which (a) and
+//           (b) make impossible.
+//     If any of those three changes, the literal-id decision is void and the
+//     ids must be derived from the task's own id instead. That is what the
+//     tests in this block exist to catch.
+//
+// ⚠️ TWO FIELDS ARE CONDITIONAL, not one as in A4. `task-client` renders only
+// when `clients.length > 0` and `task-campaign` only when `campaigns.length >
+// 0`; the ProjectDetail caller passes NEITHER list, so on that route those two
+// fields never render at all. A conditional control still renders at most once,
+// so the literal id holds — but the DOM assertion for each only applies in the
+// state that shows it, which owner QA has to know. `campaigns` also loads
+// fail-soft (`catch → []`), so the absence of `קמפיין` is not a defect.
+// ===================================================================
+describe('accessibility A5 — TaskModal .field labels are programmatically associated', () => {
+  const TASK_MODAL = 'components/forms/TaskModal.jsx';
+  const TASK_HOSTS = ['pages/ProjectDetail.jsx', 'pages/Tasks.jsx'];
+  const A5_IDS = [
+    'task-title', 'task-project', 'task-client', 'task-campaign', 'task-status',
+    'task-priority', 'task-deadline', 'task-assignee', 'task-notes',
+  ];
+
+  /** THE CHECKER — shared by the assertions and every negative control. */
+  function unpairedTaskFields(source = null) {
+    const abs = path.join(SRC, TASK_MODAL);
+    const controls = controlsIn(abs, source);
+    const labels = labelsIn(abs, source);
+    const problems = [];
+    for (const id of A5_IDS) {
+      const control = controls.find((c) => c.attrs.id === id);
+      if (!control) { problems.push({ id, reason: 'no control carries that id' }); continue; }
+      if (!labels.some((l) => l.attrs.htmlFor === id)) problems.push({ id, reason: 'no label htmlFor points at it' });
+    }
+    return problems;
+  }
+
+  it('POSITIVE CONTROL: the walker finds TaskModal\'s controls and labels at all', () => {
+    expect(controlsIn(path.join(SRC, TASK_MODAL)).length,
+      'no controls parsed — the guard would pass by finding nothing').toBeGreaterThanOrEqual(9);
+    expect(labelsIn(path.join(SRC, TASK_MODAL)).length,
+      'no labels parsed — the guard would pass by finding nothing').toBeGreaterThanOrEqual(9);
+  });
+
+  it('all nine fields have an id AND a label that references it', () => {
+    expect(unpairedTaskFields()).toEqual([]);
+  });
+
+  it('every htmlFor in TaskModal resolves to a control id in the same file', () => {
+    const ids = new Set(controlsIn(path.join(SRC, TASK_MODAL)).map((c) => c.attrs.id).filter(Boolean));
+    for (const l of labelsIn(path.join(SRC, TASK_MODAL))) {
+      if (l.attrs.htmlFor) {
+        expect(ids.has(l.attrs.htmlFor), `TaskModal.jsx:${l.line} htmlFor="${l.attrs.htmlFor}" points at no control`).toBe(true);
+      }
+    }
+  });
+
+  it('NO label in TaskModal is left without a htmlFor', () => {
+    for (const l of labelsIn(path.join(SRC, TASK_MODAL))) {
+      expect(l.attrs.htmlFor, `TaskModal.jsx:${l.line} label still names nothing`).toBeTruthy();
+    }
+  });
+
+  it('no task-* id is declared twice inside TaskModal', () => {
+    const ids = controlsIn(path.join(SRC, TASK_MODAL))
+      .map((c) => c.attrs.id).filter((id) => id && !/[`${}]/.test(id));
+    expect(ids.length, 'no literal ids parsed — the duplicate check would be vacuous').toBeGreaterThanOrEqual(9);
+    expect(ids.length - new Set(ids).size, `duplicate id in TaskModal: ${ids.join(', ')}`).toBe(0);
+  });
+
+  it('REACHABILITY: /tasks renders in cloud mode — no BetaUnavailable, no betaHidden', () => {
+    const page = fs.readFileSync(path.join(SRC, 'pages/Tasks.jsx'), 'utf8');
+    expect(page, 'Tasks.jsx must not gate itself behind BetaUnavailable').not.toContain('BetaUnavailable');
+
+    const nav = fs.readFileSync(path.join(SRC, 'components/layout/sidebarNav.js'), 'utf8');
+    const tasksEntry = nav.split('\n').find((l) => l.includes("to: '/tasks'")) || '';
+    expect(tasksEntry, 'the /tasks nav entry disappeared').toBeTruthy();
+    expect(tasksEntry, '/tasks must not become betaHidden — the modal would be unreachable in cloud mode').not.toContain('betaHidden');
+
+    const beta = fs.readFileSync(path.join(SRC, 'lib/betaCapabilities.js'), 'utf8');
+    const hidden = beta.split('\n').find((l) => l.includes('BETA_HIDDEN_MODULES = ')) || '';
+    expect(hidden, 'BETA_HIDDEN_MODULES line not found — the reachability check would be vacuous').toBeTruthy();
+    expect(hidden).not.toContain("'tasks'");
+  });
+
+  // ⚠️ The premise A4 got for free. TWO mount sites is the EXPECTED state here;
+  // a THIRD one — or either of these moving onto a shared route — voids the
+  // literal-id decision.
+  it('MOUNT SITES: <TaskModal> is mounted at exactly the two known hosts', () => {
+    const mounts = [];
+    (function walkDir(dir) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) { if (e.name !== '__tests__') walkDir(p); }
+        else if (e.name.endsWith('.jsx') && p !== path.join(SRC, TASK_MODAL)) {
+          if (/<TaskModal[\s/>]/.test(fs.readFileSync(p, 'utf8'))) {
+            mounts.push(path.relative(SRC, p).replace(/\\/g, '/'));
+          }
+        }
+      }
+    })(SRC);
+    expect(mounts.sort(), 'a THIRD mount site invalidates the literal-id decision — derive ids from the task id instead')
+      .toEqual(TASK_HOSTS);
+  });
+
+  // (a) of the singleton argument: the two hosts are bound to distinct routes.
+  it('ROUTE EXCLUSIVITY: the two hosts are bound to different routes', () => {
+    const app = fs.readFileSync(path.join(SRC, 'App.jsx'), 'utf8');
+    expect(app, '/tasks must map to <Tasks/>').toContain('path="/tasks" element={<Tasks />}');
+    expect(app, '/projects/:id must map to <ProjectDetail/>').toContain('path="/projects/:id" element={<ProjectDetail />}');
+    // Distinct paths — so react-router can never render both hosts at once.
+    expect('/tasks').not.toBe('/projects/:id');
+  });
+
+  // (b): the page transition waits, so the outgoing host is gone before the
+  // incoming one mounts. Without `mode="wait"` the two overlap for ~240ms.
+  it('TRANSITION: the page AnimatePresence is mode="wait", so hosts never overlap', () => {
+    const app = fs.readFileSync(path.join(SRC, 'App.jsx'), 'utf8');
+    expect(app, 'losing mode="wait" lets two page hosts co-exist mid-transition')
+      .toContain('<AnimatePresence mode="wait" initial={false}>');
+  });
+
+  // (c): a CLOSED modal contributes no DOM at all, which is what makes two
+  // mount sites harmless even if (a) and (b) were somehow both defeated.
+  it('CLOSED MODAL renders nothing — Modal.jsx gates its subtree on `open`', () => {
+    const modal = fs.readFileSync(path.join(SRC, 'components/ui/Modal.jsx'), 'utf8');
+    expect(modal, 'if the overlay stops being gated on `open`, a closed TaskModal would put task-* ids in the DOM')
+      .toContain('{open && (');
+  });
+
+  // Neither host may declare a `task-` id of its own, or it could collide with
+  // the dialog mounted on that same page.
+  it('HOST PAGES: neither Tasks.jsx nor ProjectDetail.jsx declares a task-* literal id', () => {
+    for (const host of TASK_HOSTS) {
+      for (const c of controlsIn(path.join(SRC, host))) {
+        expect(c.attrs.id === undefined || !String(c.attrs.id).startsWith('task-'),
+          `${host}:${c.line} declares ${c.attrs.id}, which could collide with TaskModal`).toBe(true);
+      }
+    }
+  });
+
+  it('SCOPE: TaskModal uses id/htmlFor, not a wrapping label, not useId, not a shared Field', () => {
+    const src = fs.readFileSync(path.join(SRC, TASK_MODAL), 'utf8');
+    expect(src, 'A5 must not introduce useId').not.toContain('useId');
+    expect(src, 'A5 must not introduce a shared Field component').not.toContain('<Field');
+    // DOM shape unchanged: still nine `.field` divs, each with a sibling label.
+    expect(src.match(/className="field/g) || []).toHaveLength(9);
+  });
+
+  // A5 is ADDITIVE ATTRIBUTES ONLY. These four are the behaviours the spec
+  // named explicitly, and each is the kind a careless edit drops in passing.
+  it('SCOPE: A5 changed no behaviour — autoFocus, the project lock, dir and the campaign coercion all survive', () => {
+    const src = fs.readFileSync(path.join(SRC, TASK_MODAL), 'utf8');
+    expect(src, 'the title input lost autoFocus').toContain('autoFocus');
+    expect(src, 'the project select lost its ProjectDetail lock').toContain('disabled={!!lockProjectId}');
+    expect(src, 'the deadline input lost dir="ltr"').toContain('dir="ltr"');
+    expect(src, 'an unselected campaign must leave as null, never \'\' (22P02)').toContain('campaignId: form.campaignId || null');
+    expect(src, 'the empty-title error styling was dropped').toContain("borderColor: '#ef6f6f'");
+  });
+
+  it('SCOPE: A5 did not start the other .field files', () => {
+    const untouched = ['components/forms/ProjectModal.jsx',
+      'components/onboarding/OnboardingWizard.jsx', 'components/settings/BusinessContextEditor.jsx'];
+    for (const f of untouched) {
+      expect(fs.readFileSync(path.join(SRC, f), 'utf8'),
+        `${f}: A5 is TaskModal-only — this file belongs to a later slice`).not.toContain('htmlFor');
+    }
+  });
+
+  // NEGATIVE CONTROLS — each drives the SAME checker the assertions use.
+  it('NEGATIVE: removing a htmlFor from the real source is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, TASK_MODAL), 'utf8');
+    const mutated = real.replace(' htmlFor="task-assignee"', '');
+    expect(mutated, 'mutation did not apply — the control would be vacuous').not.toBe(real);
+    expect(unpairedTaskFields(mutated).some((p) => p.id === 'task-assignee'
+      && p.reason === 'no label htmlFor points at it')).toBe(true);
+  });
+
+  it('NEGATIVE: removing an id from the real source is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, TASK_MODAL), 'utf8');
+    const mutated = real.replace(' id="task-status"', '');
+    expect(mutated).not.toBe(real);
+    expect(unpairedTaskFields(mutated).some((p) => p.id === 'task-status'
+      && p.reason === 'no control carries that id')).toBe(true);
+  });
+
+  it('NEGATIVE: a htmlFor/id typo mismatch is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, TASK_MODAL), 'utf8');
+    const mutated = real.replace('htmlFor="task-deadline"', 'htmlFor="task-dedline"');
+    expect(mutated).not.toBe(real);
+    expect(unpairedTaskFields(mutated).some((p) => p.id === 'task-deadline')).toBe(true);
+  });
+
+  // ⚠️ THE CLASS THIS SLICE IS MOST EXPOSED TO, and more so than A3/A4 was,
+  // because TaskModal has two mount sites. Prove the duplicate scan bites.
+  it('NEGATIVE: a duplicated literal id would be caught by the duplicate scan', () => {
+    const real = fs.readFileSync(path.join(SRC, TASK_MODAL), 'utf8');
+    const mutated = real.replace(' id="task-notes"', ' id="task-title"');
+    expect(mutated).not.toBe(real);
+    const ids = controlsIn(path.join(SRC, TASK_MODAL), mutated)
+      .map((c) => c.attrs.id).filter((id) => id && !/[`${}]/.test(id));
+    expect(ids.length - new Set(ids).size, 'the duplicate was not detected').toBeGreaterThan(0);
+  });
+
+  // The two conditional fields are the ones most likely to be dropped by a
+  // later edit, because neither renders unless its list is non-empty — and on
+  // the ProjectDetail route neither ever does.
+  it('NEGATIVE: dropping either conditional pairing is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, TASK_MODAL), 'utf8');
+    for (const id of ['task-client', 'task-campaign']) {
+      const mutated = real.replace(` id="${id}"`, '');
+      expect(mutated, `mutation for ${id} did not apply`).not.toBe(real);
+      expect(unpairedTaskFields(mutated).some((p) => p.id === id)).toBe(true);
+    }
+  });
+
+  it('NEGATIVE: a reachability regression on Tasks.jsx would be caught', () => {
+    const real = fs.readFileSync(path.join(SRC, 'pages/Tasks.jsx'), 'utf8');
+    const mutated = `${real}\n// BetaUnavailable\n`;
+    expect(mutated).toContain('BetaUnavailable');
+    expect(real, 'the real file must be clean, or the control proves nothing').not.toContain('BetaUnavailable');
+  });
+
+  // A third mount site is the specific regression that voids literal ids here.
+  it('NEGATIVE: a third mount site would be caught by the mount scan', () => {
+    const fake = 'const x = <TaskModal open={false} />;';
+    expect(/<TaskModal[\s/>]/.test(fake), 'the mount detector does not match a real mount').toBe(true);
   });
 });
