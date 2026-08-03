@@ -231,19 +231,28 @@ function criticNote(ev) {
 // "תעדכן ערך המלאי ל-5000". Used two ways in send(): a pure question is answered
 // directly (model skipped); a compound "command + question" lets the command run
 // and then appends THIS authoritative figure, so the number is always from code.
-function answerFromData(text, data) {
+export function answerFromData(text, data) {
   const t = String(text || '').trim();
   if (!t) return null;
   const isQuestion = /(?:^|\s)(מה|מהו|מהי|כמה|תגיד|תראה|הצג)/.test(t) || t.includes('?');
   if (!isQuestion) return null;
-  const inv = inventoryTotals(data.inventory || []);
+  // HYDRATION TRUTHFULNESS (same rule as jakePack's context builder): in cloud
+  // mode fetchAll() returns no `inventory` key at all, so `|| []` used to make
+  // this shortcut answer "המלאי ריק — הערך ₪0" as a confident fact about a
+  // module that was never loaded. Absence is not emptiness. When the collection
+  // is not in the store we decline to answer here and fall through to the
+  // normal lane, whose context now states the module is not connected.
+  const inventoryHydrated = Array.isArray(data.inventory);
+  const inv = inventoryTotals(inventoryHydrated ? data.inventory : []);
   // Inventory total value: "מה ערך המלאי" / "שווי המלאי" / "כמה שווה המלאי"
   if (/(ערך|שווי|שווה).{0,10}(המלאי|מלאי)/.test(t) || /(מלאי).{0,10}(ערך|שווי|שווה)/.test(t)) {
+    if (!inventoryHydrated) return null;
     if (!inv.count) return 'המלאי ריק כרגע — אין פריטים, אז הערך הוא ₪0.';
     return `ערך המלאי הכולל הוא ${formatCurrency(inv.totalValue)} (${inv.count} פריטים).`;
   }
   // Inventory item count: "כמה פריטים במלאי"
   if (/(פריטים|מוצרים)/.test(t) && /(מלאי)/.test(t)) {
+    if (!inventoryHydrated) return null;
     return inv.count ? `יש ${inv.count} פריטים במלאי (ערך כולל ${formatCurrency(inv.totalValue)}).` : 'אין פריטים במלאי עדיין.';
   }
   // Client count: "כמה לקוחות יש"

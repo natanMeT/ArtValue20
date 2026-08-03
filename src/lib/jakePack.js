@@ -10,6 +10,87 @@
 import { ACTIONS_GUIDE, ACTION_HANDLERS, BUSINESS_ENTITIES } from './jakeAgent.js';
 import { dashboardKpis, inventoryTotals } from './calc.js';
 import { formatCurrency } from './format.js';
+import {
+  receivablesTotals, overdueCharges, cancelledChargeReceived, roundMoney,
+} from './receivables.js';
+
+// ===================================================================
+// HYDRATION TRUTHFULNESS — absence is not emptiness.
+//
+// In authenticated cloud mode `refetch()` REPLACES the whole store with what
+// api.fetchAll() returns, and fetchAll returns no `projects` / `inventory` /
+// `activity` key at all (those modules are not durable in the cloud). The old
+// `data.projects || []` therefore turned "never loaded" into "confirmed
+// empty", and Jake reported the emptiness to the user as a fact about their
+// business — "אין פרויקטים", "המלאי ריק". That is the false-success class S0A
+// exists to prevent, pointed the other way: not a fake save, a fake FACT.
+//
+// The discriminator is STRUCTURAL, not a mode flag: the collection either is
+// an array in the store or it is not there. Local/demo carries real arrays
+// (possibly empty) and its honest "ריק / אין" wording is preserved byte-for-
+// byte; cloud carries nothing and is told so.
+// ===================================================================
+const isHydrated = (v) => Array.isArray(v);
+
+// One wording for every unhydrated domain, so Jake cannot report a zero for a
+// module he simply cannot see.
+function notConnectedLine(label) {
+  return `${label}: המודול אינו מחובר לחשבון הזה ואין לי עליו נתונים כלל. `
+    + `אל תאמר שאין ${label}, אל תדווח על אפס ואל תסיק מכך מסקנה — אמור בכנות שאין לך גישה לנתון הזה.`;
+}
+
+// Today as a LOCAL calendar date (YYYY-MM-DD). Deliberately not
+// toISOString().slice(0,10): that is UTC, so every evening in Israel (UTC+2/+3)
+// it reports yesterday and a charge would read as overdue a day late. The pure
+// receivables module is clock-free by contract, so the clock lives here.
+function localIsoDate(d = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// ===================================================================
+// F1 Core Receivables → Jake. `charges` + `payments` are ALREADY hydrated by
+// fetchAll and were, until now, the only durable money data Jake could not
+// see: he answered "how much am I owed" from client status + client value,
+// which is an estimate of work done, not a claim that was ever issued.
+//
+// Emitted ONLY when the account actually holds charges. Silence is the
+// truthful state both for local/demo (receivables are cloud-only — the store
+// refuses the dispatch outright, so a charge can never exist there) and for a
+// cloud account that has not used Finance yet. A "₪0 owed" line would be the
+// same phantom fact this slice removes everywhere else.
+// ===================================================================
+function receivablesLines(data, today) {
+  const charges = isHydrated(data.charges) ? data.charges : [];
+  const payments = isHydrated(data.payments) ? data.payments : [];
+  if (!charges.length) return [];
+
+  const t = receivablesTotals(charges, payments);
+  const openCount = charges.filter((c) => c && c.lifecycle === 'open').length;
+  const overdue = overdueCharges(charges, payments, today);
+  const overdueSum = roundMoney(overdue.reduce((s, c) => s + c.balance, 0));
+  const cancelledReceived = cancelledChargeReceived(charges, payments);
+
+  const lines = [
+    `חיובים וגבייה (מודול הגבייה — זהו מקור האמת היחיד ל"כמה כסף מגיע לי". `
+    + `אל תחשב חוב משווי הלקוחות): ${openCount} חיובים פעילים — `
+    + `נדרש ${formatCurrency(t.expected)}, התקבל ${formatCurrency(t.received)}, `
+    + `יתרה פתוחה ${formatCurrency(t.open)}.`,
+  ];
+  if (overdue.length) {
+    lines.push(`חיובים באיחור: ${overdue.length} בסך ${formatCurrency(overdueSum)} — `
+      + 'תאריך הפירעון עבר והיתרה עדיין פתוחה.');
+  }
+  if (t.overpaid > 0) {
+    lines.push(`תשלום ביתר: ${formatCurrency(t.overpaid)} התקבלו מעבר לנדרש. `
+      + 'יתרה פתוחה לעולם אינה שלילית, ולכן העודף מוצג בנפרד ולא מקזז חוב של חיוב אחר.');
+  }
+  if (cancelledReceived > 0) {
+    lines.push(`כלל חשבונאי: ${formatCurrency(cancelledReceived)} התקבלו על חיובים שבוטלו. `
+      + 'ביטול חיוב אינו מבטל כסף שכבר התקבל — הסכום הזה אינו נכלל ביתרה הפתוחה, אך הכסף אכן התקבל.');
+  }
+  return lines;
+}
 
 // ===================================================================
 // Context builder — the compact data snapshot fed to Jake every turn. This is
@@ -28,6 +109,8 @@ function artValueContext(data) {
   const leadPending = leads.filter((l) => l.status === 'pending').length;
   const leadIrrelevant = leads.filter((l) => l.status === 'irrelevant').length;
   const now = new Date();
+  // The projects line USED to sit in this literal and is now appended below,
+  // still last — the hydrated wording and its position are unchanged.
   const lines = [
     `תאריך היום: ${now.toLocaleDateString('he-IL')}.`,
     `לקוחות ב-CRM: ${data.clients.length} סה״כ (${byStatus('lead')} לידים, ${byStatus('active')} פעילים).`,
@@ -36,22 +119,48 @@ function artValueContext(data) {
     `מחקר לידים (עמוד הפניות): ${leads.length} לידים סה״כ — ${leadPending} ממתינים, ${leadContacted} נוצר קשר, ${leadIrrelevant} לא רלוונטי. דוגמאות: ${leads.slice(0, 8).map((l) => l.name).join('; ') || 'אין'}.`,
     `החודש: הכנסות ${formatCurrency(k.revenue)}, הוצאות ${formatCurrency(k.expenses)}, רווח ${formatCurrency(k.profit)}.`,
     `משימות: ${open.length} פתוחות, ${today.length} להיום. הצעות מחיר ממתינות: ${k.pendingQuotes}.`,
-    `פרויקטים פעילים: ${projects.slice(0, 6).map((p) => `${p.name} (${p.clientName}, הפעולה הבאה: ${p.nextAction || '—'})`).join('; ') || 'אין'}.`,
   ];
-  const inv = inventoryTotals(data.inventory || []);
-  if (inv.count) {
-    lines.push(`מלאי: ${inv.count} פריטים, ערך כולל ${formatCurrency(inv.totalValue)}. ${inv.low} במלאי נמוך, ${inv.out} אזלו.`);
-    const itemsList = (data.inventory || []).slice(0, 25).map((i) => `${i.name}: ${Number(i.qty) || 0} ${i.unit || 'יח׳'}${i.unitPrice ? ` (₪${i.unitPrice})` : ''}`).join('; ');
-    lines.push(`פריטי המלאי (שם: כמות): ${itemsList}.`);
+
+  // F1 receivables — durable, already hydrated, and previously invisible to Jake.
+  lines.push(...receivablesLines(data, localIsoDate(now)));
+
+  // Projects — unhydrated in cloud mode, so "אין" would be a claim about a
+  // module Jake cannot see.
+  if (!isHydrated(data.projects)) {
+    lines.push(notConnectedLine('פרויקטים'));
   } else {
-    lines.push('מלאי: ריק (אין פריטים עדיין).');
+    lines.push(`פרויקטים פעילים: ${projects.slice(0, 6).map((p) => `${p.name} (${p.clientName}, הפעולה הבאה: ${p.nextAction || '—'})`).join('; ') || 'אין'}.`);
   }
+
+  // Inventory — same rule. An empty ARRAY is still an honest "ריק"; a missing
+  // collection is not.
+  if (!isHydrated(data.inventory)) {
+    lines.push(notConnectedLine('מלאי'));
+  } else {
+    const inv = inventoryTotals(data.inventory);
+    if (inv.count) {
+      lines.push(`מלאי: ${inv.count} פריטים, ערך כולל ${formatCurrency(inv.totalValue)}. ${inv.low} במלאי נמוך, ${inv.out} אזלו.`);
+      const itemsList = data.inventory.slice(0, 25).map((i) => `${i.name}: ${Number(i.qty) || 0} ${i.unit || 'יח׳'}${i.unitPrice ? ` (₪${i.unitPrice})` : ''}`).join('; ');
+      lines.push(`פריטי המלאי (שם: כמות): ${itemsList}.`);
+    } else {
+      lines.push('מלאי: ריק (אין פריטים עדיין).');
+    }
+  }
+
   // Audit-log memory: real recorded history so ג'יק can answer "what changed /
-  // what was X before" from facts instead of guessing.
-  const acts = (data.activity || []).slice(0, 12);
-  if (acts.length) {
-    const fmt = (ts) => { try { return new Date(ts).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
-    lines.push(`יומן פעילות (היסטוריה אמיתית — לשאלות "מה השתנה / מה היה קודם" שלוף מכאן ואל תנחש): ${acts.map((a) => `${fmt(a.ts)} ${a.summary}`).join(' | ')}.`);
+  // what was X before" from facts instead of guessing. When the log is not
+  // hydrated at all, staying silent is NOT enough — the grounding rules above
+  // tell Jake to answer history questions from it, so an absent log would read
+  // as "nothing ever changed". Say so explicitly instead.
+  if (!isHydrated(data.activity)) {
+    lines.push('יומן פעילות: אינו זמין בחשבון הזה — אין לי היסטוריית שינויים כלל. '
+      + 'לשאלות על העבר ("מה היה קודם / מה השתנה") אמור בכנות שאין לך תיעוד, ואל תסיק שדבר לא השתנה.');
+  } else {
+    const acts = data.activity.slice(0, 12);
+    if (acts.length) {
+      const fmt = (ts) => { try { return new Date(ts).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
+      lines.push(`יומן פעילות (היסטוריה אמיתית — לשאלות "מה השתנה / מה היה קודם" שלוף מכאן ואל תנחש): ${acts.map((a) => `${fmt(a.ts)} ${a.summary}`).join(' | ')}.`);
+    }
   }
   return lines.map((l) => `- ${l}`).join('\n');
 }
@@ -75,13 +184,31 @@ function artValueBriefing(data) {
   const k = dashboardKpis(data);
   const names = (arr, key = 'name', n = 3) => arr.slice(0, n).map((x) => x[key]).filter(Boolean).join(', ') + (arr.length > n ? ` ועוד ${arr.length - n}` : '');
 
+  // F1 receivables. The client-derived "owed" line above is DELIBERATELY kept
+  // unchanged — it answers "work I have finished and expect to bill", which is
+  // a different fact from "claims I have actually issued". They are labelled
+  // distinctly (לקוחות vs חיובים) rather than merged, because merging them
+  // would double-count exactly the accounts that have both.
+  const charges = Array.isArray(data.charges) ? data.charges : [];
+  const payments = Array.isArray(data.payments) ? data.payments : [];
+  const receivables = receivablesTotals(charges, payments);
+  const chargesOverdue = overdueCharges(charges, payments, localIsoDate(now));
+  const chargesOverdueSum = roundMoney(chargesOverdue.reduce((s, c) => s + c.balance, 0));
+
   const urgent = [];
   if (overdue.length) urgent.push(`🔴 ${overdue.length} משימות באיחור — ${names(overdue, 'title')}`);
   if (owed.length) urgent.push(`💸 ${formatCurrency(owedSum)} ממתין לתשלום מ-${owed.length} לקוחות — ${names(owed)}`);
+  if (chargesOverdue.length) urgent.push(`🧾 ${formatCurrency(chargesOverdueSum)} בחיובים באיחור — ${chargesOverdue.length} חיובים שתאריך הפירעון שלהם עבר`);
   const todayList = [];
   if (dueToday.length) todayList.push(`📋 ${dueToday.length} משימות להיום — ${names(dueToday, 'title')}`);
   if (k.pendingQuotes) todayList.push(`📄 ${k.pendingQuotes} הצעות מחיר ממתינות לאישור`);
   if (stuckLeads.length) todayList.push(`👥 ${stuckLeads.length} לידים בלי פעולה הבאה — ${names(stuckLeads)}`);
+  // Open balance that is not yet late is follow-up, not urgency. Suppressed
+  // when an overdue line is already showing, so the same money is never
+  // announced twice in one briefing.
+  if (!chargesOverdue.length && receivables.open > 0) {
+    todayList.push(`🧾 ${formatCurrency(receivables.open)} יתרה פתוחה בחיובים (טרם הגיע מועד הפירעון)`);
+  }
 
   if (!urgent.length && !todayList.length) {
     return `☀️ סיכום היום\nהכל רגוע — אין משימות דחופות או חובות פתוחים. הכנסות החודש: ${formatCurrency(k.revenue)}. 👌`;

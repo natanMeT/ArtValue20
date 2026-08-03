@@ -373,6 +373,59 @@ export function receivablesTotals(charges, payments) {
 }
 
 /**
+ * OPEN charges that are PAST their due date and still carry a balance.
+ *
+ * `today` is INJECTED as an ISO calendar date, never read from a clock: this
+ * module is clock-free by contract (see the header), and "overdue" is the one
+ * receivables fact that would otherwise silently depend on the caller's
+ * timezone. An absent or malformed `today` returns [] rather than guessing a
+ * date — an unknown today cannot make anything late.
+ *
+ * A charge with NO due date is never overdue. An unknown date is not a late
+ * one, and inventing a deadline for it would manufacture urgency.
+ *
+ * Each returned charge is decorated with its `received` and `balance`, so a
+ * caller can total the overdue MONEY without recomputing the payment join.
+ * Pure: the input objects are never mutated.
+ */
+export function overdueCharges(charges, payments, today) {
+  if (!isCalendarDate(today)) return [];
+  const out = [];
+  for (const c of Array.isArray(charges) ? charges : []) {
+    if (!isChargeOpen(c)) continue;
+    const due = str(c.dueDate);
+    // ISO calendar dates compare correctly as strings — no Date object, no
+    // timezone, no epoch arithmetic.
+    if (!isCalendarDate(due) || due >= today) continue;
+    const received = chargeReceived(c.id, payments);
+    const t = money(c.amountTotal);
+    const balance = openBalance(Number.isNaN(t) ? 0 : t, received);
+    // Paid in full before the due date passed — settled, not late.
+    if (balance <= 0) continue;
+    out.push({ ...c, received, balance });
+  }
+  return out;
+}
+
+/**
+ * Money that ACTUALLY ARRIVED against CANCELLED charges.
+ *
+ * receivablesTotals() excludes cancelled charges from every total, which is
+ * correct for "what is still owed" and invisible for "what was received".
+ * Cancelling a claim does not un-receive money (the rule already stated on the
+ * Finance screen), so this sum exists to let a caller STATE that rule with a
+ * number instead of applying it silently.
+ */
+export function cancelledChargeReceived(charges, payments) {
+  let sum = 0;
+  for (const c of Array.isArray(charges) ? charges : []) {
+    if (!c || c.lifecycle !== 'cancelled') continue;
+    sum += chargeReceived(c.id, payments);
+  }
+  return round2(sum);
+}
+
+/**
  * ACTUAL REVENUE = payments + legacy income transactions.
  *
  * WHAT IS GUARANTEED, AND WHAT IS NOT — stated precisely, because the loose
