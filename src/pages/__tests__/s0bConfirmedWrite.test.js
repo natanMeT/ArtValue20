@@ -8,12 +8,35 @@ const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)),
 
 describe('S0B · store restores authoritative state before settling { ok: false }', () => {
   const store = read('../../store/store.jsx');
-  it('task failure awaits refetch BEFORE returning { ok: false } (no false task state)', () => {
+  // ⚠️ S0B'S GUARANTEE IS UNCHANGED; ONLY THE MECHANISM MOVED (stale-list race
+  // slice). The failure paths used to call `refetch()` directly, which was a
+  // lost update whenever writes ran concurrently: `refetch` does an ABSOLUTE
+  // `setData(fresh)`, so a response produced before the sibling writes committed
+  // restored rows the server had already deleted. They now await
+  // `requestReconcile()`, which waits for in-flight writes to settle, coalesces
+  // concurrent failures into one fetch, and applies the result the same way.
+  // **Authoritative state is still applied BEFORE { ok: false } settles** — that
+  // is what S0B pins, and it is asserted by ORDER below rather than by matching
+  // a literal comment, which is exactly how the previous version of this pin
+  // could have rotted on a reword.
+  it('task failure reconciles BEFORE returning { ok: false } (no false task state)', () => {
     const branch = store.slice(store.indexOf('if (isTaskDispatch(act.type))'), store.indexOf('// S0A: in cloud mode'));
-    expect(branch).toMatch(/await refetch\(\);\s*return \{ ok: false, error: e \}/);
+    expect(branch).toMatch(/await requestReconcile\(\);\s*return \{ ok: false, error: e \}/);
   });
-  it('durable non-task failure awaits refetch before settling (follow-up-bearing client saves)', () => {
-    expect(store.includes('await refetch(); // restore authoritative cloud state BEFORE settling { ok: false }')).toBe(true);
+  it('durable non-task failure reconciles before settling (follow-up-bearing client saves)', () => {
+    const branch = store.slice(store.indexOf('// S0A: in cloud mode'), store.indexOf('// ---- auth actions ----'));
+    const reconcileAt = branch.indexOf('await requestReconcile();');
+    const failAt = branch.indexOf('return { ok: false, error: e };');
+    expect(reconcileAt).toBeGreaterThan(-1);
+    expect(failAt).toBeGreaterThan(-1);
+    expect(reconcileAt).toBeLessThan(failAt);
+  });
+  it('the failed write is no longer counted in flight when it asks to reconcile (anti-deadlock)', () => {
+    // trackWrite decrements in `.finally()`, attached before the caller's
+    // handlers, so a failing write is out of the in-flight set by the time its
+    // error handler calls requestReconcile(). Executed proof lives in
+    // src/lib/__tests__/reconcileScheduler.test.js; this pins the wiring.
+    expect(store).toContain('trackWrite(persist(act, userId))');
   });
   it('dispatch returns a settled { ok } result in every branch (never rejects)', () => {
     expect(store.includes('return Promise.resolve({ ok: true }); // local mode')).toBe(true);

@@ -288,13 +288,17 @@ describe('store · receivables are a CONFIRMED write, and cloud-only', () => {
   });
 
   it('persists BEFORE the reducer applies — no optimistic charge or payment', () => {
-    expect(branch).toContain('persistReceivable(act, userId).then(');
-    // setData runs inside the SUCCESS callback, never before the call.
+    // The persist call is now wrapped in trackWrite() so the reconcile scheduler
+    // knows a write is in flight. The confirmed-write ORDER is what matters and
+    // is unchanged: setData still runs inside the SUCCESS callback only.
+    expect(branch).toContain('trackWrite(persistReceivable(act, userId)).then(');
     expect(branch.indexOf('persistReceivable')).toBeLessThan(branch.indexOf('setData('));
   });
 
   it('restores authoritative state before settling { ok: false }', () => {
-    expect(branch).toMatch(/await refetch\(\);\s*return \{ ok: false, error: e \}/);
+    // S0B/F1 guarantee unchanged; the mechanism moved from a direct refetch to
+    // the coalesced, quiesce-gated reconcile (stale-list race slice).
+    expect(branch).toMatch(/await requestReconcile\(\);\s*return \{ ok: false, error: e \}/);
   });
 
   it('refuses receivables dispatches outright in local/demo mode', () => {

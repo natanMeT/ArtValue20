@@ -1,10 +1,11 @@
-import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { buildSeed, uid } from '../data/seed.js';
 import { OUTREACH_EXTRA, OUTREACH_SEED_VERSION } from '../data/outreach.js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase.js';
 import * as api from '../lib/api.js';
 import { isMemoryOnlyDispatch } from '../lib/betaCapabilities.js';
 import { userFacingError } from '../lib/userFacingError.js';
+import { createReconcileScheduler } from '../lib/reconcileScheduler.js';
 
 const DATA_KEY = 'artvalue_data';
 const THEME_KEY = 'artvalue_theme';
@@ -472,6 +473,35 @@ export function StoreProvider({ children }) {
     refetch();
   }, [supabaseEnabled, session, refetch]);
 
+  // ---- authoritative reconcile after a FAILED write (not the same as refetch) ----
+  // A write failure used to call `refetch()` directly. That was a lost-update
+  // bug whenever writes ran concurrently: `refetch` does `setData(fresh)` — an
+  // ABSOLUTE replacement — so a response produced before the sibling writes
+  // committed restored rows the server had already deleted. Measured in owner
+  // QA on a partial bulk delete: the message said "3 deleted, 1 failed" and the
+  // database agreed exactly, while the LIST still showed all four.
+  //
+  // The scheduler coalesces concurrent failures into ONE fetch and issues it
+  // only once no write is in flight, so it cannot race a sibling. `refetch`
+  // itself is untouched and still used for hydration and imports.
+  //
+  // ⚠️ FOLLOW-UP, NOT CLOSED HERE: those direct `refetch()` calls do not go
+  // through the scheduler, so an import's refetch can still overlap a reconcile
+  // with no ordering guarantee between the two absolute writes. Rare and
+  // pre-existing; its own slice.
+  //
+  // `apply` mirrors refetch's success pair (setData + clear the error) so a
+  // reconcile leaves exactly the state a refetch would have left.
+  const scheduler = useMemo(() => createReconcileScheduler({
+    fetchAll: () => api.fetchAll(),
+    apply: (fresh) => { setData(fresh); setError(null); },
+    // `onError` receives an ALREADY-SANITISED message — the scheduler crosses
+    // the userFacingError boundary itself, so no raw provider text can reach
+    // this state and be rendered.
+    onError: (userMessage) => setError(userMessage),
+  }), []);
+  const { trackWrite, requestReconcile } = scheduler;
+
   // ---- dispatch (same signature in both modes) ----
   const dispatch = useCallback(
     (action) => {
@@ -503,9 +533,9 @@ export function StoreProvider({ children }) {
       // authoritative state (no false Task state, no silent local fallback).
       if (isTaskDispatch(act.type)) {
         if (!userId) return Promise.resolve({ ok: false });
-        return persist(act, userId).then(
+        return trackWrite(persist(act, userId)).then(
           () => { setData((d) => reducer(d, act)); return { ok: true }; },
-          async (e) => { console.error(e); toast('שגיאה בשמירת המשימה לשרת', 'error'); await refetch(); return { ok: false, error: e }; }
+          async (e) => { console.error(e); toast('שגיאה בשמירת המשימה לשרת', 'error'); await requestReconcile(); return { ok: false, error: e }; }
         );
       }
 
@@ -516,12 +546,12 @@ export function StoreProvider({ children }) {
       // state, so a rejected write cannot leave a phantom balance on screen.
       if (isReceivablesDispatch(act.type)) {
         if (!userId) return Promise.resolve({ ok: false });
-        return persistReceivable(act, userId).then(
+        return trackWrite(persistReceivable(act, userId)).then(
           (confirmed) => { setData((d) => reducer(d, confirmed)); return { ok: true }; },
           async (e) => {
             console.error(e);
             toast(userFacingError(e, 'שגיאה בשמירת החיוב/התשלום לשרת'), 'error');
-            await refetch();
+            await requestReconcile();
             return { ok: false, error: e };
           }
         );
@@ -535,9 +565,9 @@ export function StoreProvider({ children }) {
       // profile, no silent local fallback).
       if (act.type === 'SAVE_BUSINESS_PROFILE') {
         if (!userId) return Promise.resolve({ ok: false });
-        return api.upsertBusinessProfile(userId, act.payload).then(
+        return trackWrite(api.upsertBusinessProfile(userId, act.payload)).then(
           () => { setData((d) => reducer(d, act)); return { ok: true }; },
-          async (e) => { console.error(e); toast('שגיאה בשמירת ההקשר העסקי לשרת', 'error'); await refetch(); return { ok: false, error: e }; }
+          async (e) => { console.error(e); toast('שגיאה בשמירת ההקשר העסקי לשרת', 'error'); await requestReconcile(); return { ok: false, error: e }; }
         );
       }
 
@@ -554,17 +584,24 @@ export function StoreProvider({ children }) {
       // Resolve with a settled result (never rejects) so existing non-awaiting
       // callers are unaffected, while follow-up-bearing client saves can await
       // confirmation before showing success.
-      return persist(act, userId).then(
+      return trackWrite(persist(act, userId)).then(
         () => ({ ok: true }),
         async (e) => {
           console.error(e);
           toast('שגיאה בשמירה לשרת — מרענן נתונים', 'error');
-          await refetch(); // restore authoritative cloud state BEFORE settling { ok: false }
+          // S0B, unchanged in substance: authoritative cloud state is applied
+          // BEFORE this settles { ok: false }. Only the mechanism moved — the
+          // reconcile waits for concurrent writes to finish first, so it can no
+          // longer restore rows a sibling delete has already removed.
+          await requestReconcile();
           return { ok: false, error: e };
         }
       );
     },
-    [supabaseEnabled, session, refetch, toast]
+    // `refetch` left the list with the failure paths: dispatch now reconciles
+    // through the scheduler instead. `trackWrite` / `requestReconcile` are
+    // stable (useMemo, no deps), so the callback identity is unchanged.
+    [supabaseEnabled, session, trackWrite, requestReconcile, toast]
   );
 
   // ---- auth actions ----
