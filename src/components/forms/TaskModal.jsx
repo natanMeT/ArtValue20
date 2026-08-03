@@ -75,20 +75,20 @@ export default function TaskModal({ open, onClose, onSave, projects, clients = [
     >
       <div className="form-grid">
         <div className="field full">
-          <label>שם המשימה *</label>
-          <input className="input" value={form.title} onChange={set('title')} placeholder="לדוגמה: לשלוח סקיצה ללקוח" style={err ? { borderColor: '#ef6f6f' } : undefined} autoFocus />
+          <label htmlFor="task-title">שם המשימה *</label>
+          <input id="task-title" className="input" value={form.title} onChange={set('title')} placeholder="לדוגמה: לשלוח סקיצה ללקוח" style={err ? { borderColor: '#ef6f6f' } : undefined} autoFocus />
         </div>
         <div className="field">
-          <label>פרויקט</label>
-          <select className="select" value={form.projectId} onChange={setProject} disabled={!!lockProjectId}>
+          <label htmlFor="task-project">פרויקט</label>
+          <select id="task-project" className="select" value={form.projectId} onChange={setProject} disabled={!!lockProjectId}>
             <option value="">ללא פרויקט</option>
             {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
         {clients.length > 0 && (
           <div className="field">
-            <label>לקוח</label>
-            <select className="select" value={form.clientId || ''} onChange={set('clientId')}>
+            <label htmlFor="task-client">לקוח</label>
+            <select id="task-client" className="select" value={form.clientId || ''} onChange={set('clientId')}>
               <option value="">ללא לקוח</option>
               {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
@@ -96,36 +96,36 @@ export default function TaskModal({ open, onClose, onSave, projects, clients = [
         )}
         {campaigns.length > 0 && (
           <div className="field">
-            <label>קמפיין</label>
-            <select className="select" value={form.campaignId || ''} onChange={set('campaignId')}>
+            <label htmlFor="task-campaign">קמפיין</label>
+            <select id="task-campaign" className="select" value={form.campaignId || ''} onChange={set('campaignId')}>
               <option value="">ללא קמפיין</option>
               {campaigns.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
             </select>
           </div>
         )}
         <div className="field">
-          <label>סטטוס</label>
-          <select className="select" value={form.status} onChange={set('status')}>
+          <label htmlFor="task-status">סטטוס</label>
+          <select id="task-status" className="select" value={form.status} onChange={set('status')}>
             {TASK_STATUS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
         </div>
         <div className="field">
-          <label>עדיפות</label>
-          <select className="select" value={form.priority} onChange={set('priority')}>
+          <label htmlFor="task-priority">עדיפות</label>
+          <select id="task-priority" className="select" value={form.priority} onChange={set('priority')}>
             {TASK_PRIORITY.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
         </div>
         <div className="field">
-          <label>דדליין</label>
-          <input className="input" type="date" value={form.deadline || ''} onChange={set('deadline')} dir="ltr" style={{ textAlign: 'right' }} />
+          <label htmlFor="task-deadline">דדליין</label>
+          <input id="task-deadline" className="input" type="date" value={form.deadline || ''} onChange={set('deadline')} dir="ltr" style={{ textAlign: 'right' }} />
         </div>
         <div className="field">
-          <label>אחראי</label>
-          <input className="input" value={form.assignee} onChange={set('assignee')} placeholder="שם" />
+          <label htmlFor="task-assignee">אחראי</label>
+          <input id="task-assignee" className="input" value={form.assignee} onChange={set('assignee')} placeholder="שם" />
         </div>
         <div className="field full">
-          <label>הערות</label>
-          <textarea className="textarea" value={form.notes} onChange={set('notes')} placeholder="פרטים נוספים..." />
+          <label htmlFor="task-notes">הערות</label>
+          <textarea id="task-notes" className="textarea" value={form.notes} onChange={set('notes')} placeholder="פרטים נוספים..." />
         </div>
       </div>
     </Modal>
