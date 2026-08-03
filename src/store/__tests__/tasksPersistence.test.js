@@ -49,10 +49,13 @@ describe('S0B · store confirmed-write wiring (source pins)', () => {
 
   it('tasks use confirmed-write: persist BEFORE the reducer applies (no optimistic task state)', () => {
     const taskBranch = storeSrc.slice(storeSrc.indexOf('if (isTaskDispatch(act.type))'), storeSrc.indexOf('// S0A: in cloud mode'));
-    expect(taskBranch).toContain('return persist(act, userId).then(');
+    // trackWrite() wraps the persist so the reconcile scheduler counts it as an
+    // in-flight write; the confirmed-write ORDER is unchanged.
+    expect(taskBranch).toContain('return trackWrite(persist(act, userId)).then(');
     expect(taskBranch).toContain('setData((d) => reducer(d, act)); return { ok: true };');
-    // failure path: refetch authoritative state + truthful result (no false task state)
-    expect(taskBranch).toContain('refetch()');
+    // failure path: authoritative state restored + truthful result (no false task
+    // state). The direct refetch became the coalesced, quiesce-gated reconcile.
+    expect(taskBranch).toContain('requestReconcile()');
     expect(taskBranch).toContain('{ ok: false, error: e }');
   });
 

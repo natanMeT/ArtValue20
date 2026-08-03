@@ -36,14 +36,18 @@ describe('store source guards (S0D)', () => {
     expect(isMemoryOnlyDispatch('SAVE_BUSINESS_PROFILE')).toBe(false);
   });
 
-  it('persist-first: upsert BEFORE reducer; success → { ok: true }, failure → refetch + { ok: false }', () => {
+  it('persist-first: upsert BEFORE reducer; success → { ok: true }, failure → reconcile + { ok: false }', () => {
     // the S0D branch calls the api directly (single-row upsert, not entity CRUD)
     expect(storeSrc).toContain("if (act.type === 'SAVE_BUSINESS_PROFILE')");
-    expect(storeSrc).toContain('api.upsertBusinessProfile(userId, act.payload).then(');
+    // wrapped in trackWrite() so the reconcile scheduler counts it in flight;
+    // the persist-first ORDER is unchanged.
+    expect(storeSrc).toContain('trackWrite(api.upsertBusinessProfile(userId, act.payload)).then(');
     // persist BEFORE reducer (same ordering as the S0B task branch)
     const branch = storeSrc.slice(storeSrc.indexOf("if (act.type === 'SAVE_BUSINESS_PROFILE')"));
     expect(branch.indexOf('api.upsertBusinessProfile')).toBeLessThan(branch.indexOf('setData((d) => reducer(d, act))'));
-    expect(branch).toContain('await refetch()');           // authoritative restore on failure
+    // authoritative restore on failure — direct refetch became the coalesced,
+    // quiesce-gated reconcile (stale-list race slice). Guarantee unchanged.
+    expect(branch).toContain('await requestReconcile()');
     expect(branch.slice(0, 400)).toContain('{ ok: false }');
   });
 
