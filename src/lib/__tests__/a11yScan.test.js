@@ -14,10 +14,12 @@
 // ===================================================================
 import { describe, it, expect } from 'vitest';
 import path from 'node:path';
+import fs from 'node:fs';
 import {
   controlsIn, labelsIn, classify, scanTree, totals, reachability,
   BUCKET, REACH,
 } from './support/a11yScan.js';
+import { collectModules, namesEngine, hasLocalAddress, executableSourceOf } from './support/sourceScan.js';
 
 const SRC = path.resolve(__dirname, '..', '..');
 const FAKE = path.join(SRC, 'fixture.jsx');   // only selects parser options
@@ -46,6 +48,53 @@ describe('a11yScan — the walker cannot silently match nothing', () => {
 
   it('NEGATIVE: a snippet with no control is rejected by the harness, not silently passed', () => {
     expect(() => bucketOf('<span>no control here</span>')).toThrow();
+  });
+});
+
+// ===================================================================
+// THE RETIREMENT GUARD IS NOT WEAKENED BY THIS TOOL, AND THAT IS ASSERTED HERE
+// RATHER THAN THERE.
+//
+// `localEngineRetirement.test.js` states that `scripts/` DOES NOT EXIST — a
+// specific claim that the retired `scripts/local-review-prep.mjs`, which called
+// a local model, is gone. An earlier draft of this work put the CLI in
+// `scripts/` and edited that assertion to make room. That was the wrong trade:
+// a read-only accessibility scanner has no business relaxing a retirement
+// guard, however carefully. The CLI moved to `tools/` instead and that file is
+// now UNTOUCHED by this PR.
+//
+// `tools/` is not an unguarded hiding place, and this is the fact that makes
+// the move safe rather than evasive: the retirement corpus is
+// `collectModules('.')` from the repository ROOT with NO ALLOWLIST — widening
+// an allowlist three times is exactly why that suite abolished the allowlist —
+// so the CLI is already scanned for engine names and loopback hosts by every
+// repo-wide retirement invariant. These tests pin that, so the guarantee cannot
+// quietly lapse if the corpus is ever narrowed.
+// ===================================================================
+describe('a11yScan — the CLI stays inside the local-engine retirement corpus', () => {
+  const CLI = 'tools/a11y-count.mjs';
+
+  it('the retired local-model script is still gone and scripts/ still does not exist', () => {
+    expect(fs.existsSync('scripts/local-review-prep.mjs')).toBe(false);
+    expect(fs.existsSync('scripts'), 'this PR must not create scripts/ — the guard asserts its absence').toBe(false);
+  });
+
+  it('POSITIVE CONTROL: the repo-wide retirement corpus actually contains this CLI', () => {
+    const corpus = collectModules('.').map((f) => f.replace(/\\/g, '/'));
+    expect(corpus, 'if tools/ were outside the corpus, the CLI would be unscanned').toContain(CLI);
+  });
+
+  it('the CLI names no retired engine and reaches no loopback host', () => {
+    const code = executableSourceOf(CLI);
+    expect(namesEngine(code)).toBe(false);
+    expect(hasLocalAddress(code)).toBe(false);
+  });
+
+  // A "nothing found" assertion is weak on its own — a detector that cannot
+  // detect looks identical to a clean file. Plant both bypasses.
+  it('NEGATIVE: a local-engine CLI placed in tools/ WOULD be caught', () => {
+    expect(namesEngine("import { ollama } from 'x';"), 'engine name not detected').toBe(true);
+    expect(hasLocalAddress("fetch('http://127.0.0.1:11434/api')"), 'loopback host not detected').toBe(true);
   });
 });
 

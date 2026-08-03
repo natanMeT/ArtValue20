@@ -11,6 +11,16 @@
 // on every new form field gets switched off. `--expect` is available for a
 // release-day spot check and is the ONLY way to make it exit non-zero.
 //
+// ⚠️ WHY `tools/` AND NOT `scripts/`. `localEngineRetirement.test.js` asserts
+// that `scripts/` DOES NOT EXIST — a deliberate, specific statement that the
+// retired `scripts/local-review-prep.mjs`, which called a local model, is gone.
+// This file has no business weakening that guard to make room for itself, so it
+// lives beside it instead. `tools/` is NOT an unguarded hiding place: that
+// suite's corpus is `collectModules('.')` recursing from the repository ROOT
+// with NO ALLOWLIST — "any unlisted top-level directory" is a finding class it
+// closed on purpose — so every retirement invariant already scans this file for
+// engine names and loopback hosts. a11yScan.test.js pins that fact.
+//
 // Usage:
 //   npm run a11y:count
 //   npm run a11y:count -- --json
