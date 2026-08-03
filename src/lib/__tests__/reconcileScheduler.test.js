@@ -140,10 +140,14 @@ describe('reconcileScheduler · ordering', () => {
   // ⚠️ THE FIRST VERSION OF THIS BLOCK ASSERTED THE WRONG THING and failed,
   // which is how the following was found: with coalescing, two reconciles can
   // NEVER be in flight at once — `requestReconcile()` hands back the same
-  // promise — so the generation guard inside the module cannot fire today. It
-  // is kept as defence in depth, and what is pinned here is the INVARIANT that
-  // makes it unreachable, not the dead branch. Pinning the branch would have
-  // meant writing a test that proves nothing.
+  // promise. An earlier draft of the module carried a generation guard for the
+  // overlapping case; it could not fire, so it was REMOVED rather than shipped
+  // as dead code that reads as load-bearing.
+  //
+  // What is pinned here is therefore the INVARIANT that made it unnecessary:
+  // reconciles do not overlap. ⚠️ If coalescing is ever removed or a second
+  // caller is added, these tests are the ones that must fail — and the guard
+  // has to come back with it.
   it('5. reconciles never overlap: concurrent callers share ONE fetch and ONE apply', async () => {
     let concurrent = 0;
     let maxConcurrent = 0;

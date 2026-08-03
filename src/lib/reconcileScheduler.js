@@ -25,10 +25,23 @@
 // exposed the list. The bug did not appear — it became observable.
 //
 // THE SHAPE OF THE FIX. A failure no longer refetches immediately. It requests
-// a RECONCILE, which (1) coalesces — N concurrent failures produce ONE fetch,
-// (2) waits for quiesce — the fetch is issued only when no write is in flight,
-// so it cannot race a sibling, and (3) applies under a GENERATION GUARD, so an
-// older in-flight response can never overwrite a newer one's result.
+// a RECONCILE, which (1) coalesces — N concurrent failures produce ONE fetch —
+// and (2) waits for quiesce: the fetch is issued only when no write is in
+// flight, so it cannot race a sibling.
+//
+// ⚠️ NO GENERATION GUARD, AND THE REASON IS THE INVARIANT, NOT AN OVERSIGHT.
+// An earlier draft carried one. It was removed because coalescing holds the
+// in-flight handle for the whole run, so `requestReconcile()` can never start a
+// second overlapping reconcile and the guard could not fire — it was dead code
+// that read as load-bearing. The non-overlap INVARIANT is what is pinned by a
+// test. If coalescing is ever removed or a second caller is added, the guard
+// must come back with it.
+//
+// ⚠️ FOLLOW-UP, OUT OF SCOPE AND EXPLICITLY NOT CLOSED HERE: `refetch()` in
+// store.jsx (hydration, migrateFromLocal, importBackup) does NOT go through
+// this scheduler, so an import's refetch can still overlap a reconcile with no
+// ordering guarantee between the two absolute writes. Rare and pre-existing;
+// it needs its own slice.
 //
 // ⚠️ WHAT THIS DELIBERATELY DOES NOT FIX. The absolute `setData(fresh)` still
 // erases an UNRELATED local edit made while a reconcile is in flight. Fixing
@@ -65,8 +78,7 @@ export function createReconcileScheduler({
 } = {}) {
   let pending = 0;          // writes currently in flight
   let inFlight = null;      // the shared coalesced reconcile promise
-  let generation = 0;       // monotonic; the guard against out-of-order applies
-  const counters = { fetches: 0, applied: 0, skipped: 0, timedOut: 0, coalesced: 0 };
+  const counters = { fetches: 0, applied: 0, timedOut: 0, coalesced: 0 };
 
   /**
    * Count a write as in-flight for as long as it is unsettled.
@@ -110,7 +122,6 @@ export function createReconcileScheduler({
     // behaviour for this one pathological case (a write that never settles),
     // and it is chosen deliberately: leaving the store unreconciled forever is
     // the S0A false-success class, which is strictly worse than a stale row.
-    const gen = (generation += 1);
     let fresh;
     try {
       counters.fetches += 1;
@@ -128,14 +139,6 @@ export function createReconcileScheduler({
       if (onError) onError(userFacingError(e, 'שגיאת טעינה'));
       return;
     }
-    // ⚠️ DEFENCE IN DEPTH, AND CURRENTLY UNREACHABLE — stated rather than left
-    // to look load-bearing. Coalescing holds `inFlight` for the whole run, so
-    // `requestReconcile()` can never start a second overlapping reconcile and
-    // this branch cannot fire today. It is kept because it is one comparison
-    // and it is the only thing standing between a future change (dropping
-    // coalescing, or adding a second caller) and a silent out-of-order apply.
-    // A test pins the invariant that makes it unreachable, NOT the branch.
-    if (gen !== generation) { counters.skipped += 1; return; } // a newer reconcile owns the state
     counters.applied += 1;
     apply(fresh);
   }

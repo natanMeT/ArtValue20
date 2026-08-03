@@ -481,10 +481,14 @@ export function StoreProvider({ children }) {
   // QA on a partial bulk delete: the message said "3 deleted, 1 failed" and the
   // database agreed exactly, while the LIST still showed all four.
   //
-  // The scheduler coalesces concurrent failures into ONE fetch, issues it only
-  // once no write is in flight (so it cannot race a sibling), and applies it
-  // under a generation guard. `refetch` itself is untouched and still used for
-  // hydration and imports, where there is no concurrency.
+  // The scheduler coalesces concurrent failures into ONE fetch and issues it
+  // only once no write is in flight, so it cannot race a sibling. `refetch`
+  // itself is untouched and still used for hydration and imports.
+  //
+  // ⚠️ FOLLOW-UP, NOT CLOSED HERE: those direct `refetch()` calls do not go
+  // through the scheduler, so an import's refetch can still overlap a reconcile
+  // with no ordering guarantee between the two absolute writes. Rare and
+  // pre-existing; its own slice.
   //
   // `apply` mirrors refetch's success pair (setData + clear the error) so a
   // reconcile leaves exactly the state a refetch would have left.
