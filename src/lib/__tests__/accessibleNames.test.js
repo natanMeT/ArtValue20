@@ -47,6 +47,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parse } from '@babel/parser';
 import { parserOptionsFor } from './support/sourceScan.js';
+import { labelsIn, controlsIn } from './support/a11yScan.js';
 
 const SRC = path.resolve(__dirname, '..', '..');
 const CONTROL_TAGS = new Set(['input', 'select', 'textarea']);
@@ -61,62 +62,17 @@ function attrText(attr, src) {
   return '';
 }
 
-/** Every <label> in a file, with its attributes flattened. Used by the A2
- *  pairing assertions: a `htmlFor` only names a control if some control really
- *  carries that exact `id`, so both sides have to be read. */
-export function labelsIn(file, source = null) {
-  const src = source === null ? fs.readFileSync(file, 'utf8') : source;
-  const ast = parse(src, parserOptionsFor(file));
-  const out = [];
-  const seen = new Set();
-  (function walk(node) {
-    if (!node || typeof node !== 'object' || seen.has(node)) return;
-    seen.add(node);
-    if (node.type === 'JSXOpeningElement' && node.name?.type === 'JSXIdentifier'
-        && node.name.name === 'label') {
-      const attrs = {};
-      for (const a of node.attributes) {
-        if (a.type === 'JSXAttribute' && a.name?.type === 'JSXIdentifier') attrs[a.name.name] = attrText(a, src);
-      }
-      out.push({ attrs, line: src.slice(0, node.start).split('\n').length });
-    }
-    for (const k of Object.keys(node)) {
-      const v = node[k];
-      if (Array.isArray(v)) v.forEach(walk);
-      else if (v && typeof v === 'object' && typeof v.type === 'string') walk(v);
-    }
-  })(ast);
-  return out;
-}
-
-/** Every input/select/textarea in a file, with its attributes flattened.
- *  Walks the AST generically rather than importing a traversal dependency. */
-export function controlsIn(file, source = null) {
-  const src = source === null ? fs.readFileSync(file, 'utf8') : source;
-  const ast = parse(src, parserOptionsFor(file));
-  const out = [];
-  const seen = new Set();
-  (function walk(node) {
-    if (!node || typeof node !== 'object' || seen.has(node)) return;
-    seen.add(node);
-    if (node.type === 'JSXOpeningElement' && node.name?.type === 'JSXIdentifier'
-        && CONTROL_TAGS.has(node.name.name)) {
-      const attrs = {};
-      for (const a of node.attributes) {
-        if (a.type === 'JSXAttribute' && a.name?.type === 'JSXIdentifier') {
-          attrs[a.name.name] = attrText(a, src);
-        }
-      }
-      out.push({ tag: node.name.name, attrs, line: src.slice(0, node.start).split('\n').length });
-    }
-    for (const k of Object.keys(node)) {
-      const v = node[k];
-      if (Array.isArray(v)) v.forEach(walk);
-      else if (v && typeof v === 'object' && typeof v.type === 'string') walk(v);
-    }
-  })(ast);
-  return out;
-}
+// ⚠️ `labelsIn` and `controlsIn` USED TO BE DEFINED HERE and are now imported
+// from ./support/a11yScan.js, which the `npm run a11y:count` report also uses.
+// Two copies of a JSX walker in one repo is the drift this file has already
+// been bitten by once — `missingAriaLabels` re-implemented its own traversal
+// for the negative-control path, so a mutation could in principle pass in one
+// and fail in the other. One definition, both consumers.
+// The shared version returns the same `{ tag, attrs, line }` shape plus the
+// structural fields the bucket classifier needs; nothing here reads those.
+// ⚠️ Imported AND re-exported, not `export … from`: that form creates no local
+// binding, and every assertion below calls `controlsIn` directly.
+export { labelsIn, controlsIn };
 
 // The pinned set. Controls are matched by a DISTINGUISHING ATTRIBUTE, never by
 // line number — a line number drifts on the first unrelated edit above it and

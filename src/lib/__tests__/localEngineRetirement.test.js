@@ -376,12 +376,47 @@ describe('local-engine retirement · unchanged surfaces', () => {
     expect(BETA_HIDDEN_MODULES.has('growth')).toBe(true);
   });
 
+  // ⚠️ THIS ASSERTION WAS WEAKENED IN FORM AND STRENGTHENED IN SUBSTANCE.
+  // It used to require `scripts/` NOT TO EXIST AT ALL. That was a blunt proxy
+  // for the real rule — the retired tooling called a LOCAL MODEL — and it was
+  // adequate only while the directory happened to be empty of anything else.
+  // `npm run a11y:count` is a read-only, network-free source scanner that
+  // reinstates nothing; banning the directory would have blocked it for a
+  // reason unrelated to the retirement.
+  //
+  // The specific retired script is still banned by name, and the directory is
+  // now checked by CONTENT using the SAME primitives every other assertion in
+  // this file uses — so a real local-engine script reappearing under `scripts/`
+  // is caught, which the old existence check could only do by accident.
   it('the developer tooling that called a local model is gone, script and all', () => {
     expect(fs.existsSync('scripts/local-review-prep.mjs')).toBe(false);
-    expect(fs.existsSync('scripts')).toBe(false);
+
+    if (fs.existsSync('scripts')) {
+      const offenders = [];
+      for (const file of collectModules('scripts')) {
+        const code = executableSourceOf(file);
+        if (namesEngine(code) || hasLocalAddress(code)) offenders.push(file);
+      }
+      expect(offenders, 'a script under scripts/ names a retired engine or a loopback host').toEqual([]);
+    }
+
     const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
     for (const [name, cmd] of Object.entries(pkg.scripts || {})) {
       expect(/ollama|comfy|fooocus|a1111|localhost|127\.0\.0\.1/i.test(`${name} ${cmd}`), `${name}: ${cmd}`).toBe(false);
+    }
+  });
+
+  // The content check above is a "nothing found" assertion, which this file
+  // treats as weak evidence on its own — a scan that cannot find anything looks
+  // identical to one that found nothing. Plant the exact bypass and require the
+  // shared primitives to report it.
+  it('NEGATIVE: a local-engine script under scripts/ WOULD be caught', () => {
+    expect(namesEngine("import { ollama } from 'x';"), 'engine name not detected').toBe(true);
+    expect(hasLocalAddress("fetch('http://127.0.0.1:11434/api')"), 'loopback host not detected').toBe(true);
+    // ...and the real directory must be clean, or the control proves nothing.
+    for (const file of (fs.existsSync('scripts') ? collectModules('scripts') : [])) {
+      const code = executableSourceOf(file);
+      expect(namesEngine(code) || hasLocalAddress(code), `${file} is not clean`).toBe(false);
     }
   });
 });
