@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "a11y:count": "node tools/a11y-count.mjs",
     "test:creative": "vitest run src/creative/v2"
   },
   "dependencies": {
