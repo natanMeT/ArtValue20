@@ -214,3 +214,142 @@ describe('chatPersistence — ComfyUI Poster cards are transient (no poster imag
     expect(out).toEqual([normal, system]);
   });
 });
+
+// ===================================================================
+// EXECUTABLE ACTION CARDS — gate / confirm / preview.
+//
+// These are transient action confirmations: each carries a snapshot of ids taken
+// when it was built, so a restored one offers a destructive action the user never
+// requested this session, against a list that may have moved. They must not
+// restore AT ALL (no disabled/expired variant).
+//
+// Two things this block must protect, in both directions:
+//   1. NO OVER-CAPTURE — ordinary history must never be deleted by this filter.
+//      That failure mode is silent, which is why it gets its own describe block.
+//   2. A DECIDED action still leaves its record — the card is replaced in place
+//      with a plain `system` text, and that text persists.
+// ===================================================================
+describe('chatPersistence — executable action cards are transient (gate / confirm / preview)', () => {
+  const normal = { role: 'assistant', text: 'שלום' };
+  const userMsg = { role: 'user', text: 'מחק את כל הלקוחות' };
+  const system = { role: 'assistant', system: true, text: '✓ נשמר' };
+  // Real shapes: Assistant.jsx builds `gate` from buildBulkDeleteGate (jakeAgent.js),
+  // `confirm` from executeActions' pendingDeletes, `preview` from an action batch.
+  const gate = {
+    role: 'assistant',
+    gate: {
+      entity: 'clients',
+      entityLabel: 'לקוחות',
+      dispatchType: 'DELETE_CLIENT',
+      items: [{ id: 'c1', label: 'דני כהן' }, { id: 'c2', label: 'רות לוי' }],
+    },
+  };
+  const confirm = { role: 'assistant', confirm: { label: 'למחוק את דני כהן?', action: { op: 'delete_client', client: 'דני כהן' } } };
+  const preview = { role: 'assistant', preview: { actions: [{ op: 'delete_client', client: 'דני כהן' }], items: ['מחיקת לקוח: דני כהן'] } };
+  // The lead-in that precedes a gate — a truthful past-tense record; it PERSISTS.
+  const gateLeadIn = { role: 'assistant', system: true, text: 'למחיקת כל לקוחות (2) נדרש קוד אישור. 🔒' };
+
+  it('T1 · isTransientChatMessage flags gate, confirm and preview', () => {
+    expect(isTransientChatMessage(gate)).toBe(true);
+    expect(isTransientChatMessage(confirm)).toBe(true);
+    expect(isTransientChatMessage(preview)).toBe(true);
+  });
+
+  it('T2 · each is excluded from persisted history on SAVE', () => {
+    expect(persistableChatMessages([normal, gate, system])).toEqual([normal, system]);
+    expect(persistableChatMessages([normal, confirm, system])).toEqual([normal, system]);
+    expect(persistableChatMessages([normal, preview, system])).toEqual([normal, system]);
+  });
+
+  it('T3 · a legacy-stored card of each shape drops on HYDRATION', () => {
+    expect(persistableChatMessages([gate])).toEqual([]);
+    expect(persistableChatMessages([confirm])).toEqual([]);
+    expect(persistableChatMessages([preview])).toEqual([]);
+    expect(persistableChatMessages([gate, confirm, preview])).toEqual([]);
+  });
+
+  it('T4 · a full save → JSON → hydrate round-trip drops all three and keeps the rest in order', () => {
+    const live = [userMsg, normal, preview, system, gate, confirm];
+    const saved = persistableChatMessages(live);                       // save path
+    const hydrated = persistableChatMessages(JSON.parse(JSON.stringify(saved))); // hydration path
+    expect(hydrated).toEqual([userMsg, normal, system]);
+    expect(hydrated.some((m) => m.gate || m.confirm || m.preview)).toBe(false);
+  });
+
+  it('T5 · NO OVER-CAPTURE — every ordinary shape survives both directions', () => {
+    // campaignSelect and productionOffer are DELIBERATELY out of scope: they are
+    // not executable destructive affordances and must keep persisting.
+    const campaignSelect = { role: 'assistant', campaignSelect: { campaignId: 'c1', conceptId: 'x', conceptName: 'א' } };
+    const keep = [userMsg, normal, system, campaign, campaignSelect, offer, review];
+    const saved = persistableChatMessages(keep);
+    expect(saved).toEqual(keep);
+    expect(persistableChatMessages(JSON.parse(JSON.stringify(saved)))).toEqual(keep);
+    for (const m of keep) expect(isTransientChatMessage(m)).toBe(false);
+  });
+
+  it('T5b · a message merely MENTIONING a card word is not captured (property presence only)', () => {
+    const talksAboutIt = { role: 'assistant', text: 'לחץ על אשר ובצע כדי לאשר את המחיקה' };
+    const falsyProps = { role: 'assistant', text: 'שלום', gate: null, confirm: undefined, preview: false };
+    expect(isTransientChatMessage(talksAboutIt)).toBe(false);
+    expect(isTransientChatMessage(falsyProps)).toBe(false);
+    expect(persistableChatMessages([talksAboutIt, falsyProps])).toEqual([talksAboutIt, falsyProps]);
+  });
+
+  it('T6 · the seven pre-existing transient clauses are unchanged (regression pin)', () => {
+    expect(isTransientChatMessage(progress)).toBe(true);
+    expect(isTransientChatMessage(handoff)).toBe(true);
+    expect(isTransientChatMessage({ role: 'assistant', offerForm: true })).toBe(true);
+    expect(isTransientChatMessage({ role: 'assistant', offerBrief: {} })).toBe(true);
+    expect(isTransientChatMessage({ role: 'assistant', posterProgress: {} })).toBe(true);
+    expect(isTransientChatMessage({ role: 'assistant', posterResult: {} })).toBe(true);
+    expect(isTransientChatMessage({ role: 'assistant', posterError: {} })).toBe(true);
+  });
+
+  it('T7 · a DECIDED action keeps its record — the replacement system text persists', () => {
+    // Assistant.jsx replaces the card IN PLACE on confirm/cancel/approve, so what
+    // reaches storage is a plain system message. Nothing about the outcome is lost.
+    const done = { role: 'assistant', system: true, text: '✓ מחיקת לקוח: דני כהן — בוצע.' };
+    const cancelled = { role: 'assistant', system: true, text: 'בוטל — לא נמחק כלום.' };
+    const bulkOutcome = { role: 'assistant', system: true, text: '✓ נמחקו 2 הלקוחות (הכל).' };
+    const out = persistableChatMessages([userMsg, done, cancelled, bulkOutcome]);
+    expect(out).toEqual([userMsg, done, cancelled, bulkOutcome]);
+  });
+
+  it('T8 · does not mutate input and preserves the order of survivors', () => {
+    const input = [normal, gate, review, confirm, system, preview];
+    const snapshot = JSON.parse(JSON.stringify(input));
+    const out = persistableChatMessages(input);
+    expect(input).toEqual(snapshot);
+    expect(out).toEqual([normal, review, system]);
+  });
+
+  it('T9 · degenerate inputs are handled without throwing', () => {
+    expect(isTransientChatMessage(null)).toBe(false);
+    expect(isTransientChatMessage(undefined)).toBe(false);
+    expect(isTransientChatMessage({})).toBe(false);
+    expect(isTransientChatMessage('gate')).toBe(false);
+    expect(persistableChatMessages(undefined)).toEqual([]);
+    expect(persistableChatMessages(null)).toEqual([]);
+    expect(persistableChatMessages({})).toEqual([]);
+  });
+
+  it('T10 · a realistic transcript round-trips to exactly the expected survivors', () => {
+    const transcript = [
+      { role: 'assistant', text: 'שלום! אני ג׳יק' },
+      userMsg,
+      gateLeadIn,   // the lead-in PERSISTS — accepted residue, stated in the module header
+      gate,         // the card does NOT
+      { role: 'user', text: 'תוסיף לקוח דני כהן' },
+      preview,
+      { role: 'assistant', system: true, text: '✓ נוסף לקוח: דני כהן' },
+    ];
+    const out = persistableChatMessages(JSON.parse(JSON.stringify(persistableChatMessages(transcript))));
+    expect(out).toEqual([
+      { role: 'assistant', text: 'שלום! אני ג׳יק' },
+      userMsg,
+      gateLeadIn,
+      { role: 'user', text: 'תוסיף לקוח דני כהן' },
+      { role: 'assistant', system: true, text: '✓ נוסף לקוח: דני כהן' },
+    ]);
+  });
+});
