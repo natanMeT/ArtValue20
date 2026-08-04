@@ -9,6 +9,7 @@ import warriorWalk from '../../assets/warrior_walk.png';
 import { chatJake, forceActionsJake, draftWithJake } from '../../lib/gemini.js';
 import { isSupabaseConfigured } from '../../lib/supabase.js';
 import { listAppointments } from '../../lib/api.js';
+import { calendarStateAfterRead, CALENDAR_OUTCOME } from '../../lib/calendarReadState.js';
 import { extractActions, executeActions, describeActions, detectBulkDelete, buildBulkDeleteGate } from '../../lib/jakeAgent.js';
 import { partitionJakeActions, BETA_MESSAGES } from '../../lib/betaCapabilities.js';
 import { executeBulkDelete } from '../../lib/bulkDeleteOutcome.js';
@@ -657,14 +658,23 @@ export default function Assistant() {
   useEffect(() => {
     if (!open || !isSupabaseConfigured) return undefined;
     let alive = true;
-    const timer = setTimeout(() => {
-      if (alive) { setCalendarError(true); setCalendarSettled(true); }
-    }, CALENDAR_READ_TIMEOUT_MS);
+    // ONE decision point for all three outcomes. It used to be three ad-hoc
+    // setter groups, and the failure group forgot to drop the rows a previous
+    // successful read had left behind — so Jake reported an unverified calendar
+    // as current. The rule now lives in a pure module that tests execute.
+    const apply = (outcome, rows) => {
+      if (!alive) return;
+      const next = calendarStateAfterRead(outcome, rows);
+      setAppointments(next.appointments);
+      setCalendarError(next.error);
+      setCalendarSettled(next.settled);
+    };
+    const timer = setTimeout(() => apply(CALENDAR_OUTCOME.TIMED_OUT), CALENDAR_READ_TIMEOUT_MS);
     listAppointments()
-      .then((rows) => { if (alive) { setAppointments(rows); setCalendarError(false); } })
-      // The rows are left UNSET (undefined), never [] — see the state comment.
-      .catch(() => { if (alive) setCalendarError(true); })
-      .finally(() => { if (alive) { clearTimeout(timer); setCalendarSettled(true); } });
+      .then((rows) => apply(CALENDAR_OUTCOME.LOADED, rows))
+      // A failure drops the stale rows: only a successful read may leave any.
+      .catch(() => apply(CALENDAR_OUTCOME.FAILED))
+      .finally(() => { if (alive) clearTimeout(timer); });
     // `alive` is the unmount / account-switch guard: a stale result can never
     // commit after the panel closed, mirroring the S0F.1 gallery race fix.
     return () => { alive = false; clearTimeout(timer); };
