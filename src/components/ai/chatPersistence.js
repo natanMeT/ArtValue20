@@ -35,14 +35,41 @@
 // Studio stale state. It is recomputable by simply asking Jake again — so it
 // is never persisted, and any legacy-stored one drops on hydration.
 //
-// Everything else (normal/system messages, campaign cards, review cards, saved
-// confirmations) persists exactly as before.
+// The EXECUTABLE ACTION CARDS — `gate` (the code-gated bulk-delete picker),
+// `confirm` (a single pending delete) and `preview` (a batch awaiting "אשר
+// ובצע") — are TRANSIENT ACTION CONFIRMATIONS. Each one carries a SNAPSHOT
+// taken when the card was built (buildBulkDeleteGate freezes the row list; a
+// confirm/preview freezes the target ids), so after a reload it offers a
+// destructive action the user never requested THIS session, against a list that
+// may have moved underneath it — a "delete all (N)" whose N is the old count
+// silently omits every row created since. Two live gate cards were observed in
+// the DOM at once. They are recomputable by simply asking Jake again, so — like
+// `handoff` — they are never persisted and any legacy-stored one drops on
+// hydration. This is the SAME three-part reason that excluded `handoff`:
+// snapshot payload, restores stale, trivially recomputable.
+//
+// ⚠️ A DECIDED card is NOT lost. confirmAction / cancelAction / approvePreview /
+// cancelPreview REPLACE the card in place with a plain `system` text message, and
+// those replacements persist exactly as before — so the record of what was done
+// or cancelled survives a reload. Only an UNDECIDED card disappears.
+//
+// ⚠️ ACCEPTED RESIDUE, NOT AN OVERSIGHT: a gate is emitted as a PAIR — a lead-in
+// `system` text ("…נדרש קוד אישור 🔒") followed by the card. After a reload the
+// sentence remains and the card is gone. That is correct: the sentence is a
+// truthful record of something Jake said, in the past tense. Suppressing it would
+// need a render change and a coupling between two messages — more machinery than
+// the residue costs.
+//
+// Everything else (normal/system messages, campaign cards, campaignSelect,
+// productionOffer, review cards, saved confirmations) persists exactly as before.
 // ===================================================================
 
 /** A chat message that is live-only UI state and must NOT be persisted. */
 export function isTransientChatMessage(m) {
   return !!(m && (m.productionProgress || m.offerForm || m.offerBrief
-    || m.posterProgress || m.posterResult || m.posterError || m.handoff));
+    || m.posterProgress || m.posterResult || m.posterError || m.handoff
+    // Executable action cards — see the header block above.
+    || m.gate || m.confirm || m.preview));
 }
 
 /**
