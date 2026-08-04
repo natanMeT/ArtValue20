@@ -13,6 +13,9 @@ import { formatCurrency } from './format.js';
 import {
   receivablesTotals, overdueCharges, cancelledChargeReceived, roundMoney,
 } from './receivables.js';
+import {
+  listToday, listWeek, formatTimeRange, APPOINTMENT_KIND_LABELS,
+} from './schedule.js';
 
 // ===================================================================
 // HYDRATION TRUTHFULNESS — absence is not emptiness.
@@ -93,6 +96,76 @@ function receivablesLines(data, today) {
 }
 
 // ===================================================================
+// Schedule Core → Jake. `public.appointments` is durable, live and CLOUD-ONLY,
+// and was invisible to Jake: api.fetchAll() hydrates nine collections and
+// appointments is not one of them (there is no reducer for it either — the
+// Schedule page owns its own state and re-reads from the server after every
+// write). So Jake answered "מה יש לי היום" — a string isBriefingRequest already
+// matches — from tasks, quotes and charges, and silently omitted the calendar.
+//
+// The rows arrive through the JAKE SEAM (Assistant.jsx reads listAppointments()
+// once per panel open), NOT through the store: fetchAll's whole-object
+// replacement has now produced two shipped defects, and appointments have no
+// local reducer, no seed and no localStorage fallback to classify.
+//
+// SAME STRUCTURAL DISCRIMINATOR AS EVERY OTHER COLLECTION, and note the
+// INVERSION it absorbs without a mode flag: for projects/inventory the LOCAL
+// mode carries the real (possibly empty) array and cloud carries nothing; for
+// appointments it is exactly reversed. `Array.isArray` is right in both.
+//
+// THE CAP IS A BUDGET GUARD, NOT COSMETIC. This text ships inside the existing
+// `context.summary` of the chat and drafting lanes (the action ids are named
+// only in gemini.js, and a repo guard enforces that), which the Gateway
+// validates against MAX_CONTEXT_CHARS = 12000 and REJECTS over-limit rather
+// than truncating — an uncapped list on a busy day would not degrade Jake, it
+// would stop him. Measured: a heavy account is ~4.1k on the wire; five
+// appointments add ~0.6k.
+//
+// NO CLOCK HERE EITHER — `now` is injected, exactly like `today` for
+// receivables, and schedule.js is clock-free by contract.
+// ===================================================================
+const CALENDAR_TODAY_CAP = 5;
+
+function calendarLines(data, now) {
+  // Not hydrated = a failed cloud read OR local/demo, where the module does not
+  // exist at all. The wording is truthful for BOTH without asserting which,
+  // which is why it does not reuse notConnectedLine() — that helper states
+  // "המודול אינו מחובר לחשבון הזה", false for a transient read failure.
+  if (!isHydrated(data.appointments)) {
+    return ['יומן: אין לי גישה ליומן כרגע ואין לי עליו נתונים כלל. '
+      + 'אל תאמר שאין פגישות, אל תדווח על אפס ואל תסיק מכך מסקנה — אמור בכנות שאין לך גישה ליומן.'];
+  }
+
+  // listToday/listWeek drop cancelled / completed / no_show by default: an
+  // agenda answers "what is still expected of me". The history is not deleted,
+  // it is simply not the agenda. Inherited, never redefined here.
+  const today = listToday(data.appointments, now);
+  const week = listWeek(data.appointments, now);
+  const lines = [];
+
+  if (today.length) {
+    const shown = today.slice(0, CALENDAR_TODAY_CAP);
+    const hidden = today.length - shown.length;
+    const items = shown.map((a) => {
+      const range = formatTimeRange(a.startAt, a.endAt);
+      const kind = APPOINTMENT_KIND_LABELS[a.kind] || a.kind;
+      return `${range} ${a.title} (${kind})`;
+    }).join('; ');
+    lines.push(`יומן (מודול היומן — זהו מקור האמת היחיד ל"מה יש לי היום"): `
+      + `${today.length} רשומות היום — ${items}.`
+      + (hidden > 0 ? ` ועוד ${hidden} שאינן מפורטות כאן.` : ''));
+  } else {
+    lines.push('יומן: אין רשומות מתוכננות להיום.');
+  }
+
+  // The week INCLUDES today, so this is a superset count, not an additional
+  // one. Omitted entirely at zero — there is no useful "0 מתוכננות" to state
+  // once the today line has already been truthful.
+  if (week.length) lines.push(`בשבעת הימים הקרובים: ${week.length} רשומות מתוכננות.`);
+  return lines;
+}
+
+// ===================================================================
 // Context builder — the compact data snapshot fed to Jake every turn. This is
 // business-specific (it knows Art Value's collections + how to phrase them in
 // Hebrew), so it lives in the pack. A new business writes its own.
@@ -120,6 +193,10 @@ function artValueContext(data) {
     `החודש: הכנסות ${formatCurrency(k.revenue)}, הוצאות ${formatCurrency(k.expenses)}, רווח ${formatCurrency(k.profit)}.`,
     `משימות: ${open.length} פתוחות, ${today.length} להיום. הצעות מחיר ממתינות: ${k.pendingQuotes}.`,
   ];
+
+  // The calendar frames the day, so it sits directly after the date line and
+  // ahead of the CRM collections.
+  lines.splice(1, 0, ...calendarLines(data, now));
 
   // F1 receivables — durable, already hydrated, and previously invisible to Jake.
   lines.push(...receivablesLines(data, localIsoDate(now)));
@@ -199,7 +276,21 @@ function artValueBriefing(data) {
   if (overdue.length) urgent.push(`🔴 ${overdue.length} משימות באיחור — ${names(overdue, 'title')}`);
   if (owed.length) urgent.push(`💸 ${formatCurrency(owedSum)} ממתין לתשלום מ-${owed.length} לקוחות — ${names(owed)}`);
   if (chargesOverdue.length) urgent.push(`🧾 ${formatCurrency(chargesOverdueSum)} בחיובים באיחור — ${chargesOverdue.length} חיובים שתאריך הפירעון שלהם עבר`);
+  // Schedule Core. The calendar leads למעקב — it is the only time-bound item in
+  // it. Three states, and the third is the point: a FAILED cloud read must not
+  // read as a quiet day. Silence is correct only in local/demo, where the module
+  // genuinely does not exist and a failure notice would itself be false — which
+  // is why appointmentsError is a separate flag from the absent collection.
   const todayList = [];
+  const apptToday = isHydrated(data.appointments) ? listToday(data.appointments, now) : [];
+  if (apptToday.length) {
+    const shownAppt = apptToday.slice(0, 3)
+      .map((a) => `${formatTimeRange(a.startAt, a.endAt)} ${a.title}`).join(', ');
+    const moreAppt = apptToday.length > 3 ? ` ועוד ${apptToday.length - 3}` : '';
+    todayList.push(`📅 ${apptToday.length} רשומות היום — ${shownAppt}${moreAppt}`);
+  } else if (data.appointmentsError) {
+    todayList.push('📅 לא הצלחתי לטעון את היומן — ייתכן שיש פגישות שאינן מוצגות כאן.');
+  }
   if (dueToday.length) todayList.push(`📋 ${dueToday.length} משימות להיום — ${names(dueToday, 'title')}`);
   if (k.pendingQuotes) todayList.push(`📄 ${k.pendingQuotes} הצעות מחיר ממתינות לאישור`);
   if (stuckLeads.length) todayList.push(`👥 ${stuckLeads.length} לידים בלי פעולה הבאה — ${names(stuckLeads)}`);

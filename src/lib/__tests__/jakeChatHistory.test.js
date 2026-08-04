@@ -151,7 +151,9 @@ describe('Assistant caller integration (source pins)', () => {
 
   it('the chat lane builds convo via selectJakeChatHistory and the chatJake call shape is unchanged', () => {
     expect(assistant.includes('const convo = selectJakeChatHistory(next);')).toBe(true);
-    expect(assistant.includes('chatJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile))')).toBe(true);
+    // Jake Calendar slice: context argument `data` → `jakeData()`. The convo
+    // selection and the lane shape this guard pins are unchanged.
+    expect(assistant.includes('chatJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile))')).toBe(true);
     // the old inline window for the CHAT lane is gone (the -12 drafting window remains untouched)
     expect(assistant.includes('.filter((mm) => mm.text && !mm.system).slice(-14)')).toBe(false);
     expect(assistant.includes('.filter((mm) => mm.text && !mm.system).slice(-12)')).toBe(true);
@@ -160,13 +162,20 @@ describe('Assistant caller integration (source pins)', () => {
   it('the proactive morning briefing stays in UI state exactly as before (visible, assistant-role, textual)', () => {
     // S0C: the greeting is personalized from the signed-in session (displayName)
     // instead of a hardcoded person — same shape, role and delivery otherwise.
-    expect(assistant.includes("setMessages((m) => [...m, { role: 'assistant', text: `${greet}, ${displayName}! 👋\\n\\n${activePack.briefing(data)}` }]);")).toBe(true);
+    // Jake Calendar slice: the briefing text is now composed into a `brief`
+    // const first, because the effect must build it BEFORE writing the
+    // once-a-day marker. Delivery is byte-for-byte the same otherwise —
+    // visible, assistant-role, textual, same greeting interpolation.
+    expect(assistant.includes('const brief = activePack.briefing(jakeData());')).toBe(true);
+    expect(assistant.includes("setMessages((m) => [...m, { role: 'assistant', text: `${greet}, ${displayName}! 👋\\n\\n${brief}` }]);")).toBe(true);
+    // Still not a system message, still not a toast, still not suppressed.
+    expect(assistant.includes("{ role: 'assistant', system: true, text: `${greet}")).toBe(false);
   });
 
   it('Assistant still has no gateway wiring; forceActionsJake/draftWithJake call shapes untouched', () => {
     expect(assistant.includes('aiGateway')).toBe(false);
-    expect(assistant.includes('forceActionsJake(text, activePack.buildContext(data))')).toBe(true);
-    expect(assistant.includes('draftWithJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile))')).toBe(true);
+    expect(assistant.includes('forceActionsJake(text, activePack.buildContext(jakeData()))')).toBe(true);
+    expect(assistant.includes('draftWithJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile))')).toBe(true);
   });
 
   it('the selector module is pure: no imports at all, no browser/storage/gateway surface', () => {

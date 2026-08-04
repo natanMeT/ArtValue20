@@ -258,19 +258,25 @@ describe('Assistant wiring (source-level)', () => {
     // account is threaded into the brain seam, so the account-aware brain
     // renders THAT account's facts (or neutral) and can never regress to a
     // hardcoded-only ArtValue brain that would leak to another account.
-    expect(assistant).toContain('draftWithJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile))');
-    expect(assistant).toContain('chatJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile))');
+    // Jake Calendar slice: context argument `data` → `jakeData()`. The 3rd
+    // argument — the account profile this guard exists to pin — is untouched,
+    // and it still reads from the store `data`, not the composed snapshot.
+    expect(assistant).toContain('draftWithJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile))');
+    expect(assistant).toContain('chatJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile))');
     // exactly 2 usages + 1 import line = 3 occurrences, no more (3rd ARG adds no token)
     expect((assistant.match(/withBusinessBrain/g) || []).length).toBe(3);
   });
 
   it('does NOT wrap forceActionsJake (action-conversion pass stays lean)', () => {
-    expect(assistant).toContain('forceActionsJake(text, activePack.buildContext(data))');
+    expect(assistant).toContain('forceActionsJake(text, activePack.buildContext(jakeData()))');
     expect(assistant).not.toContain('forceActionsJake(text, withBusinessBrain');
   });
 
   it('leaves the briefing and campaign lanes untouched', () => {
-    expect(assistant).toContain('activePack.briefing(data)');           // briefing lane
+    // The briefing lane still takes the pack builder directly with NO brain
+    // wrapper — the only change is the calendar-bearing snapshot it is given.
+    expect(assistant).toContain('activePack.briefing(jakeData())');     // briefing lane
+    expect(assistant).not.toContain('briefing(withBusinessBrain');
     expect(assistant).toContain('createArtValueCreative');              // campaign lane entry
     expect(assistant).not.toContain('createArtValueCreative(withBusinessBrain');
   });

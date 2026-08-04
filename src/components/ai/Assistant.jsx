@@ -8,6 +8,7 @@ import warriorStand from '../../assets/warrior_stand.png';
 import warriorWalk from '../../assets/warrior_walk.png';
 import { chatJake, forceActionsJake, draftWithJake } from '../../lib/gemini.js';
 import { isSupabaseConfigured } from '../../lib/supabase.js';
+import { listAppointments } from '../../lib/api.js';
 import { extractActions, executeActions, describeActions, detectBulkDelete, buildBulkDeleteGate } from '../../lib/jakeAgent.js';
 import { partitionJakeActions, BETA_MESSAGES } from '../../lib/betaCapabilities.js';
 import { executeBulkDelete } from '../../lib/bulkDeleteOutcome.js';
@@ -33,6 +34,15 @@ const CHAT_KEY_BASE = 'artvalue_jake_chat';
 const BRIEF_DATE_KEY_BASE = 'artvalue_jake_brief_date';
 // Authorization code required before any BULK delete (e.g. "מחק את כל המלאי").
 const CONFIRM_CODE = '123456';
+// Schedule Core → Jake: how long the morning briefing waits for the appointments
+// read before giving up on it. BOUNDED ON PURPOSE. The briefing is gated on the
+// read having SETTLED so the once-a-day marker is never burned on a briefing
+// composed without the calendar — but a request that neither resolves nor
+// rejects (the Supabase client sets no timeout of its own) would then suppress
+// the briefing entirely, which is worse than a briefing that admits the calendar
+// is missing. Fail toward the VISIBLE state. The panel-open animation already
+// runs ~1.25s, so a healthy read is invisible well inside this.
+const CALENDAR_READ_TIMEOUT_MS = 4000;
 
 // Code-gated bulk-delete card: step 1 asks for the auth code; only on the correct
 // code does it reveal step 2 — a checkbox picker of exactly what to delete. Holds
@@ -352,6 +362,27 @@ export default function Assistant() {
   const [reminders, setReminders] = useState([]);
   const [listening, setListening] = useState(false);
   const [voiceOn, setVoiceOn] = useState(false);
+  // Schedule Core → Jake. `undefined` vs `[]` is LOAD-BEARING and is the same
+  // structural discriminator jakePack uses for every other collection: `[]` is
+  // "loaded and empty", `undefined` is "never loaded". A failed read must
+  // therefore NEVER setAppointments([]) — that would turn absence into a
+  // confident "no appointments today", the exact phantom-fact class this
+  // codebase keeps closing.
+  const [appointments, setAppointments] = useState(undefined);
+  // A failed CLOUD read and local/demo both leave `appointments` undefined, but
+  // they are different facts: only the first warrants telling the user the
+  // calendar could not be loaded. Local/demo has no calendar module at all, so
+  // a failure notice there would itself be false.
+  const [calendarError, setCalendarError] = useState(false);
+  // Local/demo is settled from the first render — there is nothing to wait for,
+  // so the morning briefing is never delayed there.
+  const [calendarSettled, setCalendarSettled] = useState(!isSupabaseConfigured);
+  // The store snapshot PLUS the seam-read calendar — what every Jake lane is
+  // handed instead of bare `data`. A fresh shallow object per call is
+  // deliberate and costs nothing: this file has no useMemo/useCallback at all,
+  // and every consumer is an imperative call inside an effect or an async
+  // handler, never a render path or a dependency array.
+  const jakeData = () => ({ ...data, appointments, appointmentsError: calendarError });
   const scrollRef = useRef(null);
   // Creative V2 orchestrator — built once; reads live CRM data via a ref. The
   // adapter inside wraps the FROZEN Creative Director V1 (injected at composition).
@@ -618,22 +649,52 @@ export default function Assistant() {
     return () => { clearTimeout(first); clearInterval(iv); };
   }, [phase]);
 
+  // Schedule Core → Jake: read the account's durable appointments ONCE per panel
+  // open, in the Jake seam. Deliberately NOT added to api.fetchAll(): that
+  // whole-object replacement has already produced two shipped defects, and
+  // appointments have no local reducer, no seed and no localStorage fallback.
+  // ONE read per open, not per message. Read-only — nothing here writes.
+  useEffect(() => {
+    if (!open || !isSupabaseConfigured) return undefined;
+    let alive = true;
+    const timer = setTimeout(() => {
+      if (alive) { setCalendarError(true); setCalendarSettled(true); }
+    }, CALENDAR_READ_TIMEOUT_MS);
+    listAppointments()
+      .then((rows) => { if (alive) { setAppointments(rows); setCalendarError(false); } })
+      // The rows are left UNSET (undefined), never [] — see the state comment.
+      .catch(() => { if (alive) setCalendarError(true); })
+      .finally(() => { if (alive) { clearTimeout(timer); setCalendarSettled(true); } });
+    // `alive` is the unmount / account-switch guard: a stale result can never
+    // commit after the panel closed, mirroring the S0F.1 gallery race fix.
+    return () => { alive = false; clearTimeout(timer); };
+  }, [open]);
+
   // Proactive MORNING BRIEFING: the first time ג׳יק opens each day, he greets the
   // signed-in user with the deterministic briefing (overdue / money owed / today)
   // — unprompted. S0C: the once-a-day marker is scoped per account, so each user
   // gets their own daily brief on a shared device.
+  //
+  // ⚠️ ORDER IS THE WHOLE POINT HERE. The marker used to be written BEFORE the
+  // briefing was composed. Gating on the calendar read without moving it would
+  // mean a briefing composed with no calendar still burned the once-a-day
+  // marker, and the account would get no second automatic briefing that day.
+  // So: wait for the read to SETTLE (resolve, reject or time out), compose, and
+  // only then mark. The marker remains the idempotence mechanism, so the extra
+  // re-run when `calendarSettled` flips still produces exactly one briefing.
   useEffect(() => {
-    if (!open) return;
+    if (!open || !calendarSettled) return;
     try {
       const today = new Date().toDateString();
       if (localStorage.getItem(briefDateKey) === today) return;
-      localStorage.setItem(briefDateKey, today);
       const h = new Date().getHours();
       const greet = h < 12 ? 'בוקר טוב' : h < 18 ? 'צהריים טובים' : 'ערב טוב';
-      setMessages((m) => [...m, { role: 'assistant', text: `${greet}, ${displayName}! 👋\n\n${activePack.briefing(data)}` }]);
+      const brief = activePack.briefing(jakeData());
+      setMessages((m) => [...m, { role: 'assistant', text: `${greet}, ${displayName}! 👋\n\n${brief}` }]);
+      localStorage.setItem(briefDateKey, today);
     } catch { /* ignore */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, calendarSettled]);
 
   // Click the agent → he stands, walks in, looks around, then the chat opens.
   const handleOpen = () => {
@@ -816,7 +877,7 @@ export default function Assistant() {
 
     // 2) Briefing lane ("מה חשוב / סיכום היום") → deterministic, from the live store.
     if (isBriefingRequest(text) && !hasActionVerb(text)) {
-      const brief = activePack.briefing(data);
+      const brief = activePack.briefing(jakeData());
       setMessages((m) => [...m, { role: 'assistant', text: brief }]);
       speak(brief);
       return;
@@ -837,7 +898,7 @@ export default function Assistant() {
       setLoading(true);
       try {
         const convo = next.filter((mm) => mm.text && !mm.system).slice(-12);
-        const { text: draft } = await draftWithJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile));
+        const { text: draft } = await draftWithJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile));
         const clean = extractActions(draft).clean || draft; // strip any stray actions block
         setMessages((m) => [...m, { role: 'assistant', text: clean }]);
         speak(clean);
@@ -914,13 +975,13 @@ export default function Assistant() {
       // (the deployed server chat contract requires user-first; chatJake maps
       // whatever it receives byte-exactly and repairs nothing).
       const convo = selectJakeChatHistory(next);
-      const { text: reply } = await chatJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile));
+      const { text: reply } = await chatJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile));
       let { clean, actions } = extractActions(reply); // eslint-disable-line prefer-const
 
       // Talked about doing something but emitted no block → force a proposal (2nd pass).
       if (!actions.length && claimsActionText(clean || reply)) {
         try {
-          const forced = await forceActionsJake(text, activePack.buildContext(data));
+          const forced = await forceActionsJake(text, activePack.buildContext(jakeData()));
           const r2 = extractActions(forced);
           if (r2.actions.length) actions = r2.actions;
         } catch { /* it was just talk — leave as prose */ }
