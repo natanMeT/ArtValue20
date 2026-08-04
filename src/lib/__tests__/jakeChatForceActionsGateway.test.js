@@ -327,8 +327,10 @@ describe('J2 · Assistant confirmation flow integration (source, untouched)', ()
   const assistant = read('../../components/ai/Assistant.jsx');
 
   it('same lane call shapes: chat wrapped with the business brain, force-actions lean', () => {
-    expect(assistant.includes('chatJake(convo, withBusinessBrain(activePack.buildContext(data), text, data.businessProfile))')).toBe(true);
-    expect(assistant.includes('forceActionsJake(text, activePack.buildContext(data))')).toBe(true);
+    // Jake Calendar slice: context argument `data` → `jakeData()`. Chat stays
+    // brain-wrapped, force-actions stays lean — the asymmetry this pins is intact.
+    expect(assistant.includes('chatJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile))')).toBe(true);
+    expect(assistant.includes('forceActionsJake(text, activePack.buildContext(jakeData()))')).toBe(true);
   });
 
   it('the propose → confirm → execute pipeline is unchanged: extractActions → preview card, no auto-execution', () => {

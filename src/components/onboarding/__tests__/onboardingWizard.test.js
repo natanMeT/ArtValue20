@@ -196,7 +196,10 @@ describe('Assistant jake:prefill seam (additive, no auto-send)', () => {
     expect(assistant.includes("setInput('');")).toBe(true);
   });
   it('does not change the Gateway call expression (business-context injection intact)', () => {
-    expect(assistant.includes('withBusinessBrain(activePack.buildContext(data), text, data.businessProfile)')).toBe(true);
+    // Jake Calendar slice: the context ARGUMENT is now jakeData() (store snapshot
+    // + seam-read appointments). The business-context injection this guard exists
+    // for — the brain wrapper and the threaded account profile — is unchanged.
+    expect(assistant.includes('withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile)')).toBe(true);
   });
 });
 

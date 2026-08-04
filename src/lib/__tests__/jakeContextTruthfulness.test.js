@@ -425,10 +425,15 @@ describe('scope · no new lane, no gateway wiring, no clock in the pure layer', 
     // the comments explaining WHY the hydration rule exists. (`draftWithJake`
     // is likewise only NAMED, in the pre-existing draftingGuide comment.)
     expect(/(?<![A-Za-z])fetch\s*\(/.test(pack)).toBe(false);
-    // The import list is the real containment: four pure local modules, and the
-    // one this slice added is the pure receivables boundary.
+    // The import list is the real containment: pure local modules only. This
+    // slice added the receivables boundary; the Jake Calendar slice added
+    // `./schedule.js`, the equally pure, clock-free Schedule Core boundary.
+    // Widening this list is a deliberate, reviewable act — that is the point of
+    // asserting it exactly rather than as a subset.
     const imports = [...pack.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]).sort();
-    expect(imports).toEqual(['./calc.js', './format.js', './jakeAgent.js', './receivables.js']);
+    expect(imports).toEqual([
+      './calc.js', './format.js', './jakeAgent.js', './receivables.js', './schedule.js',
+    ]);
   });
 
   it('receivables.js stays CLOCK-FREE — `today` is injected, never read', () => {
