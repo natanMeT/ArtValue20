@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { artValuePack } from '../jakePack.js';
 import { withBusinessBrain } from '../jakeBusinessContext.js';
 import { AI_GATEWAY_INPUT_LIMITS } from '../aiGatewayInput.js';
+import { calendarStateAfterRead, CALENDAR_OUTCOME } from '../calendarReadState.js';
 
 const ctx = (d) => artValuePack.buildContext(d);
 const brief = (d) => artValuePack.briefing(d);
@@ -324,7 +325,10 @@ describe('Jake seam ordering invariants (source-pinned)', () => {
     // `[]` would mean "loaded and empty" — the phantom fact this slice exists
     // to avoid. Only the resolved rows may be set.
     expect(ASSISTANT_CODE).not.toMatch(/setAppointments\(\s*\[\s*\]\s*\)/);
-    expect(ASSISTANT_CODE).toMatch(/setAppointments\(rows\)/);
+    // The rows now reach state ONLY through the pure decision, which is what
+    // guarantees a failure cannot leave them behind (tests 18-21 execute it).
+    expect(ASSISTANT_CODE).toMatch(/setAppointments\(next\.appointments\)/);
+    expect(ASSISTANT_CODE).toMatch(/apply\(CALENDAR_OUTCOME\.LOADED, rows\)/);
     // Read-only: no appointment write ever reaches the assistant.
     for (const w of ['createAppointment', 'updateAppointment', 'deleteAppointment', 'setAppointmentStatus']) {
       expect(ASSISTANT_CODE).not.toContain(w);
@@ -332,10 +336,100 @@ describe('Jake seam ordering invariants (source-pinned)', () => {
   });
 });
 
-// ---- 17. the calendar did not perturb the rest of the context -------------
+// ---- 17-21. the QA blocker: a failed read may not leave stale rows --------
+//
+// THE DEFECT THESE PIN (PR #199 owner QA, step 7b). The seam set the error flag
+// on a failed read but LEFT the rows a previous successful read had stored.
+// `isHydrated` stayed true, the briefing took the list branch, and Jake
+// repeated seven appointments verbatim while three reads were being blocked —
+// an unverified snapshot presented as the current calendar, with no notice.
+//
+// These EXECUTE calendarStateAfterRead and feed its output straight into the
+// shipped builders, so they measure the real decision rather than the source.
+
+describe('failed read must not leave stale calendar rows', () => {
+  const loadedRows = [appt({ id: 'p1', hour: 9, endHour: 10, title: 'QA_STALE_1' })];
+
+  it('17. LOADED keeps the rows and clears the error', () => {
+    const s = calendarStateAfterRead(CALENDAR_OUTCOME.LOADED, loadedRows);
+    expect(s).toEqual({ appointments: loadedRows, error: false, settled: true });
+  });
+
+  it('18. FAILED after a successful load DROPS the rows', () => {
+    const loaded = calendarStateAfterRead(CALENDAR_OUTCOME.LOADED, loadedRows);
+    expect(loaded.appointments).toHaveLength(1); // precondition: rows were held
+    const failed = calendarStateAfterRead(CALENDAR_OUTCOME.FAILED);
+    expect(failed.appointments).toBeUndefined();
+    expect(failed.error).toBe(true);
+    expect(failed.settled).toBe(true);
+  });
+
+  it('19. TIMED_OUT after a successful load DROPS the rows', () => {
+    const timedOut = calendarStateAfterRead(CALENDAR_OUTCOME.TIMED_OUT);
+    expect(timedOut.appointments).toBeUndefined();
+    expect(timedOut.error).toBe(true);
+    expect(timedOut.settled).toBe(true);
+  });
+
+  it('20. end-to-end: hydrated → read fails → notice appears, stale list unused', () => {
+    // Exactly the QA sequence: a good read, then a failing one.
+    const good = calendarStateAfterRead(CALENDAR_OUTCOME.LOADED, loadedRows);
+    const hydrated = cloudData({ appointments: good.appointments, appointmentsError: good.error });
+    expect(contextAt(hydrated)).toContain('QA_STALE_1');       // control: it WAS listed
+    expect(briefAt(hydrated)).toContain('📅 1 רשומות היום');
+
+    const bad = calendarStateAfterRead(CALENDAR_OUTCOME.FAILED);
+    const afterFailure = cloudData({ appointments: bad.appointments, appointmentsError: bad.error });
+    const ctxText = contextAt(afterFailure);
+    const briefText = briefAt(afterFailure);
+
+    // The stale row is gone from BOTH surfaces...
+    expect(ctxText).not.toContain('QA_STALE_1');
+    expect(briefText).not.toContain('QA_STALE_1');
+    expect(briefText).not.toContain('רשומות היום');
+    // ...and the unavailable wording is what replaces it.
+    expect(ctxText).toContain('אין לי גישה ליומן');
+    expect(briefText).toContain('לא הצלחתי לטעון את היומן');
+    // Still never the other phantom.
+    expect(briefText).not.toContain('אין רשומות');
+  });
+
+  it('21. same end-to-end for a TIMEOUT, and a non-array "success" is a failure', () => {
+    const t = calendarStateAfterRead(CALENDAR_OUTCOME.TIMED_OUT);
+    const afterTimeout = cloudData({ appointments: t.appointments, appointmentsError: t.error });
+    expect(briefAt(afterTimeout)).toContain('לא הצלחתי לטעון את היומן');
+    expect(contextAt(afterTimeout)).toContain('אין לי גישה ליומן');
+
+    // A LOADED outcome whose payload is unusable must not become "[]", which
+    // would assert "nothing scheduled" — a claim the response cannot support.
+    for (const junk of [null, undefined, {}, 'rows']) {
+      expect(calendarStateAfterRead(CALENDAR_OUTCOME.LOADED, junk).appointments).toBeUndefined();
+      expect(calendarStateAfterRead(CALENDAR_OUTCOME.LOADED, junk).error).toBe(true);
+    }
+  });
+
+  it('22. the seam routes ALL THREE outcomes through the pure decision', () => {
+    // The fix is only real if Assistant.jsx stopped setting this state ad hoc.
+    expect(ASSISTANT_CODE).toContain('calendarStateAfterRead');
+    expect(ASSISTANT_CODE).toMatch(/CALENDAR_OUTCOME\.LOADED/);
+    expect(ASSISTANT_CODE).toMatch(/CALENDAR_OUTCOME\.FAILED/);
+    expect(ASSISTANT_CODE).toMatch(/CALENDAR_OUTCOME\.TIMED_OUT/);
+    // NEGATIVE CONTROL, and the one that actually bites. The defect was three
+    // separate setter groups where one forgot to drop the rows. There is now
+    // exactly ONE call site for each setter — inside `apply`. The pre-fix file
+    // had three `setCalendarError(` and two `setAppointments(`, so this count
+    // fails on the old code, which is what makes it a guard rather than a
+    // restatement. (The `const [x, setX] = useState()` declarations end in `]`,
+    // not `(`, so they are not counted.)
+    expect((ASSISTANT_CODE.match(/setCalendarError\(/g) || []).length).toBe(1);
+    expect((ASSISTANT_CODE.match(/setAppointments\(/g) || []).length).toBe(1);
+  });
+});
+
+// ---- 23. the calendar did not perturb the rest of the context -------------
 
 describe('scope containment', () => {
-  it('17. hydrated CRM wording is unchanged and no write surface was added', () => {
+  it('23. hydrated CRM wording is unchanged and no write surface was added', () => {
     const d = cloudData({ appointments: [appt({ id: 'z', hour: 9 })] });
     const text = contextAt(d);
     // The pre-existing lines still read exactly as before.
