@@ -8,7 +8,7 @@
 // point `activePack` at it. Build the engine once — configure per business.
 // ===================================================================
 import { ACTIONS_GUIDE, ACTION_HANDLERS, BUSINESS_ENTITIES } from './jakeAgent.js';
-import { dashboardKpis, inventoryTotals } from './calc.js';
+import { dashboardKpis, inventoryTotals, quoteTotal } from './calc.js';
 import { formatCurrency } from './format.js';
 import {
   receivablesTotals, overdueCharges, cancelledChargeReceived, roundMoney,
@@ -404,6 +404,152 @@ function assetLines(data) {
 }
 
 // ===================================================================
+// Quotes → Jake. `quotes` (WITH their line items) are ALREADY hydrated by
+// api.fetchAll() — `select('*')` plus a client-side join of `quote_items` —
+// and until now the ONLY quote fact Jake ever received was the scalar
+// `k.pendingQuotes`, a `.filter().length`. He could restate "3 ממתינות" and
+// answer nothing else: not whose, not how much, not which.
+//
+// NOT A SEAM. This is the structural difference from campaigns / assets /
+// calendar and it removes four states, not one: quotes ride the STORE, so
+// there is no `quotesPending`, no `quotesError`, and no ≤4s pre-settle window.
+// The whole taxonomy the Jake Pre-Settle Truthfulness slice exists to fix does
+// not apply here, and inventing a "not connected" wording for a collection
+// that cannot disconnect would be its own untruth. Two states only: hydrated-
+// empty and hydrated-non-empty.
+//
+// TWO ABSENCES, AND COLLAPSING THEM WOULD MAKE ONE OF THEM FALSE. "no quotes
+// at all" and "quotes exist, none pending" read identically today (`ממתינות:
+// 0`), so Jake cannot tell a business that has never written a quote from one
+// that closed everything it sent. Same class as the pre-settle falsehood,
+// approached from the opposite direction.
+//
+// THE BUDGET, AND WHY IT IS ARGUED DIFFERENTLY HERE. `public.quotes` has NO
+// ROW QUOTA — unlike campaigns (200, in campaigns_insert_own) and assets (40,
+// in the storage INSERT policy). `quotes_own` carries ownership and nothing
+// else. So the "fits at the quota ceiling" proof used by jakeAssets.test.js is
+// not available: there is no ceiling. The bound here comes from THIS CAP, and
+// the property that stands in for the missing quota is that the section is
+// O(1) in row count — 5,000 quotes must render the same length as 200. Pinned
+// by jakeQuotes.test.js.
+//
+// EXCLUDED, and the exclusion is the load-bearing guard exactly as
+// `meta.prompt` is for assets: `items` (unbounded count × unbounded free-text
+// description) and `notes`. Jake gets the TOTAL, never the lines. `vatRate`,
+// `validDays` and `id` are omitted as answer-free surface.
+//
+// NO CLOCK — every date shown comes from the row's own `date` field.
+// ===================================================================
+const QUOTE_DETAIL_CAP = 6;
+
+// ⚠️ MUST STAY IDENTICAL TO dashboardKpis()'s predicate in calc.js. Two copies
+// of one rule are free to drift, and a drifted copy would make the header
+// contradict the `pendingQuotes` count printed three lines above it in the very
+// same context. calc.js is deliberately NOT edited to share this — the parity
+// is proven by EXECUTING both against the same fixture in jakeQuotes.test.js
+// rather than by a source-level import that a future refactor could quietly
+// re-inline.
+const QUOTE_PENDING_STATUSES = ['draft', 'sent', 'viewed'];
+const isPendingQuote = (q) => QUOTE_PENDING_STATUSES.includes(q && q.status);
+
+const QUOTE_STATUS_LABELS = {
+  draft: 'טיוטה', sent: 'נשלחה', viewed: 'נצפתה', accepted: 'אושרה', rejected: 'נדחתה',
+};
+
+const quoteNumber = (q) => {
+  const s = String((q && q.number) || '').trim();
+  return s ? s.slice(0, 24) : 'ללא מספר';
+};
+
+const quoteDate = (v) => {
+  if (!v) return 'ללא תאריך';
+  try {
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return 'ללא תאריך';
+    return d.toLocaleDateString('he-IL');
+  } catch { return 'ללא תאריך'; }
+};
+
+// THREE OUTCOMES, and the third is the point — the same rule as
+// assetCampaignClause(). A quote whose client cannot be NAMED still HAS a
+// client; folding that into "ללא לקוח" would tell the user the quote is
+// unattached while the database says otherwise, and inventing a name would be
+// worse. Reachable in principle only if `clients` and `quotes` disagree, which
+// fetchAll makes unlikely — which is exactly why it must not silently become
+// outcome 3 the day it happens.
+function quoteClientLabel(q, byId) {
+  if (!q || !q.clientId) return 'ללא לקוח';
+  const c = byId.get(q.clientId);
+  if (!c) return 'לקוח שאינו זמין כרגע';
+  return String(c.name || '').slice(0, 40) || 'לקוח ללא שם';
+}
+
+// ₪0 IS A CLAIM. A quote with an empty `items` ARRAY genuinely totals zero and
+// says so; a quote whose items never arrived has NO total, and printing ₪0 for
+// it would hand Jake a number he will restate as a fact about the user's money.
+// The two are distinguished structurally — array vs not-an-array — which is the
+// same isHydrated() discriminator used everywhere else in this file.
+function quoteTotalLabel(q) {
+  if (!q || !Array.isArray(q.items)) return 'סכום לא זמין';
+  const total = quoteTotal(q);
+  if (!Number.isFinite(total)) return 'סכום לא זמין';
+  return formatCurrency(total);
+}
+
+function quoteLines(data) {
+  // Defensive only, and deliberately SILENT rather than a declared absence:
+  // artValueContext() already calls dashboardKpis(data), which does
+  // `quotes.filter(...)` unguarded, so a non-array here cannot reach this
+  // function in the shipped app. Emitting a "not connected" line for an
+  // impossible state would put a falsehood in the prompt to guard a path that
+  // does not exist.
+  if (!isHydrated(data.quotes)) return [];
+
+  const all = data.quotes.filter(Boolean);
+  if (!all.length) return ['הצעות מחיר: אין הצעות מחיר בחשבון הזה.'];
+
+  const byId = new Map((data.clients || []).filter(Boolean).map((c) => [c.id, c]));
+  const countOf = (s) => all.filter((q) => q.status === s).length;
+  const pending = all.filter(isPendingQuote);
+  const known = all.filter((q) => QUOTE_STATUS_LABELS[q.status]).length;
+  const unknown = all.length - known;
+
+  // The pending clause is worded, not numeric, when it is zero: "0 ממתינות"
+  // beside a non-zero total is the exact ambiguity this slice removes.
+  const pendingClause = pending.length
+    ? `${pending.length} ממתינות (${countOf('draft')} טיוטות, ${countOf('sent')} נשלחו, ${countOf('viewed')} נצפו)`
+    : 'אין הצעות ממתינות';
+  let header = `הצעות מחיר: ${all.length} סה״כ — ${pendingClause}, `
+    + `${countOf('accepted')} אושרו, ${countOf('rejected')} נדחו.`;
+  // An unrecognised status is counted in the TOTAL and in no bucket, so the
+  // buckets no longer sum to it — say so rather than let the arithmetic read as
+  // broken. Absorbing the remainder into the larger bucket (the assets rule for
+  // `source`) would be wrong here: status is a five-value business enum, not a
+  // two-value derivation.
+  if (unknown > 0) header += ` ועוד ${unknown} בסטטוס לא ידוע (אינן נכללות בפילוח שלמעלה).`;
+  const lines = [header];
+
+  // PENDING FIRST, then the rest — and within each group the array order is
+  // preserved exactly as fetchAll returned it (created_at DESC). Deliberately
+  // NOT re-sorted by `q.date`: that is a user-entered field which may be blank
+  // or malformed, so sorting on it would make the selection non-deterministic.
+  // Same "no re-sort, no clock" rule assetLines() follows.
+  const ordered = [...pending, ...all.filter((q) => !isPendingQuote(q))];
+  const shown = ordered.slice(0, QUOTE_DETAIL_CAP);
+  const hidden = ordered.length - shown.length;
+  const items = shown.map((q) => [
+    quoteNumber(q),
+    quoteClientLabel(q, byId),
+    quoteTotalLabel(q),
+    QUOTE_STATUS_LABELS[q.status] || 'סטטוס לא ידוע',
+    quoteDate(q.date),
+  ].join(' · ')).join('; ');
+  lines.push(`הצעות מחיר אחרונות (מספר · לקוח · סכום כולל מע״מ · סטטוס · תאריך): ${items}.`
+    + (hidden > 0 ? ` ועוד ${hidden} הצעות שאינן מפורטות כאן.` : ''));
+  return lines;
+}
+
+// ===================================================================
 // Context builder — the compact data snapshot fed to Jake every turn. This is
 // business-specific (it knows Art Value's collections + how to phrase them in
 // Hebrew), so it lives in the pack. A new business writes its own.
@@ -450,6 +596,12 @@ function artValueContext(data) {
 
   // F1 receivables — durable, already hydrated, and previously invisible to Jake.
   lines.push(...receivablesLines(data, localIsoDate(now)));
+
+  // Quotes — durable, already hydrated (rows AND items), and until now visible
+  // to Jake only as the scalar count printed in the tasks line above. That line
+  // is UNCHANGED: this is appended, so no existing line moves and the count and
+  // the detail are read together.
+  lines.push(...quoteLines(data));
 
   // Projects — unhydrated in cloud mode, so "אין" would be a claim about a
   // module Jake cannot see.
