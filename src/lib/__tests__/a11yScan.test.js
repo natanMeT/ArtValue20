@@ -238,11 +238,23 @@ describe('a11yScan — end-to-end on the real tree', () => {
   const find = (f) => perFile.find((x) => x.file === f);
   const count = (f, b) => (find(f)?.controls || []).filter((c) => c.bucket === b).length;
 
-  it('the five hidden file inputs are found, and they are the five that exist', () => {
-    expect(totals(perFile).hiddenFileInputs).toBe(5);
+  // ⚠️ WAS FIVE, IS NOW SIX — updated by hand for Asset Library slice 4, which
+  // added the gallery upload input. The number is a MEASURED fact, not a
+  // budget, and `totalRemainingGaps` deliberately excludes this bucket, so the
+  // published gap counts are unchanged by it.
+  //
+  // The sixth is NOT an open gap of the same kind as the other five. The
+  // scanner classifies by structure and cannot see the sibling that names it:
+  // ImageStudio's input is `hidden` + `tabIndex={-1}` with the accessible name
+  // on the visible <button> that triggers it — the `aria-hidden`+`tabIndex`
+  // resolution of this fix class, decided in that slice rather than deferred.
+  // The other five remain undecided and are still the open candidates.
+  it('the six hidden file inputs are found, and they are the six that exist', () => {
+    expect(totals(perFile).hiddenFileInputs).toBe(6);
     expect(count('components/studio/MockupStudio.jsx', BUCKET.HIDDEN_FILE)).toBe(2);
     expect(count('pages/ProjectDetail.jsx', BUCKET.HIDDEN_FILE)).toBe(2);
     expect(count('pages/Settings.jsx', BUCKET.HIDDEN_FILE)).toBe(1);
+    expect(count('pages/ImageStudio.jsx', BUCKET.HIDDEN_FILE)).toBe(1); // slice 4
   });
 
   it('the slices already shipped read as CLOSED — no gaps left in their files', () => {

@@ -18,6 +18,7 @@ import {
 import {
   ASSET_QUOTA, filterFavoriteAssets, nextFavoriteState,
   normalizeCampaignLink, campaignLabelForAsset,
+  ASSET_UPLOAD_ACCEPT, ASSET_SIGNATURE_BYTES, assetSignatureVerdict, uploadMeta,
 } from '../lib/assetLibrary.js';
 // Slice 3 — the canonical campaign status vocabulary, imported READ-ONLY so
 // this page cannot grow a second copy of it. (The naming boundary that
@@ -309,6 +310,106 @@ export function createDeviceGalleryAdapter(store) {
   };
 }
 
+// ===================================================================
+// Slice 4 — USER FILE UPLOAD.
+//
+// THE GAP THIS CLOSES. `add` has always accepted any Blob, but the only
+// blob-producing call site in the product was `srcToBlob(r.src)` inside the
+// generation success branch. An image could therefore enter the durable
+// library ONLY by being generated. There was no file input on this page at all.
+//
+// The pipe is reused exactly as slices 1-3 left it. No new IO function, and
+// `src/lib/api.js` is not touched by this slice.
+// ===================================================================
+
+export const UPLOAD_SIGNATURE_MISMATCH_HE =
+  'הקובץ אינו תואם לסוג שלו — התוכן אינו תמונה תקינה מהסוג הזה. בחר/י קובץ אחר.';
+export const UPLOAD_SUCCESS_HE = 'התמונה נשמרה בגלריה';
+export const UPLOAD_FAILURE_HE = 'ההעלאה נכשלה';
+
+/**
+ * Read the leading bytes a signature check needs. Returns null on ANY problem —
+ * a missing API, a read error, an empty file. null means 'unreadable', which
+ * PROCEEDS (see assetSignatureVerdict): this read must never be able to refuse
+ * a valid file just because the browser would not hand over its first 12 bytes.
+ */
+export async function readAssetSignature(file) {
+  try {
+    const part = file?.slice?.(0, ASSET_SIGNATURE_BYTES);
+    if (!part || typeof part.arrayBuffer !== 'function') return null;
+    return new Uint8Array(await part.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The upload handler, built as a factory so it can be tested without rendering
+ * the page — the same idiom createGalleryCommitGate and createCloudAssetStore
+ * already follow in this file.
+ *
+ * THE RULES IT ENCODES, all of them load-bearing:
+ *   * SYNCHRONOUS double-submit guard. `busyRef.current` is checked and set in
+ *     the same tick; a useState flag would be one render too late and a fast
+ *     double-pick would produce two rows.
+ *   * The FILE ITSELF is passed through, byte-identical. Never re-encoded via a
+ *     canvas or a data URL — that would change the bytes, the size and possibly
+ *     the MIME, so the stored asset would differ from what the user chose.
+ *   * PERSIST-FIRST. No optimistic gallery item, ever. The success toast fires
+ *     only after `add` resolved AND the re-read completed.
+ *   * A FAILURE AFTER THE ROW LANDED IS NOT CLEANED UP. api.js writes the row
+ *     first and deliberately keeps it when the byte upload fails, so the item
+ *     is VISIBLE and deletable rather than an invisible orphan holding quota.
+ *     We therefore re-read on failure too, so the dangling tile appears at
+ *     once. Calling deleteAsset here would invert that rule.
+ *   * The input's value is reset on EVERY path, including cancel and refusal —
+ *     without it, re-picking the same file fires no change event and the
+ *     control looks dead.
+ */
+export function createGalleryUploadHandler({
+  store, getCount, refresh, toast, busyRef, setBusy,
+  readSignature = readAssetSignature,
+}) {
+  return async function onUploadPick(event) {
+    const input = event?.target || null;
+    const reset = () => { if (input) input.value = ''; };
+
+    // Check-and-set in ONE tick. Safe to reset the input here: the in-flight
+    // call already holds its own File reference, which clearing `value` cannot
+    // invalidate.
+    if (busyRef.current) { reset(); return; }
+    busyRef.current = true;
+    setBusy(true);
+
+    const file = input?.files?.[0] || null;
+    try {
+      if (!file) return; // picker cancelled — not an error, so no toast
+
+      // D2 — UX/truthfulness only. NOT security, and it does not close L3.
+      if (assetSignatureVerdict(file.type, await readSignature(file)) === 'mismatch') {
+        toast(UPLOAD_SIGNATURE_MISMATCH_HE, 'error');
+        return; // refused BEFORE any network call
+      }
+
+      try {
+        // Every other refusal (unsupported MIME, empty, oversize, quota) is
+        // owned by validateAssetUpload inside createAsset, which already
+        // returns a truthful Hebrew message and rejects before any request.
+        await store.add(file, uploadMeta(), getCount());
+        await refresh();
+        toast(UPLOAD_SUCCESS_HE);
+      } catch (e) {
+        toast(userFacingError(e, UPLOAD_FAILURE_HE), 'error');
+        await refresh(); // a dangling row must become visible immediately
+      }
+    } finally {
+      reset();
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+}
+
 // P2 - the hosted Gateway validates the TRIMMED prompt against
 // MAX_IMAGE_PROMPT_CHARS and REJECTS over-limit input (it never truncates), so
 // appending the brand-palette block can push a previously-valid prompt over the
@@ -397,7 +498,9 @@ export default function ImageStudio() {
   // Slice 3 — the account's campaigns, for the per-asset selector. Cloud-only,
   // and EMPTY is a legitimate state (no campaigns yet, or the read failed).
   const [campaignOptions, setCampaignOptions] = useState([]);
-  const [galleryBusy, setGalleryBusy] = useState(false);
+  // Slice 4 — rendering only ("מעלה…" + a disabled trigger). The double-submit
+  // guard is uploadingRef below, NEVER this flag: state lands one render late.
+  const [uploadBusy, setUploadBusy] = useState(false);
   const [posterSrc, setPosterSrc] = useState(null);
   const [mockupOpen, setMockupOpen] = useState(false);
   const [activePresetId, setActivePresetId] = useState(null);
@@ -435,6 +538,23 @@ export default function ImageStudio() {
     if (!mayCommit()) { disposeGalleryItems(items); return; } // account switched mid-flight
     setGallery(items);
   };
+
+  // Slice 4 — upload is a DURABLE-backing capability, gated on `durable` and
+  // never on the mode, exactly like setFavorite and setCampaign below. The
+  // device/local store is untouched by this slice and gets no upload control.
+  const canUpload = Boolean(galleryStore.durable);
+  const uploadInputRef = useRef(null);
+  const uploadingRef = useRef(false); // synchronous; see createGalleryUploadHandler
+  // Rebuilt each render on purpose: it closes over the CURRENT refreshGallery
+  // and galleryStore, so a memo here would risk holding a stale account's seam.
+  const onUploadPick = createGalleryUploadHandler({
+    store: galleryStore,
+    getCount: () => galleryRef.current.length,
+    refresh: refreshGallery,
+    toast,
+    busyRef: uploadingRef,
+    setBusy: setUploadBusy,
+  });
   // Slice 3 — the campaign list this page offers in the per-asset selector.
   //
   // WHY THIS PAGE READS IT ITSELF. Campaigns are not in the global store;
@@ -973,16 +1093,64 @@ export default function ImageStudio() {
       </div>
 
       {/* ---- Gallery: collected images → same-subject variations → montage video ---- */}
-      {gallery.length > 0 && (
+      {/* Slice 4 (D3) — the panel used to be gated on `gallery.length > 0`, so a
+          new cloud account saw NO gallery at all and an upload control inside it
+          would have been unreachable by exactly the user who needs the first
+          upload. On the DEVICE backing the old behaviour is preserved exactly:
+          canUpload is false there, so an empty local gallery still renders
+          nothing. */}
+      {(gallery.length > 0 || canUpload) && (
         <div className="card panel" style={{ marginTop: 18 }}>
           <div className="panel-head">
             <div className="panel-title row gap-2"><Icon name="image" size={18} style={{ color: 'var(--lime-deep)' }} /> גלריה ({gallery.length})</div>
             <div className="row gap-2 wrap">
+              {canUpload && (
+                <>
+                  {/* The BUTTON carries the accessible name; the input is
+                      `hidden` (out of the accessibility tree) and tabIndex={-1}
+                      (off the tab order), so the keyboard path is the button.
+                      aria-hidden is deliberately NOT added — it is redundant
+                      with `hidden`. This closes one of the five open
+                      hidden-file-input cases without adding a sixth.
+                      NOT disabled at quota: the refusal message names the
+                      reason, and a disabled button hides it. */}
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    disabled={uploadBusy}
+                    onClick={() => uploadInputRef.current?.click()}
+                  >
+                    <Icon name="image" size={14} /> {uploadBusy ? 'מעלה…' : 'העלאת תמונה'}
+                  </button>
+                  <input
+                    ref={uploadInputRef}
+                    type="file"
+                    hidden
+                    tabIndex={-1}
+                    // No `multiple`: D1 is one file per pick. accept is DERIVED
+                    // from the MIME allowlist, never a literal or image/*.
+                    accept={ASSET_UPLOAD_ACCEPT}
+                    onChange={onUploadPick}
+                  />
+                </>
+              )}
             </div>
           </div>
           <p className="dim" style={{ fontSize: '0.8rem', margin: '0 0 10px' }}>
             נשמרות עד {galleryMax} פריטים{galleryStore.durable ? ' · נשמר בענן בחשבון שלך' : ''}
           </p>
+          {/* Slice 4 — an EMPTY durable gallery shows an empty state and NOT the
+              tab row: four "(0)" counts plus the "וידאו · בקרוב" notice as a new
+              account's first impression is exactly the kind of structurally
+              always-zero count the Video Tab Truthfulness slice removed. The
+              copy names BOTH entry points, because "generate one" being the
+              only route is the gap this slice closes. */}
+          {gallery.length === 0 ? (
+            <p className="dim" style={{ fontSize: '0.82rem', margin: '10px 0 2px' }}>
+              אין עדיין פריטים בגלריה. אפשר להעלות תמונה או ליצור אחת.
+            </p>
+          ) : (
+          <>
           {/* Render-history filter: all / images / videos (animated WebP), plus
               favorites on the durable backing. The video tab is UNCHANGED by
               slice 2 — see the recorded follow-up. */}
@@ -1129,6 +1297,8 @@ export default function ImageStudio() {
               </div>
             ))}
           </div>
+          </>
+          )}
 
         </div>
       )}
