@@ -116,6 +116,100 @@ export function validateAssetUpload({ userId, assetId, mime, byteSize, currentCo
   return { ok: true, ext, path, byteSize: size, mime: str(mime).toLowerCase() };
 }
 
+// ===================================================================
+// Slice 4 — USER FILE UPLOAD into the durable gallery.
+//
+// Nothing below adds a server rule. The upload path reuses createAsset()
+// exactly as slices 1-3 left it: same MIME allowlist, same 10 MiB ceiling,
+// same 40 quota, same path shape, same row-then-bytes ordering. What is new
+// is only that a file can now come from the user instead of the generator.
+// ===================================================================
+
+// The one place an uploaded asset is labelled. Written to `assets.source`,
+// which is bounded at ASSET_META_LIMITS.source (40) — asserted by a test
+// rather than trusted, because the two live in different halves of this file.
+export const ASSET_SOURCE_UPLOAD = 'upload';
+
+// The <input accept> value, DERIVED so it cannot drift. A literal string here
+// (or the broader `image/*`) would be a FOURTH copy of a rule that already has
+// three synchronized ones — bucket allowed_mime_types, the assets_mime_allowed
+// CHECK, and ASSET_MIME_TO_EXT above.
+export const ASSET_UPLOAD_ACCEPT = ASSET_MIME_ALLOWLIST.join(',');
+
+// How many leading bytes a caller must read for assetSignatureVerdict(). 12 is
+// what WebP needs (RIFF at 0..3 + WEBP at 8..11); PNG needs 8 and JPEG 3.
+export const ASSET_SIGNATURE_BYTES = 12;
+
+const byteAt = (bytes, i) => {
+  const v = bytes?.[i];
+  return typeof v === 'number' ? v : null;
+};
+
+const startsWith = (bytes, offset, expected) =>
+  expected.every((b, i) => byteAt(bytes, offset + i) === b);
+
+// Magic numbers for exactly the three allowed MIMEs. Keyed by MIME (not by
+// extension) because the MIME is what the row, the bucket and the CHECK all
+// agree on; the extension is derived from it.
+const ASSET_SIGNATURES = Object.freeze({
+  'image/png':  (b) => startsWith(b, 0, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  'image/jpeg': (b) => startsWith(b, 0, [0xff, 0xd8, 0xff]),
+  // BOTH halves are required: 'RIFF' alone is also AVI and WAV.
+  'image/webp': (b) => startsWith(b, 0, [0x52, 0x49, 0x46, 0x46])
+                    && startsWith(b, 8, [0x57, 0x45, 0x42, 0x50]),
+});
+
+/**
+ * Does the file's first bytes agree with the MIME its name implies?
+ *
+ * ⚠️ THIS IS NOT A SECURITY BOUNDARY, AND IT DOES NOT CLOSE LIMITATION L3.
+ * The server validates the Content-Type the client DECLARES (bucket
+ * `allowed_mime_types` + the `assets_mime_allowed` CHECK); it does not sniff
+ * bytes, and migration 20260727120000 declares that as L3. A caller that does
+ * not go through this screen is entirely unaffected by this function. It exists
+ * for ONE reason: so a user who picks a mislabelled file is told what is wrong
+ * instead of getting a tile that silently fails to render.
+ *
+ * THREE outcomes, never two:
+ *   'match'      — the signature agrees. Proceed.
+ *   'mismatch'   — the signature is readable and disagrees. Refuse locally.
+ *   'unreadable' — too few bytes, no bytes, or a MIME outside the allowlist.
+ *                  PROCEED. An advisory check that fails CLOSED would become a
+ *                  gate the server never agreed to, and would refuse valid
+ *                  files on any File.slice() quirk. An unsupported MIME is not
+ *                  this function's refusal to make — validateAssetUpload owns
+ *                  that, with a message naming the actual type.
+ *
+ * @param {string} mime  the declared MIME (File.type)
+ * @param {Uint8Array|number[]|null} bytes first ASSET_SIGNATURE_BYTES bytes
+ * @returns {'match'|'mismatch'|'unreadable'}
+ */
+export function assetSignatureVerdict(mime, bytes) {
+  const check = ASSET_SIGNATURES[str(mime).toLowerCase()];
+  if (!check) return 'unreadable';
+  if (!bytes || typeof bytes.length !== 'number' || bytes.length < ASSET_SIGNATURE_BYTES) {
+    return 'unreadable';
+  }
+  return check(bytes) ? 'match' : 'mismatch';
+}
+
+/**
+ * The metadata bag for an uploaded asset. DELIBERATELY only `source`.
+ *
+ * NOT `engine`: the generation path defaults to 'local' (ImageStudio's
+ * galleryMeta), and writing that for a file the user chose would record a
+ * false provenance in a durable column.
+ * NOT `prompt`/`preset`: the user typed no prompt, and carrying whatever text
+ * happens to be in the studio box would attribute a prompt to an image it
+ * never produced.
+ * NOT `kind`: the cloud path hardcodes kind='image' in assetToRow and the
+ * server CHECK is kind='image'; meta.kind is read only by the DEVICE store,
+ * which this slice does not target.
+ */
+export function uploadMeta() {
+  return { source: ASSET_SOURCE_UPLOAD };
+}
+
 /**
  * Normalize one `public.assets` row into the shape the gallery renders.
  * A row whose path/owner is malformed is rejected (null) rather than shown —

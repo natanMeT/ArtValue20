@@ -64,6 +64,17 @@ describe('device adapter — the UNCHANGED local/demo store', () => {
   it('keeps its account-scoped database name (S0F.1 isolation is unchanged)', () => {
     expect(createDeviceGalleryAdapter(store()).dbName).toBe('artvalue_gallery_local');
   });
+
+  // Slice 4 — WHY UPLOAD IS DURABLE-ONLY, stated as a measured fact rather than
+  // a preference. The device seam takes (blob, meta) and DROPS the third
+  // argument, so an upload routed through it would silently lose the count the
+  // truthful quota pre-refusal is computed from. The cloud seam takes all three.
+  it('drops the count argument the upload path depends on', async () => {
+    const s = store();
+    await createDeviceGalleryAdapter(s).add({ type: 'image/png' }, { source: 'upload' }, 7);
+    expect(s.add).toHaveBeenCalledWith({ type: 'image/png' }, { source: 'upload' });
+    expect(s.add.mock.calls[0]).toHaveLength(2);
+  });
 });
 
 describe('disposeGalleryItems — only object URLs are ours to release', () => {
