@@ -9,7 +9,7 @@ The following **three Markdown files are authoritative**. They are the live sour
 | File | Role | Current version |
 | --- | --- | --- |
 | [`PROJECT_TRACKER.md`](PROJECT_TRACKER.md) | Living cross-session handoff — **the single source of truth for live release state** (source, deployment, bundle, Edge version, rollback target), plus the status ledger and open decisions. | — (living) |
-| [`roadmaps/BUSINESS_OS_MASTER_ROADMAP.md`](roadmaps/BUSINESS_OS_MASTER_ROADMAP.md) | Product **strategy** — vision, modules, customer journey, launch gates, risks. **The product vision lives here, in §1.1–§1.5** (what ArtValue is, what it is not, who it is for). There is no separate vision file: one was added and removed the same day once it was confirmed to duplicate those sections. | **Business OS v0.10** |
+| [`roadmaps/BUSINESS_OS_MASTER_ROADMAP.md`](roadmaps/BUSINESS_OS_MASTER_ROADMAP.md) | Product **strategy** — vision, modules, customer journey, launch gates, risks. **The product vision lives here, in §1.1–§1.5** (what ArtValue is, what it is not, who it is for). There is no separate vision file: one was added and removed the same day once it was confirmed to duplicate those sections. | **Business OS v0.11** |
 | [`roadmaps/AI_GATEWAY_MASTER_ROADMAP.md`](roadmaps/AI_GATEWAY_MASTER_ROADMAP.md) | AI infrastructure **strategy** — Gateway contracts, milestones, decision log. | **AI Gateway v5.6** |
 
 ### One state document, not four
@@ -26,7 +26,7 @@ Eight exports (Business OS v0.7–v0.10, AI Gateway v5.3–v5.6) previously live
 
 Regenerating one is a documentation-only task: export the current Markdown to Hebrew-RTL `.docx`, hand over the file, do not commit it.
 
-**Version numbering note:** the Business OS roadmap advanced v0.9 → **v0.10**, deliberately not v1.0 — it remains a pre-beta strategic draft with durable Asset Library, durable Campaigns, module durability, organization boundaries and credits/cost controls still open. A v1.0 label would falsely signal launch readiness.
+**Version numbering note:** the Business OS roadmap advanced v0.10 → **v0.11** (and earlier v0.9 → v0.10), deliberately not v1.0 — it remains a pre-beta strategic draft with durable Asset Library, durable Campaigns, module durability, organization boundaries and credits/cost controls still open. A v1.0 label would falsely signal launch readiness.
 
 ## Update policy
 
