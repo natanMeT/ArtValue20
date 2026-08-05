@@ -122,6 +122,84 @@ describe('assets — local/demo uses notConnectedLine, not the failure wording',
   it('does not use the transient failure wording', () => {
     expect(text).not.toContain('לא הצלחת לטעון את ספריית הנכסים');
   });
+
+  // ⚠️ This fixture omits `assetsPending`, which is exactly how local/demo and
+  // every legacy caller behave. The pre-settle window is a THIRD state, told
+  // apart by that key and asserted in the C1 block below.
+  it('is the SETTLED not-connected case — the pending window is separate', () => {
+    expect(text).not.toContain('עדיין אין לי את הנתונים');
+  });
+});
+
+// ---- the pre-settle window (C1) -------------------------------------------
+
+// THE THIRD ABSENCE. Between a cloud panel open and the seam read settling
+// (≤4s) `assets` is undefined with the error flag FALSE — structurally
+// identical to local/demo, so Jake was handed "המודול אינו מחובר לחשבון הזה".
+// FALSE in cloud: the library is connected and the rows are durable, they
+// simply had not arrived.
+describe('C1 — the PRE-SETTLE window is its own state, not "not connected"', () => {
+  const text = ctx(cloudData({ assets: undefined, assetsError: false, assetsPending: true }));
+
+  it('emits the approved pending wording', () => {
+    expect(text).toContain(
+      'נכסים (ספריית התמונות): עדיין אין לי את הנתונים — אל תסיק מכך מסקנה. '
+      + 'אל תאמר שאין נכסים ואל תדווח על אפס; אמור בכנות שהנתונים עדיין נטענים.',
+    );
+  });
+
+  it('NEVER claims the module is disconnected', () => {
+    expect(text).not.toContain('נכסים: המודול אינו מחובר');
+  });
+
+  it('NEVER claims the read failed — nothing has failed yet', () => {
+    expect(text).not.toContain('לא הצלחת לטעון את ספריית הנכסים');
+  });
+
+  it('reports no count and no asset of any kind', () => {
+    // Non-empty first, or the assertions below pass vacuously.
+    expect(assetSection(text)).not.toBe('');
+    expect(assetSection(text)).not.toMatch(/\d/);
+    expect(text).not.toContain('אין נכסים בחשבון הזה');
+    expect(text).not.toContain('מועדפים');
+  });
+
+  it('leaks no signed URL, path or identifier (unchanged invariant)', () => {
+    expect(text).not.toContain('token=');
+    expect(text).not.toContain('/storage/v1/');
+  });
+});
+
+describe('C1 — precedence: a KNOWN failure is never softened into "loading"', () => {
+  it('error wins over pending when a caller sets both', () => {
+    const text = ctx(cloudData({ assets: undefined, assetsError: true, assetsPending: true }));
+    expect(text).toContain('לא הצלחת לטעון את ספריית הנכסים');
+    expect(text).not.toContain('עדיין אין לי את הנתונים');
+  });
+
+  it('hydrated rows win over pending — a verified library is never hidden', () => {
+    const text = ctx(cloudData({ assets: [asset()], assetsPending: true }));
+    expect(assetSection(text)).toContain('1');
+    expect(text).not.toContain('עדיין אין לי את הנתונים');
+  });
+
+  it('a loaded EMPTY library is a verified fact and outranks pending too', () => {
+    const text = ctx(cloudData({ assets: [], assetsPending: true }));
+    expect(text).toContain('נכסים (ספריית התמונות): אין נכסים בחשבון הזה.');
+    expect(text).not.toContain('עדיין אין לי את הנתונים');
+  });
+});
+
+describe('C1 — the pending flag DEFAULTS to falsy, and that is load-bearing', () => {
+  it('an absent key keeps the pre-existing not-connected wording', () => {
+    expect(ctx(cloudData({ assets: undefined, assetsError: false })))
+      .toContain('נכסים: המודול אינו מחובר לחשבון הזה');
+  });
+
+  it('an explicit false keeps it too', () => {
+    expect(ctx(cloudData({ assets: undefined, assetsError: false, assetsPending: false })))
+      .toContain('נכסים: המודול אינו מחובר לחשבון הזה');
+  });
 });
 
 describe('assets — a loaded EMPTY library says so', () => {

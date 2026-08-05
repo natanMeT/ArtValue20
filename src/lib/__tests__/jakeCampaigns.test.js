@@ -141,6 +141,11 @@ describe('T9 — a FAILED cloud read is declared, and never reported as zero', (
   });
 });
 
+// ⚠️ THIS IS THE *SETTLED* NOT-CONNECTED CASE. When it was written it was the
+// only unhydrated-with-no-error state there was. It no longer is: the pre-settle
+// window is a THIRD state, asserted in the block below, and it is told apart by
+// `campaignsPending`. The fixture here deliberately omits that key, which is
+// exactly how local/demo and every legacy caller behave.
 describe('T10 — local/demo is "not connected", NOT a failure', () => {
   const text = ctx(cloudData({ campaigns: undefined, campaignsError: false }));
 
@@ -154,6 +159,88 @@ describe('T10 — local/demo is "not connected", NOT a failure', () => {
 
   it('a missing key behaves identically to an explicit undefined', () => {
     expect(ctx(cloudData())).toContain('קמפיינים: המודול אינו מחובר לחשבון הזה');
+  });
+});
+
+// ---- the pre-settle window (C1) -------------------------------------------
+
+// THE THIRD ABSENCE. Between a cloud panel open and the seam read settling
+// (≤4s) `campaigns` is undefined with the error flag FALSE — structurally
+// identical to local/demo, so Jake was handed "המודול אינו מחובר לחשבון הזה".
+// That is FALSE in cloud: the module is connected and the rows are durable,
+// they simply had not arrived. `campaignsPending` is what tells the two apart.
+// Only the campaign lines. The surrounding context legitimately carries
+// not-connected wording and digits for OTHER modules (assets, projects,
+// inventory, the KPI roll-ups), so scanning the whole string would pass or fail
+// for the wrong reason — the same trap jakeAssets.test.js documents.
+const campaignSection = (text) => text.split('\n').filter((l) => l.startsWith('- קמפיינים')).join('\n');
+
+describe('C1 — the PRE-SETTLE window is its own state, not "not connected"', () => {
+  const text = ctx(cloudData({ campaigns: undefined, campaignsError: false, campaignsPending: true }));
+
+  it('emits the approved pending wording', () => {
+    expect(text).toContain(
+      'קמפיינים: עדיין אין לי את הנתונים — אל תסיק מכך מסקנה. '
+      + 'אל תאמר שאין קמפיינים ואל תדווח על אפס; אמור בכנות שהנתונים עדיין נטענים.',
+    );
+  });
+
+  it('NEVER claims the module is disconnected', () => {
+    // Scoped to the campaign lines: other modules are legitimately
+    // not-connected in this fixture.
+    expect(campaignSection(text)).not.toBe('');
+    expect(campaignSection(text)).not.toContain('המודול אינו מחובר');
+  });
+
+  it('NEVER claims the read failed — nothing has failed yet', () => {
+    expect(text).not.toContain('לא הצלחת לטעון את הקמפיינים');
+  });
+
+  it('reports no count and no campaign of any kind', () => {
+    // The section must be non-empty, or every assertion below passes vacuously.
+    expect(campaignSection(text)).not.toBe('');
+    expect(campaignSection(text)).not.toMatch(/\d/);
+    expect(text).not.toContain('קמפיינים פעילים');
+    expect(text).not.toContain('אין קמפיינים בחשבון הזה');
+  });
+
+  it('carries the do-not-infer instruction, like every other absence wording', () => {
+    expect(text).toContain('אל תסיק מכך מסקנה');
+  });
+});
+
+describe('C1 — precedence: a KNOWN failure is never softened into "loading"', () => {
+  it('error wins over pending when a caller sets both', () => {
+    const text = ctx(cloudData({ campaigns: undefined, campaignsError: true, campaignsPending: true }));
+    expect(text).toContain('לא הצלחת לטעון את הקמפיינים');
+    expect(text).not.toContain('עדיין אין לי את הנתונים');
+  });
+
+  it('hydrated rows win over pending — a verified list is never hidden', () => {
+    const text = ctx(cloudData({ campaigns: many(3), campaignsPending: true }));
+    expect(text).toContain('3 סה״כ');
+    expect(text).not.toContain('עדיין אין לי את הנתונים');
+  });
+
+  it('a loaded EMPTY list is a verified fact and outranks pending too', () => {
+    const text = ctx(cloudData({ campaigns: [], campaignsPending: true }));
+    expect(text).toContain('קמפיינים: אין קמפיינים בחשבון הזה.');
+    expect(text).not.toContain('עדיין אין לי את הנתונים');
+  });
+});
+
+describe('C1 — the pending flag DEFAULTS to falsy, and that is load-bearing', () => {
+  // Inverting this ships a NEW falsehood: local/demo genuinely has no campaigns
+  // module and never sets the key, so a truthy default would have it announce
+  // that its campaigns are loading, forever.
+  it('an absent key keeps the pre-existing not-connected wording', () => {
+    expect(ctx(cloudData({ campaigns: undefined, campaignsError: false })))
+      .toContain('קמפיינים: המודול אינו מחובר לחשבון הזה');
+  });
+
+  it('an explicit false keeps it too', () => {
+    expect(ctx(cloudData({ campaigns: undefined, campaignsError: false, campaignsPending: false })))
+      .toContain('קמפיינים: המודול אינו מחובר לחשבון הזה');
   });
 });
 
@@ -214,6 +301,35 @@ describe('T12/T13 — the context stays under the Gateway limit at QUOTA', () =>
     const withC = ctx(worst).length;
     const without = ctx({ ...worst, campaigns: undefined, campaignsError: false }).length;
     expect(withC - without).toBeLessThan(1000);
+  });
+
+  // C1 — the pre-settle state is a SWAP, not an addition: it replaces the
+  // not-connected line rather than adding one. Measured at the worst case:
+  // pending 3,947 vs not-connected 3,990 vs hydrated 5,085, all / 12,000. The
+  // new state is therefore strictly CHEAPER than the wording it replaces and
+  // can never become the binding constraint. Asserted as a relation, not as a
+  // hardcoded number, so the guarantee survives future wording edits.
+  it('C1 the PENDING state costs no more than the wording it replaces', () => {
+    const pending = withBusinessBrain(
+      ctx({ ...worst, campaigns: undefined, campaignsError: false, campaignsPending: true }),
+      'מה קורה עם הקמפיינים שלי?', worst.businessProfile,
+    );
+    const notConnected = withBusinessBrain(
+      ctx({ ...worst, campaigns: undefined, campaignsError: false }),
+      'מה קורה עם הקמפיינים שלי?', worst.businessProfile,
+    );
+    expect(pending.length).toBeLessThan(LIMIT);
+    expect(pending.length).toBeLessThanOrEqual(notConnected.length);
+  });
+
+  it('C1 the hydrated worst case remains the binding constraint, still under the limit', () => {
+    const hydrated = withBusinessBrain(ctx(worst), 'מה קורה עם הקמפיינים שלי?', worst.businessProfile);
+    const pending = withBusinessBrain(
+      ctx({ ...worst, campaigns: undefined, campaignsError: false, campaignsPending: true }),
+      'מה קורה עם הקמפיינים שלי?', worst.businessProfile,
+    );
+    expect(hydrated.length).toBeLessThan(LIMIT);
+    expect(pending.length).toBeLessThan(hydrated.length);
   });
 });
 
@@ -324,5 +440,65 @@ describe('the morning briefing does NOT carry campaigns (owner decision D1)', ()
     // The calendar notice is the one seam-driven line the briefing DOES carry.
     const b = artValuePack.briefing(cloudData({ appointments: undefined, appointmentsError: true }));
     expect(b).toContain('לא הצלחתי לטעון את היומן');
+  });
+
+  // C1 / owner decision D1: `campaignsPending` and `assetsPending` are WORDING
+  // signals for the context only. They must never reach the briefing gate —
+  // wiring them in would delay every briefing and put two more failure modes in
+  // front of the once-a-day marker.
+  it('a PENDING campaigns read adds nothing to the briefing and changes nothing in it', () => {
+    const base = artValuePack.briefing(cloudData({ campaigns: undefined, campaignsError: false }));
+    const pend = artValuePack.briefing(cloudData({ campaigns: undefined, campaignsError: false, campaignsPending: true }));
+    expect(pend).toBe(base);
+    expect(pend).not.toContain('עדיין אין לי את הנתונים');
+  });
+
+  it('a PENDING assets read likewise leaves the briefing byte-identical', () => {
+    const base = artValuePack.briefing(cloudData({ assets: undefined, assetsError: false }));
+    const pend = artValuePack.briefing(cloudData({ assets: undefined, assetsError: false, assetsPending: true }));
+    expect(pend).toBe(base);
+  });
+
+  // ⚠️ THIS GUARD EXISTS BECAUSE A MUTATION SURVIVED. Initialising both pending
+  // flags to `false` in cloud passed the entire suite: the pure builders were
+  // fully covered, but NOTHING asserted the seam's initial value — which is the
+  // only thing that makes the pre-settle window truthful in the shipped app.
+  // This repo has no jsdom and no rendered-component tests, so the guard is
+  // source-level by necessity. Stated, not glossed.
+  it('both pending flags are INITIALISED from isSupabaseConfigured (cloud=true, local=false)', () => {
+    const assistant = read('../../components/ai/Assistant.jsx');
+    expect(assistant).toContain('const [campaignsPending, setCampaignsPending] = useState(isSupabaseConfigured);');
+    expect(assistant).toContain('const [assetsPending, setAssetsPending] = useState(isSupabaseConfigured);');
+    // Negative control: the stripper/reader did not simply return an empty file.
+    expect(assistant).toContain('const [campaigns, setCampaigns] = useState(undefined);');
+  });
+
+  it('both pending flags are CLEARED from the module return, not hardcoded', () => {
+    const assistant = read('../../components/ai/Assistant.jsx');
+    expect(assistant).toContain('setCampaignsPending(!next.settled);');
+    expect(assistant).toContain('setAssetsPending(!next.settled);');
+    expect(assistant).not.toContain('setCampaignsPending(false)');
+    expect(assistant).not.toContain('setAssetsPending(false)');
+  });
+
+  it('both pending flags reach jakePack through jakeData()', () => {
+    const assistant = read('../../components/ai/Assistant.jsx');
+    const jakeData = assistant.slice(assistant.indexOf('const jakeData = () => ({'));
+    const body = jakeData.slice(0, jakeData.indexOf('});'));
+    expect(body).toContain('campaignsPending');
+    expect(body).toContain('assetsPending');
+  });
+
+  it('the briefing gate in Assistant.jsx stays CALENDAR-ONLY', () => {
+    const assistant = read('../../components/ai/Assistant.jsx');
+    const gates = assistant.match(/if \(!open \|\| !\w+\) return;/g) || [];
+    expect(gates).toContain('if (!open || !calendarSettled) return;');
+    expect(assistant).not.toContain('campaignsSettled');
+    expect(assistant).not.toContain('assetsSettled');
+    // The pending flags exist, but never inside the briefing gate.
+    expect(assistant).toContain('setCampaignsPending');
+    expect(assistant).toContain('setAssetsPending');
+    expect(assistant).not.toMatch(/!open \|\| !campaignsPending/);
+    expect(assistant).not.toMatch(/!open \|\| !assetsPending/);
   });
 });

@@ -149,6 +149,17 @@ describe('honest emptiness · a real empty array still reads as empty', () => {
     expect(notConnected.filter((l) => l.includes('נכסים'))).toHaveLength(1);
   });
 
+  // ⚠️ C1 — THE COUNT ABOVE IS WHAT MAKES THE PENDING DEFAULT LOAD-BEARING, and
+  // it is unchanged at 2 on purpose. localData() never sets `campaignsPending`
+  // or `assetsPending`, because local/demo has neither module and has nothing to
+  // wait for. If the pre-settle flag defaulted to "pending" instead of "not
+  // pending", these two lines would become "הנתונים עדיין נטענים" — replacing
+  // one falsehood with another, in the one mode that can never load them.
+  it('local/demo NEVER announces that a module is still loading', () => {
+    expect(out).not.toContain('עדיין אין לי את הנתונים');
+    expect(out).not.toContain('עדיין נטענים');
+  });
+
   it('an empty (but present) activity log stays silent, exactly as before', () => {
     expect(out.includes('יומן פעילות')).toBe(false);
   });
