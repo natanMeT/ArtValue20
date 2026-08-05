@@ -16,6 +16,7 @@ import {
 import {
   listToday, listWeek, formatTimeRange, APPOINTMENT_KIND_LABELS,
 } from './schedule.js';
+import { CAMPAIGN_STATUS_LABELS } from './campaigns.js';
 
 // ===================================================================
 // HYDRATION TRUTHFULNESS — absence is not emptiness.
@@ -166,6 +167,81 @@ function calendarLines(data, now) {
 }
 
 // ===================================================================
+// Campaigns → Jake. `public.campaigns` is durable, live and CLOUD-ONLY, and was
+// invisible to Jake in a way that was WORSE than the calendar's: projects and
+// inventory at least get notConnectedLine(), so Jake is told he cannot see
+// them. Campaigns had NO data and NO declaration of absence — nothing in this
+// file mentioned them at all, so an ungrounded answer was the only thing
+// available for "מה קורה עם הקמפיינים שלי".
+//
+// The rows arrive through the JAKE SEAM (Assistant.jsx reads listCampaigns()
+// once per panel open), NOT through the store: campaigns are page-owned exactly
+// like appointments (Campaigns.jsx holds its own state and re-reads from the
+// server after every write), with no reducer, no seed and no localStorage
+// fallback — a test already forbids all three storage APIs there.
+//
+// NAMING BOUNDARY, STATED IN THE COPY ITSELF. A campaign here is the durable
+// per-account BUSINESS object (public.campaigns), NOT the device-local creative
+// session in src/creative/v2/campaignStore.js. Jake is told so in the line, so
+// the two vocabularies cannot merge in his answer either. This file must never
+// import from src/creative/v2/**.
+//
+// THE CAP IS A BUDGET GUARD, NOT COSMETIC — and unlike the calendar's, its
+// worst case is reachable by design: the account quota is 200 campaigns. This
+// text ships inside the existing `context.summary`, which the Gateway validates
+// against MAX_CONTEXT_CHARS = 12000 and REJECTS over-limit rather than
+// truncating. MEASURED against a heavy account: baseline 4,945 chars; capped
+// worst case (200 campaigns, all active, 120-char titles) 5,905 chars. UNCAPPED
+// the same account is 25,253 chars — 2.1x the limit — and with objective bodies
+// 65,853, or 5.5x. An uncapped list would not degrade Jake, it would STOP him.
+// That is why objective bodies are excluded and only actives are listed.
+//
+// NO CLOCK — status is the whole selector, so unlike the calendar this needs no
+// `now` injected.
+// ===================================================================
+const CAMPAIGN_ACTIVE_CAP = 5;
+
+function campaignLines(data) {
+  if (!isHydrated(data.campaigns)) {
+    // TWO different absences, and collapsing them would make one of them a lie.
+    // A failed/timed-out CLOUD read is transient; local/demo genuinely has no
+    // campaigns module (Campaigns.jsx returns an unavailable state there,
+    // pinned by campaignsContainment.test.js), so notConnectedLine IS accurate
+    // there — the opposite of the calendar, which cannot reuse it.
+    if (data.campaignsError) {
+      return ['קמפיינים: אין לי גישה לקמפיינים כרגע ואין לי עליהם נתונים כלל. '
+        + 'אל תאמר שאין קמפיינים, אל תדווח על אפס ואל תסיק מכך מסקנה — '
+        + 'אמור בכנות שלא הצלחת לטעון את הקמפיינים.'];
+    }
+    return [notConnectedLine('קמפיינים')];
+  }
+
+  const all = data.campaigns;
+  if (!all.length) return ['קמפיינים: אין קמפיינים בחשבון הזה.'];
+
+  const countOf = (s) => all.filter((c) => c && c.status === s).length;
+  const active = all.filter((c) => c && c.status === 'active');
+  const lines = ['קמפיינים (קמפיין עסקי במודול הקמפיינים — לא סשן קריאייטיב): '
+    + `${all.length} סה״כ — ${countOf('active')} פעילים, ${countOf('draft')} טיוטות, `
+    + `${countOf('completed')} הושלמו, ${countOf('cancelled')} בוטלו.`];
+
+  // Only ACTIVES are listed. The roll-up above already states the other three
+  // counts truthfully, and listing a completed campaign answers no question the
+  // user is asking today while costing the same budget as an active one.
+  if (active.length) {
+    const shown = active.slice(0, CAMPAIGN_ACTIVE_CAP);
+    const hidden = active.length - shown.length;
+    const items = shown.map((c) => {
+      const window = (c.startDate || c.endDate) ? ` [${c.startDate || '—'} → ${c.endDate || '—'}]` : '';
+      return `${c.title} (${CAMPAIGN_STATUS_LABELS[c.status]})${window}`;
+    }).join('; ');
+    lines.push(`קמפיינים פעילים: ${items}.`
+      + (hidden > 0 ? ` ועוד ${hidden} פעילים שאינם מפורטים כאן.` : ''));
+  }
+  return lines;
+}
+
+// ===================================================================
 // Context builder — the compact data snapshot fed to Jake every turn. This is
 // business-specific (it knows Art Value's collections + how to phrase them in
 // Hebrew), so it lives in the pack. A new business writes its own.
@@ -197,6 +273,12 @@ function artValueContext(data) {
   // The calendar frames the day, so it sits directly after the date line and
   // ahead of the CRM collections.
   lines.splice(1, 0, ...calendarLines(data, now));
+
+  // Campaigns — durable, cloud-only, page-owned, and read through the Jake seam.
+  // Appended rather than spliced: unlike the calendar it is not time-bound, so
+  // it does not belong ahead of the CRM collections, and appending moves no
+  // existing line.
+  lines.push(...campaignLines(data));
 
   // F1 receivables — durable, already hydrated, and previously invisible to Jake.
   lines.push(...receivablesLines(data, localIsoDate(now)));

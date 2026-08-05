@@ -436,8 +436,12 @@ describe('scope containment', () => {
     expect(text).toContain('לקוחות ב-CRM: 0 סה״כ');
     expect(text).toContain('פרויקטים: המודול אינו מחובר לחשבון הזה');
     expect(text).toContain('מלאי: המודול אינו מחובר לחשבון הזה');
-    // Campaigns and assets stay out of scope.
-    expect(text).not.toContain('קמפיינים');
+    // ⚠️ SUPERSEDED IN HALF, DELIBERATELY. This line originally pinned BOTH
+    // campaigns and assets out of the context, because neither was in the
+    // CALENDAR slice's scope. Campaigns were since brought in on purpose by the
+    // approved Jake Campaigns slice — the successor to this one — and are now
+    // pinned by jakeCampaigns.test.js instead. ASSETS remain out of scope and
+    // the guard for them is kept exactly as it was.
     expect(text).not.toContain('נכסים');
   });
 });
