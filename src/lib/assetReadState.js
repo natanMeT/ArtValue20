@@ -37,11 +37,25 @@ export const ASSET_OUTCOME = Object.freeze({
 /**
  * The seam state after one asset-library read settles.
  *
- * Returns `{ assets, error }` — TWO keys, not three. Like campaigns and unlike
- * the calendar there is no `settled` flag: nothing waits for this read. The
- * morning briefing is gated on the CALENDAR only, and adding a second gate
- * would delay every briefing and put another failure mode in front of the
- * once-a-day marker.
+ * Returns `{ assets, error, settled }`.
+ *
+ * ⚠️ THE THIRD KEY IS FOR WORDING, NEVER FOR GATING — a DELIBERATE REVERSAL of
+ * what this header said before ("TWO keys, not three... no `settled` flag").
+ * The original reason is still true and still enforced: the calendar's flag
+ * gates the morning briefing and assets must not, so `settled` here is consumed
+ * ONLY to decide which unhydrated WORDING jakePack emits. The briefing remains
+ * gated on the CALENDAR alone (owner decision D1, pinned by a test).
+ *
+ * Why it exists at all: `{ assets, error }` encodes TWO absences (a failed
+ * cloud read, and local/demo having no asset library) while the product has
+ * THREE — the third being "the read has not come back yet". Collapsing the
+ * third into the second made Jake say "המודול אינו מחובר לחשבון הזה" during the
+ * ≤4s window after a cloud panel open, which is FALSE: the library is
+ * connected and the rows are durable, they simply have not arrived.
+ *
+ * `settled` is `true` on EVERY outcome, because this function runs only once a
+ * read has settled. It is a constant by construction and is returned rather
+ * than assumed so tests can EXECUTE the rule instead of grepping the caller.
  *
  * `assets` is the array on success and `undefined` on every other outcome —
  * `undefined` is the "never loaded" half of the structural `Array.isArray`
@@ -54,7 +68,7 @@ export const ASSET_OUTCOME = Object.freeze({
  */
 export function assetStateAfterRead(outcome, rows) {
   if (outcome === ASSET_OUTCOME.LOADED && Array.isArray(rows)) {
-    return { assets: rows, error: false };
+    return { assets: rows, error: false, settled: true };
   }
-  return { assets: undefined, error: true };
+  return { assets: undefined, error: true, settled: true };
 }

@@ -401,19 +401,29 @@ export default function Assistant() {
   // cloud read and local/demo both leave `campaigns` undefined but are
   // different facts. Here — unlike the calendar — local/demo genuinely has no
   // campaigns module, so its wording is notConnectedLine, not a failure notice.
-  // There is deliberately NO `campaignsSettled`: campaigns do not gate the
-  // morning briefing, so nothing waits on this read.
+  // Campaigns still do NOT gate the morning briefing — nothing waits on this
+  // read, and `campaignsPending` must never be wired into that gate (owner
+  // decision D1, pinned by a test). It exists for WORDING only: until the read
+  // settles, `campaigns` is undefined with the error flag false, which used to
+  // be indistinguishable from local/demo and made Jake claim the module was not
+  // connected to this account — false in cloud, where the rows are durable and
+  // simply had not arrived. TRUE at mount in cloud, FALSE in local/demo where
+  // there is nothing to wait for.
   const [campaigns, setCampaigns] = useState(undefined);
   const [campaignsError, setCampaignsError] = useState(false);
+  const [campaignsPending, setCampaignsPending] = useState(isSupabaseConfigured);
   // Assets → Jake. Same structural discriminator and the same "absence is not
   // emptiness" rule once more, and the same reason for a separate error flag:
   // a failed cloud read and local/demo both leave `assets` undefined but are
   // different facts. Like campaigns — and unlike the calendar — local/demo
   // genuinely has no asset library, so its wording is notConnectedLine.
-  // There is deliberately NO `assetsSettled`: assets do not gate the morning
-  // briefing, so nothing waits on this read.
+  // Assets still do NOT gate the morning briefing, exactly like campaigns, and
+  // `assetsPending` must never be wired into that gate (owner decision D1,
+  // pinned by a test). Same wording-only purpose and the same initial value:
+  // TRUE at mount in cloud, FALSE in local/demo.
   const [assets, setAssets] = useState(undefined);
   const [assetsError, setAssetsError] = useState(false);
+  const [assetsPending, setAssetsPending] = useState(isSupabaseConfigured);
   // The store snapshot PLUS the seam-read calendar — what every Jake lane is
   // handed instead of bare `data`. A fresh shallow object per call is
   // deliberate and costs nothing: this file has no useMemo/useCallback at all,
@@ -425,10 +435,14 @@ export default function Assistant() {
     appointmentsError: calendarError,
     campaigns,
     campaignsError,
+    // The THIRD absence, so jakePack can tell "not read yet" apart from "no
+    // module here at all". Read only when `campaigns` is unhydrated.
+    campaignsPending,
     // Metadata rows only — the seam below never reads the signed `url` that
     // listAssets() attaches, so no fetchable credential can reach the context.
     assets,
     assetsError,
+    assetsPending,
   });
   const scrollRef = useRef(null);
   // Creative V2 orchestrator — built once; reads live CRM data via a ref. The
@@ -748,6 +762,12 @@ export default function Assistant() {
       const next = campaignStateAfterRead(outcome, rows);
       setCampaigns(next.campaigns);
       setCampaignsError(next.error);
+      // Every outcome settles, so this always clears. Taken from the module's
+      // return rather than hardcoded here so the rule is EXECUTED by tests
+      // instead of grepped in this file. D2: pending is NOT re-armed on a later
+      // panel open — after the first settle the seam keeps showing its
+      // last-known rows, unchanged from before this slice.
+      setCampaignsPending(!next.settled);
     };
     const timer = setTimeout(() => apply(CAMPAIGN_OUTCOME.TIMED_OUT), CAMPAIGN_READ_TIMEOUT_MS);
     listCampaigns()
@@ -786,6 +806,9 @@ export default function Assistant() {
       const next = assetStateAfterRead(outcome, rows);
       setAssets(next.assets);
       setAssetsError(next.error);
+      // Same as campaigns: always clears, taken from the module so tests
+      // execute the rule, and never re-armed on a later open (D2).
+      setAssetsPending(!next.settled);
     };
     const timer = setTimeout(() => apply(ASSET_OUTCOME.TIMED_OUT), ASSET_READ_TIMEOUT_MS);
     listAssets()

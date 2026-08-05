@@ -82,14 +82,33 @@ describe('T6 — a failed read after a SUCCESSFUL one leaves NO stale rows', () 
 });
 
 describe('the contract shape itself', () => {
-  it('returns TWO keys — there is deliberately no `settled` flag', () => {
-    // `settled` exists on the CALENDAR lane only, where it gates the morning
-    // briefing. Campaigns do not gate it, and a stray flag here is exactly how
-    // the two lanes would drift into one coupled contract.
+  // ⚠️ CHANGED BY C1, DELIBERATELY. This block used to assert TWO keys and "no
+  // `settled` flag", because the calendar's flag gates the morning briefing and
+  // campaigns must not. That reason still holds and is still enforced — but by
+  // the BRIEFING tests, not by the absence of the key. `settled` now exists here
+  // for WORDING only: it is what lets jakePack tell the pre-settle window apart
+  // from local/demo, instead of calling a connected module "not connected".
+  it('returns THREE keys, and `settled` is true on EVERY outcome', () => {
     expect(Object.keys(campaignStateAfterRead(CAMPAIGN_OUTCOME.LOADED, rows)).sort())
-      .toEqual(['campaigns', 'error']);
+      .toEqual(['campaigns', 'error', 'settled']);
     expect(Object.keys(campaignStateAfterRead(CAMPAIGN_OUTCOME.FAILED)).sort())
-      .toEqual(['campaigns', 'error']);
+      .toEqual(['campaigns', 'error', 'settled']);
+  });
+
+  it('C1 — every outcome settles, so the pending wording can never stick', () => {
+    // This function runs ONLY once a read has settled, so `settled` is a
+    // constant by construction. Executed rather than assumed: the Assistant
+    // derives `pending = !settled` from it, and a single outcome returning
+    // false would leave Jake announcing "still loading" forever.
+    const outcomes = [
+      campaignStateAfterRead(CAMPAIGN_OUTCOME.LOADED, rows),
+      campaignStateAfterRead(CAMPAIGN_OUTCOME.LOADED, []),
+      campaignStateAfterRead(CAMPAIGN_OUTCOME.LOADED, 'not-an-array'),
+      campaignStateAfterRead(CAMPAIGN_OUTCOME.FAILED),
+      campaignStateAfterRead(CAMPAIGN_OUTCOME.TIMED_OUT),
+      campaignStateAfterRead('something-else', rows),
+    ];
+    for (const s of outcomes) expect(s.settled).toBe(true);
   });
 
   it('the outcome enum is frozen and complete', () => {

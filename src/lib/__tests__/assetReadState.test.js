@@ -14,22 +14,22 @@ const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)),
 describe('assetStateAfterRead', () => {
   it('keeps the rows only on a successful read', () => {
     const rows = [{ id: 'a' }, { id: 'b' }];
-    expect(assetStateAfterRead(ASSET_OUTCOME.LOADED, rows)).toEqual({ assets: rows, error: false });
+    expect(assetStateAfterRead(ASSET_OUTCOME.LOADED, rows)).toEqual({ assets: rows, error: false, settled: true });
   });
 
   it('keeps an EMPTY successful read as an empty array, not as "not loaded"', () => {
     // [] is a verified fact ("this account has no assets"); undefined is not.
-    expect(assetStateAfterRead(ASSET_OUTCOME.LOADED, [])).toEqual({ assets: [], error: false });
+    expect(assetStateAfterRead(ASSET_OUTCOME.LOADED, [])).toEqual({ assets: [], error: false, settled: true });
   });
 
   it('drops the rows on FAILED', () => {
     expect(assetStateAfterRead(ASSET_OUTCOME.FAILED, [{ id: 'a' }]))
-      .toEqual({ assets: undefined, error: true });
+      .toEqual({ assets: undefined, error: true, settled: true });
   });
 
   it('drops the rows on TIMED_OUT', () => {
     expect(assetStateAfterRead(ASSET_OUTCOME.TIMED_OUT, [{ id: 'a' }]))
-      .toEqual({ assets: undefined, error: true });
+      .toEqual({ assets: undefined, error: true, settled: true });
   });
 
   it('treats a LOADED non-array as a FAILURE, never as an empty list', () => {
@@ -37,18 +37,38 @@ describe('assetStateAfterRead', () => {
     // response cannot support.
     for (const bad of [null, undefined, {}, 'rows', 0, NaN, false]) {
       expect(assetStateAfterRead(ASSET_OUTCOME.LOADED, bad))
-        .toEqual({ assets: undefined, error: true });
+        .toEqual({ assets: undefined, error: true, settled: true });
     }
   });
 
   it('treats an unknown outcome as a failure', () => {
     expect(assetStateAfterRead('something_else', [{ id: 'a' }]))
-      .toEqual({ assets: undefined, error: true });
+      .toEqual({ assets: undefined, error: true, settled: true });
   });
 
-  it('returns exactly two keys — there is no `settled` gate on this lane', () => {
-    expect(Object.keys(assetStateAfterRead(ASSET_OUTCOME.LOADED, []))).toEqual(['assets', 'error']);
-    expect(Object.keys(assetStateAfterRead(ASSET_OUTCOME.FAILED))).toEqual(['assets', 'error']);
+  // ⚠️ CHANGED BY C1, DELIBERATELY. This used to assert exactly two keys and
+  // "no `settled` gate on this lane". Assets still do NOT gate the morning
+  // briefing — that is enforced by the briefing tests, not by the key's absence
+  // — and `settled` exists here for WORDING only, so jakePack can tell the
+  // pre-settle window apart from local/demo.
+  it('returns three keys, and `settled` is true on EVERY outcome', () => {
+    expect(Object.keys(assetStateAfterRead(ASSET_OUTCOME.LOADED, []))).toEqual(['assets', 'error', 'settled']);
+    expect(Object.keys(assetStateAfterRead(ASSET_OUTCOME.FAILED))).toEqual(['assets', 'error', 'settled']);
+  });
+
+  it('C1 — every outcome settles, so the pending wording can never stick', () => {
+    // Executed, not assumed: the Assistant derives `pending = !settled`, so one
+    // outcome returning false would leave Jake announcing "still loading"
+    // forever.
+    const outcomes = [
+      assetStateAfterRead(ASSET_OUTCOME.LOADED, [{ id: 'a' }]),
+      assetStateAfterRead(ASSET_OUTCOME.LOADED, []),
+      assetStateAfterRead(ASSET_OUTCOME.LOADED, null),
+      assetStateAfterRead(ASSET_OUTCOME.FAILED),
+      assetStateAfterRead(ASSET_OUTCOME.TIMED_OUT),
+      assetStateAfterRead('something_else'),
+    ];
+    for (const s of outcomes) expect(s.settled).toBe(true);
   });
 
   it('does not mutate or copy the caller rows', () => {

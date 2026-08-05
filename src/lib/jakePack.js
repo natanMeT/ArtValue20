@@ -48,6 +48,26 @@ function notConnectedLine(label) {
     + `אל תאמר שאין ${label}, אל תדווח על אפס ואל תסיק מכך מסקנה — אמור בכנות שאין לך גישה לנתון הזה.`;
 }
 
+// THE THIRD ABSENCE. A seam collection is unhydrated for THREE reasons, not
+// two: the cloud read failed, the module does not exist here at all, or THE
+// READ HAS NOT COME BACK YET. The third used to fall through to
+// notConnectedLine(), so for the ≤4s between a cloud panel open and the seam
+// read settling Jake was told "המודול אינו מחובר לחשבון הזה" about campaigns
+// and assets — FALSE, since both are durable, live and owned by the account.
+//
+// Kept beside notConnectedLine() on purpose: they are the two halves of one
+// decision and must not drift apart.
+//
+// ⚠️ NOT applied to the calendar, and that is a measured decision rather than
+// an omission. calendarLines() deliberately does NOT use notConnectedLine() —
+// its unhydrated wording is "אין לי גישה ליומן כרגע", which asserts no
+// disconnection and no zero and stays true during the window. There is no
+// falsehood there to fix.
+function pendingLine(label, subject) {
+  return `${label}: עדיין אין לי את הנתונים — אל תסיק מכך מסקנה. `
+    + `אל תאמר שאין ${subject} ואל תדווח על אפס; אמור בכנות שהנתונים עדיין נטענים.`;
+}
+
 // Today as a LOCAL calendar date (YYYY-MM-DD). Deliberately not
 // toISOString().slice(0,10): that is UTC, so every evening in Israel (UTC+2/+3)
 // it reports yesterday and a charge would read as overdue a day late. The pure
@@ -218,6 +238,19 @@ function campaignLines(data) {
         + 'אל תאמר שאין קמפיינים, אל תדווח על אפס ואל תסיק מכך מסקנה — '
         + 'אמור בכנות שלא הצלחת לטעון את הקמפיינים.'];
     }
+    // THE THIRD ABSENCE — checked AFTER the error branch, never before. The two
+    // are mutually exclusive by construction (pending is only true before a
+    // read settles, error only after), but the order is fixed anyway so a
+    // caller that ever sets both gets the FAILURE wording: a read that is known
+    // to have failed must never be softened into "still loading".
+    //
+    // ⚠️ DEFAULTS TO FALSY, AND THAT IS LOAD-BEARING. Absent key = not pending
+    // = today's wording, so every existing caller and fixture is unchanged and
+    // an unknown consumer fails toward the pre-existing line rather than toward
+    // a fabricated "loading" claim. Inverting this would make local/demo — which
+    // never sets the key and genuinely has no campaigns module — announce that
+    // its campaigns are loading, forever.
+    if (data.campaignsPending) return [pendingLine('קמפיינים', 'קמפיינים')];
     return [notConnectedLine('קמפיינים')];
   }
 
@@ -331,6 +364,11 @@ function assetLines(data) {
         + 'אל תאמר שאין נכסים, אל תדווח על אפס ואל תסיק מכך מסקנה — '
         + 'אמור בכנות שלא הצלחת לטעון את ספריית הנכסים.'];
     }
+    // THE THIRD ABSENCE — same rule and same ordering as campaigns: after the
+    // error branch, and defaulting to falsy so an absent key keeps today's
+    // wording. See the campaignLines() note above for why the default direction
+    // is load-bearing rather than stylistic.
+    if (data.assetsPending) return [pendingLine('נכסים (ספריית התמונות)', 'נכסים')];
     return [notConnectedLine('נכסים')];
   }
 
