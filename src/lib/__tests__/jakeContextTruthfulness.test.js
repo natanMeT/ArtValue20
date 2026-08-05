@@ -127,9 +127,22 @@ describe('honest emptiness · a real empty array still reads as empty', () => {
     expect(out).toContain('פרויקטים פעילים: אין.');
   });
 
-  it('emits NO not-connected wording when every collection is present', () => {
-    expect(out.includes('אינו מחובר לחשבון הזה')).toBe(false);
+  it('emits NO not-connected wording for the collections local/demo DOES have', () => {
+    // ⚠️ SCOPED, NOT WEAKENED. This assertion was written when every collection
+    // in localData() was genuinely present, so ANY not-connected line meant a
+    // regression. Campaigns broke that premise honestly: the campaigns module
+    // is CLOUD-ONLY — Campaigns.jsx returns an unavailable state in local/demo,
+    // pinned by campaignsContainment.test.js — so in local mode Jake genuinely
+    // cannot see it, and saying so is the correct behaviour, not a regression.
+    // The three original subjects are still asserted individually and exactly.
+    expect(out.includes('מלאי: המודול אינו מחובר')).toBe(false);
+    expect(out.includes('פרויקטים: המודול אינו מחובר')).toBe(false);
     expect(out.includes('יומן פעילות: אינו זמין')).toBe(false);
+    // The ONE permitted not-connected line in local mode, named explicitly so a
+    // future stray one cannot hide behind this exception.
+    const notConnected = out.split('\n').filter((l) => l.includes('אינו מחובר לחשבון הזה'));
+    expect(notConnected).toHaveLength(1);
+    expect(notConnected[0]).toContain('קמפיינים');
   });
 
   it('an empty (but present) activity log stays silent, exactly as before', () => {
@@ -432,7 +445,10 @@ describe('scope · no new lane, no gateway wiring, no clock in the pure layer', 
     // asserting it exactly rather than as a subset.
     const imports = [...pack.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]).sort();
     expect(imports).toEqual([
-      './calc.js', './format.js', './jakeAgent.js', './receivables.js', './schedule.js',
+      // './campaigns.js' — added by the Jake Campaigns slice for
+      // CAMPAIGN_STATUS_LABELS only. It is a PURE module (no store, no network,
+      // no React, no clock), so the property this allowlist protects is intact.
+      './calc.js', './campaigns.js', './format.js', './jakeAgent.js', './receivables.js', './schedule.js',
     ]);
   });
 

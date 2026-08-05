@@ -8,8 +8,9 @@ import warriorStand from '../../assets/warrior_stand.png';
 import warriorWalk from '../../assets/warrior_walk.png';
 import { chatJake, forceActionsJake, draftWithJake } from '../../lib/gemini.js';
 import { isSupabaseConfigured } from '../../lib/supabase.js';
-import { listAppointments } from '../../lib/api.js';
+import { listAppointments, listCampaigns } from '../../lib/api.js';
 import { calendarStateAfterRead, CALENDAR_OUTCOME } from '../../lib/calendarReadState.js';
+import { campaignStateAfterRead, CAMPAIGN_OUTCOME } from '../../lib/campaignReadState.js';
 import { extractActions, executeActions, describeActions, detectBulkDelete, buildBulkDeleteGate } from '../../lib/jakeAgent.js';
 import { partitionJakeActions, BETA_MESSAGES } from '../../lib/betaCapabilities.js';
 import { executeBulkDelete } from '../../lib/bulkDeleteOutcome.js';
@@ -44,6 +45,15 @@ const CONFIRM_CODE = '123456';
 // is missing. Fail toward the VISIBLE state. The panel-open animation already
 // runs ~1.25s, so a healthy read is invisible well inside this.
 const CALENDAR_READ_TIMEOUT_MS = 4000;
+// Campaigns → Jake: its OWN timeout constant, same value, different reason.
+// Nothing waits for this read — campaigns deliberately do not gate the morning
+// briefing — so this timer is not there to unblock anything. It exists purely
+// to keep the WORDING truthful: the Supabase client sets no timeout of its own,
+// and a read that never settles would leave `campaigns` undefined with the
+// error flag false, which renders as "המודול אינו מחובר לחשבון הזה" — a false
+// statement in cloud mode. The timer converts a hang into an honest
+// "could not load".
+const CAMPAIGN_READ_TIMEOUT_MS = 4000;
 
 // Code-gated bulk-delete card: step 1 asks for the auth code; only on the correct
 // code does it reveal step 2 — a checkbox picker of exactly what to delete. Holds
@@ -378,12 +388,27 @@ export default function Assistant() {
   // Local/demo is settled from the first render — there is nothing to wait for,
   // so the morning briefing is never delayed there.
   const [calendarSettled, setCalendarSettled] = useState(!isSupabaseConfigured);
+  // Campaigns → Jake. Same structural discriminator, same "absence is not
+  // emptiness" rule, and the same reason for a separate error flag: a failed
+  // cloud read and local/demo both leave `campaigns` undefined but are
+  // different facts. Here — unlike the calendar — local/demo genuinely has no
+  // campaigns module, so its wording is notConnectedLine, not a failure notice.
+  // There is deliberately NO `campaignsSettled`: campaigns do not gate the
+  // morning briefing, so nothing waits on this read.
+  const [campaigns, setCampaigns] = useState(undefined);
+  const [campaignsError, setCampaignsError] = useState(false);
   // The store snapshot PLUS the seam-read calendar — what every Jake lane is
   // handed instead of bare `data`. A fresh shallow object per call is
   // deliberate and costs nothing: this file has no useMemo/useCallback at all,
   // and every consumer is an imperative call inside an effect or an async
   // handler, never a render path or a dependency array.
-  const jakeData = () => ({ ...data, appointments, appointmentsError: calendarError });
+  const jakeData = () => ({
+    ...data,
+    appointments,
+    appointmentsError: calendarError,
+    campaigns,
+    campaignsError,
+  });
   const scrollRef = useRef(null);
   // Creative V2 orchestrator — built once; reads live CRM data via a ref. The
   // adapter inside wraps the FROZEN Creative Director V1 (injected at composition).
@@ -677,6 +702,38 @@ export default function Assistant() {
       .finally(() => { if (alive) clearTimeout(timer); });
     // `alive` is the unmount / account-switch guard: a stale result can never
     // commit after the panel closed, mirroring the S0F.1 gallery race fix.
+    return () => { alive = false; clearTimeout(timer); };
+  }, [open]);
+
+  // Campaigns → Jake: read the account's durable campaigns ONCE per panel open,
+  // in the Jake seam. Deliberately NOT added to api.fetchAll() — same reasoning
+  // as the calendar: that whole-object replacement has already produced two
+  // shipped defects, and campaigns have no local reducer, no seed and no
+  // localStorage fallback to classify. Read-only — nothing here writes, and no
+  // Jake op exists for campaigns.
+  //
+  // A SECOND INDEPENDENT LANE, NOT A FAN-OUT. Its own `alive` guard, its own
+  // timer and its own state pair, so neither read can observe, delay or corrupt
+  // the other. That independence is the whole reason two seam reads are safe
+  // where a merged three-way read would not have been.
+  useEffect(() => {
+    if (!open || !isSupabaseConfigured) return undefined;
+    let alive = true;
+    // ONE decision point for all three outcomes, in a pure module the tests
+    // EXECUTE — the correction PR #200 made after a failed calendar read left
+    // the previously loaded rows behind.
+    const apply = (outcome, rows) => {
+      if (!alive) return;
+      const next = campaignStateAfterRead(outcome, rows);
+      setCampaigns(next.campaigns);
+      setCampaignsError(next.error);
+    };
+    const timer = setTimeout(() => apply(CAMPAIGN_OUTCOME.TIMED_OUT), CAMPAIGN_READ_TIMEOUT_MS);
+    listCampaigns()
+      .then((rows) => apply(CAMPAIGN_OUTCOME.LOADED, rows))
+      // A failure drops the stale rows: only a successful read may leave any.
+      .catch(() => apply(CAMPAIGN_OUTCOME.FAILED))
+      .finally(() => { if (alive) clearTimeout(timer); });
     return () => { alive = false; clearTimeout(timer); };
   }, [open]);
 
