@@ -17,6 +17,11 @@ import {
   listToday, listWeek, formatTimeRange, APPOINTMENT_KIND_LABELS,
 } from './schedule.js';
 import { CAMPAIGN_STATUS_LABELS } from './campaigns.js';
+// METADATA HELPER ONLY. `campaignLabelForAsset` is a pure resolver that already
+// returns the three states this file needs (none / named / unknown). Nothing
+// else from assetLibrary.js is imported, and in particular nothing that touches
+// storage paths, signed URLs or upload validation.
+import { campaignLabelForAsset, ASSET_SOURCE_UPLOAD } from './assetLibrary.js';
 
 // ===================================================================
 // HYDRATION TRUTHFULNESS — absence is not emptiness.
@@ -242,6 +247,125 @@ function campaignLines(data) {
 }
 
 // ===================================================================
+// Assets → Jake. `public.assets` is durable, live and CLOUD-ONLY, and was
+// invisible to Jake in exactly the way campaigns were: four shipped slices
+// (gallery, favorites, campaign link, user upload) built the whole chain and
+// nothing in this file mentioned it, so an ungrounded answer was the only
+// thing available for "מה יש לי בגלריה".
+//
+// The rows arrive through the JAKE SEAM (Assistant.jsx reads listAssets() once
+// per panel open), NOT through the store: api.fetchAll() does not hydrate
+// assets, the gallery is page-owned exactly like appointments and campaigns,
+// and that whole-object replacement has already produced two shipped defects.
+//
+// READ-ONLY. There is no Jake asset op and none was added — no upload, no
+// delete, no favorite, no campaign link. jakeAgent.js is untouched by this
+// slice, pinned by jakeAssets.test.js.
+//
+// NAMING BOUNDARY, STATED IN THE COPY ITSELF. "נכסים" here is the durable
+// per-account cloud gallery (public.assets), NOT the device-local creative
+// session in src/creative/v2/**. Jake is told so in the roll-up line, so the
+// two vocabularies cannot merge in his answer either. This file must never
+// import from src/creative/v2/**.
+//
+// WHAT THE CAP IS AND IS NOT — this differs from the calendar and campaigns,
+// and getting it backwards would ship a Jake that stops working on a busy
+// account. This text rides inside the same `context.summary` the Gateway
+// validates against MAX_CONTEXT_CHARS = 12000 and REJECTS over-limit rather
+// than truncating. MEASURED on a heavy account (60 clients, 80 tasks, 50
+// leads, 120 transactions, 200 active campaigns with 120-char titles):
+//   baseline, no assets ............................  4,750 chars
+//   40 assets, capped at 5, no prompt ..............  5,265  (+515)
+//   ...the same, plus the S0D business brain .......  6,542  (worst case, OK)
+//   40 assets UNCAPPED, no prompt ..................  7,615  (still OK!)
+//   5 assets WITH full 2,000-char prompts .......... 15,310  *** REJECTED ***
+//   40 assets uncapped WITH prompts ................ 87,975  *** 7.3x limit ***
+// So the load-bearing guard is NOT the cap — it is the exclusion of
+// `meta.prompt`, whose per-row bound is 2,000 chars (assets_meta_bounded).
+// FIVE rows of it alone exceed the limit. The prompt is EXCLUDED, not
+// truncated: a half-sentence prompt is something Jake would quote back as a
+// fact about the user's image. `meta.preset` and `meta.engine` are excluded as
+// 800 chars of near-zero answer value.
+//
+// NOTHING IDENTIFYING OR FETCHABLE. listAssets() returns a signed `url` for
+// every row and this builder never reads it, nor `storagePath`, nor `id`, nor
+// any user id. A signed URL is a short-lived bearer credential; putting one in
+// a model prompt would hand out the object. Pinned by a leakage test.
+//
+// NO CLOCK — every date shown comes from the row's own `createdAt`, so unlike
+// the calendar this needs no `now` injected.
+// ===================================================================
+const ASSET_DETAIL_CAP = 5;
+
+const assetKb = (bytes) => `${Math.max(1, Math.round((Number(bytes) || 0) / 1024))}KB`;
+const assetMimeLabel = (mime) => String(mime || '').replace(/^image\//, '') || 'תמונה';
+const assetDate = (ts) => {
+  const n = Number(ts) || 0;
+  if (!n) return 'ללא תאריך';
+  try { return new Date(n).toLocaleDateString('he-IL'); } catch { return 'ללא תאריך'; }
+};
+
+// The campaign clause for ONE asset. THREE outcomes, and the third is the
+// point: an asset whose link cannot be named is still LINKED. Folding that into
+// "no campaign" would tell the user an asset is unlinked while the database
+// says otherwise, and inventing a title would be worse. `unknown` is reached
+// two ways — the campaign was deleted since this snapshot, or the campaigns
+// seam read failed — and the wording is honest for both without asserting
+// which.
+function assetCampaignClause(item, campaigns) {
+  const r = campaignLabelForAsset(item, campaigns);
+  if (r.state === 'named') return `, קמפיין: ${r.label.slice(0, 60)}`;
+  if (r.state === 'unknown') return ', משויך לקמפיין (השם אינו זמין כרגע)';
+  return '';
+}
+
+function assetLines(data) {
+  if (!isHydrated(data.assets)) {
+    // TWO different absences, and collapsing them would make one of them a lie.
+    // A failed/timed-out CLOUD read is transient; local/demo genuinely has no
+    // asset library (there is no local gallery table and fetchAll never
+    // returns one), so notConnectedLine IS accurate there — the same split as
+    // campaigns, and the opposite of the calendar.
+    if (data.assetsError) {
+      return ['נכסים (ספריית התמונות): אין לי גישה לספריית הנכסים כרגע ואין לי עליה נתונים כלל. '
+        + 'אל תאמר שאין נכסים, אל תדווח על אפס ואל תסיק מכך מסקנה — '
+        + 'אמור בכנות שלא הצלחת לטעון את ספריית הנכסים.'];
+    }
+    return [notConnectedLine('נכסים')];
+  }
+
+  const all = data.assets;
+  if (!all.length) return ['נכסים (ספריית התמונות): אין נכסים בחשבון הזה.'];
+
+  // `uploaded` is counted and `generated` is DERIVED as the remainder, so a row
+  // with a missing or unrecognised source is absorbed into the larger bucket
+  // instead of inventing a silent third one whose absence would make the two
+  // printed counts fail to add up to the total.
+  const uploaded = all.filter((a) => a && a.meta && a.meta.source === ASSET_SOURCE_UPLOAD).length;
+  const generated = all.length - uploaded;
+  const favorites = all.filter((a) => a && a.favorite === true).length;
+  const linked = all.filter((a) => a && a.campaignId).length;
+
+  const lines = ['נכסים (ספריית התמונות — התמונות השמורות בענן בחשבון הזה, לא סשן קריאייטיב מקומי): '
+    + `${all.length} סה״כ — ${uploaded} הועלו, ${generated} נוצרו, `
+    + `${favorites} מועדפים, ${linked} משויכים לקמפיין.`];
+
+  // listAssets() already sorts newest-first, so this slice is "the most recent
+  // five" without re-sorting (and without a clock).
+  const shown = all.slice(0, ASSET_DETAIL_CAP);
+  const hidden = all.length - shown.length;
+  const items = shown.map((a) => {
+    const src = (a && a.meta && a.meta.source === ASSET_SOURCE_UPLOAD) ? 'הועלה' : 'נוצר';
+    const fav = a && a.favorite === true ? ', מועדף' : '';
+    return `${src} ${assetDate(a && a.createdAt)} `
+      + `(${assetMimeLabel(a && a.mime)}, ${assetKb(a && a.byteSize)}${fav}${assetCampaignClause(a, data.campaigns)})`;
+  }).join('; ');
+  lines.push(`נכסים אחרונים: ${items}.`
+    + (hidden > 0 ? ` ועוד ${hidden} שאינם מפורטים כאן.` : ''));
+  return lines;
+}
+
+// ===================================================================
 // Context builder — the compact data snapshot fed to Jake every turn. This is
 // business-specific (it knows Art Value's collections + how to phrase them in
 // Hebrew), so it lives in the pack. A new business writes its own.
@@ -279,6 +403,12 @@ function artValueContext(data) {
   // it does not belong ahead of the CRM collections, and appending moves no
   // existing line.
   lines.push(...campaignLines(data));
+
+  // Assets — durable, cloud-only, page-owned, read through the Jake seam, and
+  // read-only. Placed directly after campaigns because the campaign LABEL on an
+  // asset is resolved against the campaigns list, so the two read best adjacent;
+  // appending moves no existing line.
+  lines.push(...assetLines(data));
 
   // F1 receivables — durable, already hydrated, and previously invisible to Jake.
   lines.push(...receivablesLines(data, localIsoDate(now)));
