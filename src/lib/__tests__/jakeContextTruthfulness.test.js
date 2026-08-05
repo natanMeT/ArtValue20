@@ -138,11 +138,15 @@ describe('honest emptiness · a real empty array still reads as empty', () => {
     expect(out.includes('מלאי: המודול אינו מחובר')).toBe(false);
     expect(out.includes('פרויקטים: המודול אינו מחובר')).toBe(false);
     expect(out.includes('יומן פעילות: אינו זמין')).toBe(false);
-    // The ONE permitted not-connected line in local mode, named explicitly so a
-    // future stray one cannot hide behind this exception.
+    // The permitted not-connected lines in local mode, named explicitly so a
+    // future stray one cannot hide behind this exception. ASSETS joined
+    // campaigns for the same reason and on the same evidence: the asset library
+    // is CLOUD-ONLY — api.fetchAll() never returns it and there is no local
+    // gallery — so in local mode Jake genuinely cannot see it.
     const notConnected = out.split('\n').filter((l) => l.includes('אינו מחובר לחשבון הזה'));
-    expect(notConnected).toHaveLength(1);
-    expect(notConnected[0]).toContain('קמפיינים');
+    expect(notConnected).toHaveLength(2);
+    expect(notConnected.filter((l) => l.includes('קמפיינים'))).toHaveLength(1);
+    expect(notConnected.filter((l) => l.includes('נכסים'))).toHaveLength(1);
   });
 
   it('an empty (but present) activity log stays silent, exactly as before', () => {
@@ -448,6 +452,12 @@ describe('scope · no new lane, no gateway wiring, no clock in the pure layer', 
       // './campaigns.js' — added by the Jake Campaigns slice for
       // CAMPAIGN_STATUS_LABELS only. It is a PURE module (no store, no network,
       // no React, no clock), so the property this allowlist protects is intact.
+      // './assetLibrary.js' — added by the Jake Asset Library Context slice for
+      // `campaignLabelForAsset` + `ASSET_SOURCE_UPLOAD` only. It imports NOTHING
+      // (zero import statements) and contains no clock, so the property this
+      // allowlist protects is intact. Nothing storage-side is pulled in: no
+      // bucket name, no storage path builder, no upload validator is used here.
+      './assetLibrary.js',
       './calc.js', './campaigns.js', './format.js', './jakeAgent.js', './receivables.js', './schedule.js',
     ]);
   });

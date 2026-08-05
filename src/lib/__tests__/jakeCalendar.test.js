@@ -436,12 +436,23 @@ describe('scope containment', () => {
     expect(text).toContain('לקוחות ב-CRM: 0 סה״כ');
     expect(text).toContain('פרויקטים: המודול אינו מחובר לחשבון הזה');
     expect(text).toContain('מלאי: המודול אינו מחובר לחשבון הזה');
-    // ⚠️ SUPERSEDED IN HALF, DELIBERATELY. This line originally pinned BOTH
+    // ⚠️ NOW FULLY SUPERSEDED, DELIBERATELY. This line originally pinned BOTH
     // campaigns and assets out of the context, because neither was in the
-    // CALENDAR slice's scope. Campaigns were since brought in on purpose by the
-    // approved Jake Campaigns slice — the successor to this one — and are now
-    // pinned by jakeCampaigns.test.js instead. ASSETS remain out of scope and
-    // the guard for them is kept exactly as it was.
-    expect(text).not.toContain('נכסים');
+    // CALENDAR slice's scope. Campaigns were brought in on purpose by the
+    // approved Jake Campaigns slice and are pinned by jakeCampaigns.test.js;
+    // ASSETS have now been brought in the same way by the approved Jake Asset
+    // Library Context slice and are pinned by jakeAssets.test.js.
+    //
+    // THE GUARD IS NARROWED, NOT DELETED. What this assertion was actually
+    // defending — "no write surface was added by a context slice" — is still
+    // asserted here, and the presence check moves to the owning test file. A
+    // deleted guard would leave the calendar slice's scope unpinned.
+    // This fixture carries no `assets` key and no error flag, so the asset block
+    // is its not-connected declaration — which is the point: the module is now
+    // DECLARED to Jake in every state instead of being absent from the context.
+    expect(text).toContain('נכסים: המודול אינו מחובר לחשבון הזה');
+    for (const writeSurface of ['createAsset', 'deleteAsset', 'setAssetFavorite', 'linkAssetCampaign']) {
+      expect(text).not.toContain(writeSurface);
+    }
   });
 });

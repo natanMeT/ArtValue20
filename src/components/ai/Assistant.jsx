@@ -8,9 +8,10 @@ import warriorStand from '../../assets/warrior_stand.png';
 import warriorWalk from '../../assets/warrior_walk.png';
 import { chatJake, forceActionsJake, draftWithJake } from '../../lib/gemini.js';
 import { isSupabaseConfigured } from '../../lib/supabase.js';
-import { listAppointments, listCampaigns } from '../../lib/api.js';
+import { listAppointments, listCampaigns, listAssets } from '../../lib/api.js';
 import { calendarStateAfterRead, CALENDAR_OUTCOME } from '../../lib/calendarReadState.js';
 import { campaignStateAfterRead, CAMPAIGN_OUTCOME } from '../../lib/campaignReadState.js';
+import { assetStateAfterRead, ASSET_OUTCOME } from '../../lib/assetReadState.js';
 import { extractActions, executeActions, describeActions, detectBulkDelete, buildBulkDeleteGate } from '../../lib/jakeAgent.js';
 import { partitionJakeActions, BETA_MESSAGES } from '../../lib/betaCapabilities.js';
 import { executeBulkDelete } from '../../lib/bulkDeleteOutcome.js';
@@ -54,6 +55,13 @@ const CALENDAR_READ_TIMEOUT_MS = 4000;
 // statement in cloud mode. The timer converts a hang into an honest
 // "could not load".
 const CAMPAIGN_READ_TIMEOUT_MS = 4000;
+// Assets → Jake: its OWN timeout constant again, same value, same reason as the
+// campaigns one. Nothing waits for this read either; the timer exists so a hang
+// cannot leave `assets` undefined with the error flag false, which would render
+// as "המודול אינו מחובר לחשבון הזה" — false in cloud mode, where the library
+// certainly is connected. The timer converts a hang into an honest
+// "could not load".
+const ASSET_READ_TIMEOUT_MS = 4000;
 
 // Code-gated bulk-delete card: step 1 asks for the auth code; only on the correct
 // code does it reveal step 2 — a checkbox picker of exactly what to delete. Holds
@@ -397,6 +405,15 @@ export default function Assistant() {
   // morning briefing, so nothing waits on this read.
   const [campaigns, setCampaigns] = useState(undefined);
   const [campaignsError, setCampaignsError] = useState(false);
+  // Assets → Jake. Same structural discriminator and the same "absence is not
+  // emptiness" rule once more, and the same reason for a separate error flag:
+  // a failed cloud read and local/demo both leave `assets` undefined but are
+  // different facts. Like campaigns — and unlike the calendar — local/demo
+  // genuinely has no asset library, so its wording is notConnectedLine.
+  // There is deliberately NO `assetsSettled`: assets do not gate the morning
+  // briefing, so nothing waits on this read.
+  const [assets, setAssets] = useState(undefined);
+  const [assetsError, setAssetsError] = useState(false);
   // The store snapshot PLUS the seam-read calendar — what every Jake lane is
   // handed instead of bare `data`. A fresh shallow object per call is
   // deliberate and costs nothing: this file has no useMemo/useCallback at all,
@@ -408,6 +425,10 @@ export default function Assistant() {
     appointmentsError: calendarError,
     campaigns,
     campaignsError,
+    // Metadata rows only — the seam below never reads the signed `url` that
+    // listAssets() attaches, so no fetchable credential can reach the context.
+    assets,
+    assetsError,
   });
   const scrollRef = useRef(null);
   // Creative V2 orchestrator — built once; reads live CRM data via a ref. The
@@ -733,6 +754,44 @@ export default function Assistant() {
       .then((rows) => apply(CAMPAIGN_OUTCOME.LOADED, rows))
       // A failure drops the stale rows: only a successful read may leave any.
       .catch(() => apply(CAMPAIGN_OUTCOME.FAILED))
+      .finally(() => { if (alive) clearTimeout(timer); });
+    return () => { alive = false; clearTimeout(timer); };
+  }, [open]);
+
+  // Assets → Jake: read the account's durable asset library ONCE per panel
+  // open, in the Jake seam. Deliberately NOT added to api.fetchAll() — the same
+  // reasoning as the calendar and campaigns: that whole-object replacement has
+  // already produced two shipped defects, and the gallery is page-owned with no
+  // reducer, no seed and no localStorage fallback to classify.
+  //
+  // READ-ONLY. `listAssets()` is reused EXACTLY as it ships — src/lib/api.js is
+  // untouched by this slice — and no Jake asset op exists: nothing here or in
+  // jakeAgent.js uploads, deletes, favorites or links an asset.
+  //
+  // A THIRD INDEPENDENT LANE, NOT A FAN-OUT. Its own `alive` guard, its own
+  // timer and its own state pair, so no read can observe, delay or corrupt
+  // another. That independence is why a third seam read is as safe as the
+  // second, where a merged three-way read would not have been.
+  //
+  // `listAssets()` also mints a signed URL per row. That field is simply never
+  // read: the rows go into `jakeData()` and only jakePack's assetLines() looks
+  // at them, and it reads metadata only.
+  useEffect(() => {
+    if (!open || !isSupabaseConfigured) return undefined;
+    let alive = true;
+    // ONE decision point for all three outcomes, in a pure module the tests
+    // EXECUTE — the same shape the calendar correction (PR #200) established.
+    const apply = (outcome, rows) => {
+      if (!alive) return;
+      const next = assetStateAfterRead(outcome, rows);
+      setAssets(next.assets);
+      setAssetsError(next.error);
+    };
+    const timer = setTimeout(() => apply(ASSET_OUTCOME.TIMED_OUT), ASSET_READ_TIMEOUT_MS);
+    listAssets()
+      .then((rows) => apply(ASSET_OUTCOME.LOADED, rows))
+      // A failure drops the stale rows: only a successful read may leave any.
+      .catch(() => apply(ASSET_OUTCOME.FAILED))
       .finally(() => { if (alive) clearTimeout(timer); });
     return () => { alive = false; clearTimeout(timer); };
   }, [open]);
