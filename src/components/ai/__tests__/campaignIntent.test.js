@@ -41,25 +41,25 @@ const CONTAINED = [
 ];
 
 // ---- RELEASED — informational, CRM-lead and drafting frames ----------------
-// ⚠️ P1/P2/P5 use the PLURAL "קמפיינים", which the noun regex does not match at
-// all (see the pre-existing-gap block at the bottom of this file). They are the
-// owner's real QA phrasings and are kept, but they would pass even against the
-// pre-slice bare-noun matcher — they do NOT exercise this rule. Each has a
-// SINGULAR twin below (P1s/P2s/P5s) that does. A control that never fired has
-// not passed.
+// ⚠️ P1/P2/P5 use the PLURAL "קמפיינים". Until the plural correction they were
+// VACUOUS — the noun accepted only the final nun ן, so no plural form was a
+// campaign at all and those three passed identically against the pre-slice
+// matcher. The noun now accepts both nun forms, so they exercise the rule for
+// real. Their SINGULAR twins (P1s/P2s/P5s) are kept: they pin that the release
+// is driven by the info frame and not by the noun's shape.
 const RELEASED = [
-  ['P1  info (מה) — vacuous, see note',   'מה קורה עם הקמפיינים שלי'],
-  ['P1s info (מה) — singular twin',       'מה קורה עם הקמפיין שלי'],
-  ['P2  info (כמה) — vacuous, see note',  'כמה קמפיינים פעילים יש לי'],
-  ['P2s info (כמה) — singular twin',      'כמה משימות יש בקמפיין הזה'],
-  ['P3  info (אילו) + tasks',             'אילו משימות שייכות לקמפיין ההשקה'],
-  ['P4  info (סטטוס)',                    'מה הסטטוס של קמפיין הקיץ'],
-  ['P5  info (תראה) — vacuous, see note', 'תראה לי את הקמפיינים הפעילים'],
-  ['P5s info (תראה) — singular twin',     'תראה לי את הקמפיין הפעיל'],
-  ['P6  info (איזה) + tasks',             'איזה קמפיין הכי מקושר למשימות'],
-  ['P7  LEAD_FRAME only',                 'ליד חדש הגיע מהקמפיין באינסטגרם'],
-  ['P8  English info',                    'what is the status of my campaigns?'],
-  ['P9  drafting frame',                  'תכתוב לי הודעה על הקמפיין'],
+  ['P1  info (מה) — plural',    'מה קורה עם הקמפיינים שלי'],
+  ['P1s info (מה) — singular',  'מה קורה עם הקמפיין שלי'],
+  ['P2  info (כמה) — plural',   'כמה קמפיינים פעילים יש לי'],
+  ['P2s info (כמה) — singular', 'כמה משימות יש בקמפיין הזה'],
+  ['P3  info (אילו) + tasks',   'אילו משימות שייכות לקמפיין ההשקה'],
+  ['P4  info (סטטוס)',          'מה הסטטוס של קמפיין הקיץ'],
+  ['P5  info (תראה) — plural',  'תראה לי את הקמפיינים הפעילים'],
+  ['P5s info (תראה) — singular','תראה לי את הקמפיין הפעיל'],
+  ['P6  info (איזה) + tasks',   'איזה קמפיין הכי מקושר למשימות'],
+  ['P7  LEAD_FRAME only',       'ליד חדש הגיע מהקמפיין באינסטגרם'],
+  ['P8  English info',          'what is the status of my campaigns?'],
+  ['P9  drafting frame',        'תכתוב לי הודעה על הקמפיין'],
 ];
 
 describe('C1 · creative-action intent is CONTAINED (S0F.1 preserved)', () => {
@@ -137,27 +137,35 @@ describe('C1 · the lead escape is real, not a phantom info frame', () => {
   });
 });
 
-// ---- PRE-EXISTING noun gap — pinned, NOT fixed here ------------------------
-// /קמפיי?ן/ requires the FINAL nun ן (U+05DF). The Hebrew plural "קמפיינים"
-// spells the same consonant with the MEDIAL nun נ (U+05E0), so the noun has
-// never matched any plural form. This is byte-identical to the pre-slice
-// matcher on `main` — this slice neither caused it nor fixed it (the approved
-// spec froze noun coverage). It is pinned so it cannot be rediscovered as a
-// mystery, and so that widening the noun is a deliberate, reviewed change.
-//
-// ⚠️ It leaves a REAL S0F.1 CONTAINMENT HOLE that predates this slice: a plural
-// creative build request is not contained. Owner decision, out of scope here.
+// ---- the plural noun — the CORRECTION -------------------------------------
+// /קמפיי?ן/ accepted only the FINAL nun ן (U+05DF). The Hebrew plural
+// "קמפיינים" spells the same consonant with the MEDIAL nun נ (U+05E0), so no
+// plural form was ever a campaign. That was a REAL S0F.1 containment hole — a
+// plural creative build request reached the model — and it is closed here by
+// /קמפיי?[ןנ]/. Singular and plural must now behave IDENTICALLY at every
+// branch of the rule; that symmetry is what these controls pin.
 
-describe('C1 · pre-existing plural-noun gap (documented, not fixed)', () => {
-  it('the plural is invisible to the noun, so plural questions were ALREADY reaching context', () => {
-    expect(isCampaignRequest('מה קורה עם הקמפיינים שלי')).toBe(false);
-    expect(isCampaignRequest('קמפיינים')).toBe(false);
+describe('C1 · plural forms behave exactly like the singular', () => {
+  it('a PLURAL creative build request is contained, like its singular form', () => {
+    expect(isCampaignRequest('תבנה לי קמפיינים חדשים')).toBe(true);
+    expect(isCampaignRequest('תכין קמפיינים לחג')).toBe(true);
+    expect(isCampaignRequest('תבנה לי קמפיין חדש')).toBe(true);
   });
 
-  it('⚠️ and a PLURAL creative build request is NOT contained — pre-existing hole', () => {
-    expect(isCampaignRequest('תבנה לי קמפיינים חדשים')).toBe(false);
-    // The singular form of the very same request IS contained.
-    expect(isCampaignRequest('תבנה לי קמפיין חדש')).toBe(true);
+  it('PLURAL informational questions reach Jake context', () => {
+    expect(isCampaignRequest('מה קורה עם הקמפיינים שלי')).toBe(false);
+    expect(isCampaignRequest('כמה קמפיינים פעילים יש לי')).toBe(false);
+    expect(isCampaignRequest('תראה לי את הקמפיינים הפעילים')).toBe(false);
+  });
+
+  it('a bare PLURAL noun fails closed, like a bare singular one', () => {
+    expect(isCampaignRequest('קמפיינים')).toBe(true);
+    expect(isCampaignRequest('קמפיין')).toBe(true);
+  });
+
+  it('the tolerated single-yod spelling still works in both numbers', () => {
+    expect(isCampaignRequest('תבנה קמפינים לחג')).toBe(true);
+    expect(isCampaignRequest('מה קורה עם הקמפינים')).toBe(false);
   });
 });
 

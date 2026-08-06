@@ -265,7 +265,13 @@ function gentleError(e) {
 //      ambiguous "אני רוצה קמפיין", stays contained).
 // ONE rule for cloud and local/demo: this predicate never reads the mode. The
 // only mode divergence stays at the `isSupabaseConfigured` gate inside the lane.
-const CAMPAIGN_NOUN_RE = /קמפיי?ן|campaign/i;
+// ⚠️ BOTH nun forms. Hebrew writes the same consonant as FINAL nun ן (U+05DF)
+// word-finally and MEDIAL nun נ (U+05E0) elsewhere, so the singular קמפיין ends
+// in ן while the plural קמפיינים carries נ. The pre-slice matcher accepted only
+// ן, so NO plural form was ever a campaign — which left a real containment hole
+// ("תבנה לי קמפיינים חדשים" reached the model) and made three QA phrasings pass
+// for the wrong reason. The optional yod keeps the tolerated קמפין spelling.
+const CAMPAIGN_NOUN_RE = /קמפיי?[ןנ]|campaign/i;
 // ⚠️ Hebrew has no usable \b (see hasActionVerb above) — and a LEADING anchor
 // alone is NOT enough: /(?:^|\s)מה/ matches the first two letters of "מהקמפיין",
 // which would release a lead sentence through a PHANTOM info frame instead of
