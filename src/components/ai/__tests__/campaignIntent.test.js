@@ -41,16 +41,25 @@ const CONTAINED = [
 ];
 
 // ---- RELEASED — informational, CRM-lead and drafting frames ----------------
+// ⚠️ P1/P2/P5 use the PLURAL "קמפיינים", which the noun regex does not match at
+// all (see the pre-existing-gap block at the bottom of this file). They are the
+// owner's real QA phrasings and are kept, but they would pass even against the
+// pre-slice bare-noun matcher — they do NOT exercise this rule. Each has a
+// SINGULAR twin below (P1s/P2s/P5s) that does. A control that never fired has
+// not passed.
 const RELEASED = [
-  ['P1 info (מה)',            'מה קורה עם הקמפיינים שלי'],
-  ['P2 info (כמה)',           'כמה קמפיינים פעילים יש לי'],
-  ['P3 info (אילו) + tasks',  'אילו משימות שייכות לקמפיין ההשקה'],
-  ['P4 info (סטטוס)',         'מה הסטטוס של קמפיין הקיץ'],
-  ['P5 info (תראה)',          'תראה לי את הקמפיינים הפעילים'],
-  ['P6 info (איזה) + tasks',  'איזה קמפיין הכי מקושר למשימות'],
-  ['P7 LEAD_FRAME only',      'ליד חדש הגיע מהקמפיין באינסטגרם'],
-  ['P8 English info',         'what is the status of my campaigns?'],
-  ['P9 drafting frame',       'תכתוב לי הודעה על הקמפיין'],
+  ['P1  info (מה) — vacuous, see note',   'מה קורה עם הקמפיינים שלי'],
+  ['P1s info (מה) — singular twin',       'מה קורה עם הקמפיין שלי'],
+  ['P2  info (כמה) — vacuous, see note',  'כמה קמפיינים פעילים יש לי'],
+  ['P2s info (כמה) — singular twin',      'כמה משימות יש בקמפיין הזה'],
+  ['P3  info (אילו) + tasks',             'אילו משימות שייכות לקמפיין ההשקה'],
+  ['P4  info (סטטוס)',                    'מה הסטטוס של קמפיין הקיץ'],
+  ['P5  info (תראה) — vacuous, see note', 'תראה לי את הקמפיינים הפעילים'],
+  ['P5s info (תראה) — singular twin',     'תראה לי את הקמפיין הפעיל'],
+  ['P6  info (איזה) + tasks',             'איזה קמפיין הכי מקושר למשימות'],
+  ['P7  LEAD_FRAME only',                 'ליד חדש הגיע מהקמפיין באינסטגרם'],
+  ['P8  English info',                    'what is the status of my campaigns?'],
+  ['P9  drafting frame',                  'תכתוב לי הודעה על הקמפיין'],
 ];
 
 describe('C1 · creative-action intent is CONTAINED (S0F.1 preserved)', () => {
@@ -125,6 +134,44 @@ describe('C1 · the lead escape is real, not a phantom info frame', () => {
 
   it('an inflected "מה…" prefix alone never releases', () => {
     expect(isCampaignRequest('תעשה משהו מהקמפיין הזה')).toBe(true);
+  });
+});
+
+// ---- PRE-EXISTING noun gap — pinned, NOT fixed here ------------------------
+// /קמפיי?ן/ requires the FINAL nun ן (U+05DF). The Hebrew plural "קמפיינים"
+// spells the same consonant with the MEDIAL nun נ (U+05E0), so the noun has
+// never matched any plural form. This is byte-identical to the pre-slice
+// matcher on `main` — this slice neither caused it nor fixed it (the approved
+// spec froze noun coverage). It is pinned so it cannot be rediscovered as a
+// mystery, and so that widening the noun is a deliberate, reviewed change.
+//
+// ⚠️ It leaves a REAL S0F.1 CONTAINMENT HOLE that predates this slice: a plural
+// creative build request is not contained. Owner decision, out of scope here.
+
+describe('C1 · pre-existing plural-noun gap (documented, not fixed)', () => {
+  it('the plural is invisible to the noun, so plural questions were ALREADY reaching context', () => {
+    expect(isCampaignRequest('מה קורה עם הקמפיינים שלי')).toBe(false);
+    expect(isCampaignRequest('קמפיינים')).toBe(false);
+  });
+
+  it('⚠️ and a PLURAL creative build request is NOT contained — pre-existing hole', () => {
+    expect(isCampaignRequest('תבנה לי קמפיינים חדשים')).toBe(false);
+    // The singular form of the very same request IS contained.
+    expect(isCampaignRequest('תבנה לי קמפיין חדש')).toBe(true);
+  });
+});
+
+// ---- residual limits of the verb sets (documented, accepted) ---------------
+// Both fail CLOSED (contained), which is the safe direction, but they are real:
+// a past-tense or descriptive use of a build verb still reads as build intent.
+
+describe('C1 · known residuals — build verbs win even in a question', () => {
+  it('a past-tense Hebrew build verb still contains', () => {
+    expect(isCampaignRequest('מי בנה את הקמפיין הזה?')).toBe(true);
+  });
+
+  it('an English descriptive "run" still contains', () => {
+    expect(isCampaignRequest('how did the campaign run?')).toBe(true);
   });
 });
 
