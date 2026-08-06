@@ -106,8 +106,8 @@ export default function AppointmentModal({
 
         <div className="form-grid">
           <div className="field">
-            <label>סוג</label>
-            <select className="select" value={form.kind} onChange={(e) => set('kind', e.target.value)}>
+            <label htmlFor="appointment-kind">סוג</label>
+            <select id="appointment-kind" className="select" value={form.kind} onChange={(e) => set('kind', e.target.value)}>
               {APPOINTMENT_KINDS.map((k) => (
                 <option key={k} value={k}>{APPOINTMENT_KIND_LABELS[k]}</option>
               ))}
@@ -115,8 +115,9 @@ export default function AppointmentModal({
           </div>
 
           <div className="field">
-            <label>כותרת *</label>
+            <label htmlFor="appointment-title">כותרת *</label>
             <input
+              id="appointment-title"
               className="input"
               value={form.title}
               onChange={(e) => set('title', e.target.value)}
@@ -126,8 +127,9 @@ export default function AppointmentModal({
           </div>
 
           <div className="field">
-            <label>תאריך *</label>
+            <label htmlFor="appointment-date">תאריך *</label>
             <input
+              id="appointment-date"
               className="input" type="date" value={form.date}
               onChange={(e) => set('date', e.target.value)}
               dir="ltr" style={{ textAlign: 'right' }}
@@ -135,8 +137,9 @@ export default function AppointmentModal({
           </div>
 
           <div className="field">
-            <label>שעת התחלה *</label>
+            <label htmlFor="appointment-start-time">שעת התחלה *</label>
             <input
+              id="appointment-start-time"
               className="input" type="time" value={form.startTime}
               onChange={(e) => set('startTime', e.target.value)}
               dir="ltr" style={{ textAlign: 'right' }}
@@ -144,10 +147,11 @@ export default function AppointmentModal({
           </div>
 
           <div className="field">
-            <label>שעת סיום</label>
+            <label htmlFor="appointment-end-time">שעת סיום</label>
             {/* Optional on purpose: end_at is nullable and "no stated end" is a
                 real state, not a missing value to be guessed at. */}
             <input
+              id="appointment-end-time"
               className="input" type="time" value={form.endTime}
               onChange={(e) => set('endTime', e.target.value)}
               dir="ltr" style={{ textAlign: 'right' }}
@@ -155,18 +159,18 @@ export default function AppointmentModal({
           </div>
 
           <div className="field">
-            <label>לקוח</label>
-            <select className="select" value={form.clientId} onChange={(e) => set('clientId', e.target.value)}>
+            <label htmlFor="appointment-client">לקוח</label>
+            <select id="appointment-client" className="select" value={form.clientId} onChange={(e) => set('clientId', e.target.value)}>
               <option value="">ללא שיוך</option>
               {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
 
           <div className="field">
-            <label>משימה מקושרת</label>
+            <label htmlFor="appointment-task">משימה מקושרת</label>
             {/* Optional, and it never changes the task: the link points from the
                 appointment to the task, and deleting the task only unlinks. */}
-            <select className="select" value={form.taskId} onChange={(e) => set('taskId', e.target.value)}>
+            <select id="appointment-task" className="select" value={form.taskId} onChange={(e) => set('taskId', e.target.value)}>
               <option value="">ללא קישור</option>
               {tasks.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
             </select>
@@ -174,8 +178,9 @@ export default function AppointmentModal({
         </div>
 
         <div className="field">
-          <label>הערות</label>
+          <label htmlFor="appointment-notes">הערות</label>
           <textarea
+            id="appointment-notes"
             className="input" rows={3} value={form.notes}
             onChange={(e) => set('notes', e.target.value)}
             maxLength={SCHEDULE_LIMITS.notes}
