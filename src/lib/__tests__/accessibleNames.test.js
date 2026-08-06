@@ -13,9 +13,23 @@
 //     ⚠️ 109 WAS THE COUNT WHEN A1 SHIPPED, AND IT IS NO LONGER CURRENT.
 //     A2 closed Login's 2 (→ 107), A3 closed ItemModal's 9 (→ 98), A4
 //     closed ClientModal's 12 (→ 86) and A5 closed TaskModal's 9 (→ 77).
-//     ⚠️ THAT NUMBER IS A MEASURED SCAN RESULT, NOT AN INVARIANT THIS FILE
-//     ENFORCES — nothing here fails when the bucket moves, so treat it as a
+//     ⚠️ THE 77 IS A HAND COUNT AND IT DISAGREES WITH THE TOOL. The
+//     parser-backed `npm run a11y:count` measures the bucket at **82** on the
+//     same tree (the +5 is explained in the tracker: OnboardingWizard was never
+//     listed in any candidate table; the separate −11 on `no-visible-label` is
+//     recorded there as UNRESOLVED and inherited, not introduced by any slice).
+//     ⚠️ A6 closed AppointmentModal's 8, MEASURED WITH THE TOOL, not by hand:
+//         visible-label-not-associated  82 → 74
+//         no-visible-label              10 → 10   (untouched by A6)
+//         TOTAL remaining gaps          92 → 84
+//         hidden input[type=file]        6 →  6   (separate fix class, and note
+//                                                  it is 6, not the 5 quoted in
+//                                                  older boxes — slice 4 added
+//                                                  the gallery upload input)
+//     ⚠️ THOSE NUMBERS ARE A MEASURED SCAN RESULT, NOT AN INVARIANT THIS FILE
+//     ENFORCES — nothing here fails when the bucket moves, so treat them as a
 //     comment that must be edited by hand each slice, exactly as it was here.
+//     Re-run the tool AFTER editing this comment, never before.
 //
 //   • 31 "no visible label" — nameless to EVERYONE who cannot infer the control
 //     from its position. Slice A1 fixed the 10 of those that sit on the list
@@ -974,5 +988,257 @@ describe('accessibility A5 — TaskModal .field labels are programmatically asso
   it('NEGATIVE: a third mount site would be caught by the mount scan', () => {
     const fake = 'const x = <TaskModal open={false} />;';
     expect(/<TaskModal[\s/>]/.test(fake), 'the mount detector does not match a real mount').toBe(true);
+  });
+});
+
+// ===================================================================
+// ACCESSIBILITY SLICE A6 — AppointmentModal's eight `.field` blocks.
+//
+// The three standing conditions, and unlike A5 the singleton one is satisfied
+// the EASY way — which is why this block asserts the easy premise explicitly
+// rather than relying on it:
+//
+//   REACHABILITY — PASSES. `/schedule` carries neither `betaHidden` nor a
+//     BetaUnavailable early return in cloud mode, and 'schedule' is absent from
+//     BETA_HIDDEN_MODULES. A signed-in owner opens the dialog from the
+//     `רישום חדש ביומן` button with NO existing appointment, so QA needs no
+//     write of any kind — the zero-write posture the slice was approved under.
+//   NOT REPEATED — PASSES. The single mount is not inside a `.map()`; the page
+//     drives it from ONE `modalOpen` boolean, shared by openNew and openEdit.
+//   SINGLETON — PASSES, and by mount count this time. <AppointmentModal> is
+//     mounted at exactly ONE site, `pages/Schedule.jsx`. The A5 argument still
+//     has to hold underneath it, and each half is pinned below:
+//       (a) ONE mount site, so two instances cannot come from two hosts; and
+//       (b) App.jsx wraps the page in <AnimatePresence mode="wait">, so a
+//           Schedule that is exiting is gone BEFORE any incoming page mounts —
+//           two Schedule hosts cannot overlap mid-transition; and
+//       (c) `Modal.jsx` renders `{open && …}` inside its own AnimatePresence,
+//           so a CLOSED AppointmentModal contributes ZERO DOM nodes. Two
+//           `appointment-*` ids in one document therefore requires two OPEN
+//           dialogs, which (a) and (b) make impossible.
+//     If any of those three changes, the literal-id decision is void and the
+//     ids must be derived from the appointment's own id instead. That is what
+//     the tests in this block exist to catch.
+//
+// ⚠️ NO FIELD HERE IS CONDITIONAL — simpler than A5, where two of the nine
+// rendered only on a non-empty list. All eight render whenever the dialog is
+// open, in both the create and the edit state, so every DOM assertion applies
+// in every state owner QA can reach.
+// ===================================================================
+describe('accessibility A6 — AppointmentModal .field labels are programmatically associated', () => {
+  const APPT_MODAL = 'components/forms/AppointmentModal.jsx';
+  const APPT_HOSTS = ['pages/Schedule.jsx'];
+  const A6_IDS = [
+    'appointment-kind', 'appointment-title', 'appointment-date',
+    'appointment-start-time', 'appointment-end-time', 'appointment-client',
+    'appointment-task', 'appointment-notes',
+  ];
+
+  /** THE CHECKER — shared by the assertions and every negative control. */
+  function unpairedApptFields(source = null) {
+    const abs = path.join(SRC, APPT_MODAL);
+    const controls = controlsIn(abs, source);
+    const labels = labelsIn(abs, source);
+    const problems = [];
+    for (const id of A6_IDS) {
+      const control = controls.find((c) => c.attrs.id === id);
+      if (!control) { problems.push({ id, reason: 'no control carries that id' }); continue; }
+      if (!labels.some((l) => l.attrs.htmlFor === id)) problems.push({ id, reason: 'no label htmlFor points at it' });
+    }
+    return problems;
+  }
+
+  it('POSITIVE CONTROL: the walker finds AppointmentModal\'s controls and labels at all', () => {
+    expect(controlsIn(path.join(SRC, APPT_MODAL)).length,
+      'no controls parsed — the guard would pass by finding nothing').toBeGreaterThanOrEqual(8);
+    expect(labelsIn(path.join(SRC, APPT_MODAL)).length,
+      'no labels parsed — the guard would pass by finding nothing').toBeGreaterThanOrEqual(8);
+  });
+
+  it('all eight fields have an id AND a label that references it', () => {
+    expect(unpairedApptFields()).toEqual([]);
+  });
+
+  it('every htmlFor in AppointmentModal resolves to a control id in the same file', () => {
+    const ids = new Set(controlsIn(path.join(SRC, APPT_MODAL)).map((c) => c.attrs.id).filter(Boolean));
+    for (const l of labelsIn(path.join(SRC, APPT_MODAL))) {
+      if (l.attrs.htmlFor) {
+        expect(ids.has(l.attrs.htmlFor), `AppointmentModal.jsx:${l.line} htmlFor="${l.attrs.htmlFor}" points at no control`).toBe(true);
+      }
+    }
+  });
+
+  it('NO label in AppointmentModal is left without a htmlFor', () => {
+    for (const l of labelsIn(path.join(SRC, APPT_MODAL))) {
+      expect(l.attrs.htmlFor, `AppointmentModal.jsx:${l.line} label still names nothing`).toBeTruthy();
+    }
+  });
+
+  it('no appointment-* id is declared twice inside AppointmentModal', () => {
+    const ids = controlsIn(path.join(SRC, APPT_MODAL))
+      .map((c) => c.attrs.id).filter((id) => id && !/[`${}]/.test(id));
+    expect(ids.length, 'no literal ids parsed — the duplicate check would be vacuous').toBeGreaterThanOrEqual(8);
+    expect(ids.length - new Set(ids).size, `duplicate id in AppointmentModal: ${ids.join(', ')}`).toBe(0);
+  });
+
+  it('REACHABILITY: /schedule renders in cloud mode — no betaHidden, no BETA_HIDDEN_MODULES entry', () => {
+    const nav = fs.readFileSync(path.join(SRC, 'components/layout/sidebarNav.js'), 'utf8');
+    const entry = nav.split('\n').find((l) => l.includes("to: '/schedule'")) || '';
+    expect(entry, 'the /schedule nav entry disappeared').toBeTruthy();
+    expect(entry, '/schedule must not become betaHidden — the modal would be unreachable in cloud mode').not.toContain('betaHidden');
+
+    const beta = fs.readFileSync(path.join(SRC, 'lib/betaCapabilities.js'), 'utf8');
+    const hidden = beta.split('\n').find((l) => l.includes('BETA_HIDDEN_MODULES = ')) || '';
+    expect(hidden, 'BETA_HIDDEN_MODULES line not found — the reachability check would be vacuous').toBeTruthy();
+    expect(hidden).not.toContain("'schedule'");
+  });
+
+  // (a) of the singleton argument. ⚠️ ONE mount is the EXPECTED state here; a
+  // SECOND one voids the literal-id decision, exactly as a THIRD did for A5.
+  //
+  // ⚠️ THIS COUNTS MOUNT **OCCURRENCES**, NOT FILES THAT CONTAIN A MOUNT — and
+  // that distinction is not pedantry, it is the A5 lesson applied to this
+  // guard's own implementation. A file-level scan (the shape A5 uses, because
+  // there the expected answer was a LIST of two hosts) reports the same
+  // `['pages/Schedule.jsx']` whether Schedule mounts the dialog once or twice.
+  // Two mounts in ONE host is precisely the state that puts two sets of literal
+  // `appointment-*` ids in one document, so the file-level check would pass on
+  // the exact regression it exists to catch. Measured: a mutation adding a
+  // second `<AppointmentModal>` to Schedule.jsx SURVIVED the file-level form of
+  // this test and is caught by the occurrence-level form below.
+  function mountOccurrences() {
+    const found = [];
+    (function walkDir(dir) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) { if (e.name !== '__tests__') walkDir(p); }
+        else if (e.name.endsWith('.jsx') && p !== path.join(SRC, APPT_MODAL)) {
+          const hits = (fs.readFileSync(p, 'utf8').match(/<AppointmentModal[\s/>]/g) || []).length;
+          for (let i = 0; i < hits; i += 1) found.push(path.relative(SRC, p).replace(/\\/g, '/'));
+        }
+      }
+    })(SRC);
+    return found.sort();
+  }
+
+  it('MOUNT SITES: <AppointmentModal> is mounted EXACTLY ONCE, in one known host', () => {
+    expect(mountOccurrences(),
+      'a SECOND mount — in ANY file, including the same host — invalidates the literal-id decision; derive ids from the appointment id instead')
+      .toEqual(APPT_HOSTS);
+  });
+
+  it('SINGLE OPEN FLAG: the host drives that one mount from one boolean', () => {
+    const host = fs.readFileSync(path.join(SRC, APPT_HOSTS[0]), 'utf8');
+    expect((host.match(/useState\(false\)/g) || []).length,
+      'Schedule.jsx modal-open state disappeared — the single-instance premise is unverified').toBeGreaterThanOrEqual(1);
+    expect(host, 'the mount must stay gated on the single modalOpen flag').toContain('open={modalOpen}');
+    expect((host.match(/setModalOpen\(true\)/g) || []).length,
+      'openNew and openEdit must both drive the SAME single instance').toBe(2);
+  });
+
+  // The single host is bound to a single route. Two Schedule pages cannot be
+  // rendered by react-router at once.
+  it('ROUTE: the single host is bound to exactly one route', () => {
+    const app = fs.readFileSync(path.join(SRC, 'App.jsx'), 'utf8');
+    expect(app, '/schedule must map to <Schedule/>').toContain('path="/schedule" element={<Schedule />}');
+    expect((app.match(/element=\{<Schedule \/>\}/g) || []).length,
+      '<Schedule/> is bound to more than one route — two hosts could exist').toBe(1);
+  });
+
+  // (b): the page transition waits, so an outgoing Schedule is gone before the
+  // incoming page mounts. Without `mode="wait"` the two overlap for ~240ms.
+  it('TRANSITION: the page AnimatePresence is mode="wait", so hosts never overlap', () => {
+    const app = fs.readFileSync(path.join(SRC, 'App.jsx'), 'utf8');
+    expect(app, 'losing mode="wait" lets two page hosts co-exist mid-transition')
+      .toContain('<AnimatePresence mode="wait" initial={false}>');
+  });
+
+  // (c): a CLOSED modal contributes no DOM at all.
+  it('CLOSED MODAL renders nothing — Modal.jsx gates its subtree on `open`', () => {
+    const modal = fs.readFileSync(path.join(SRC, 'components/ui/Modal.jsx'), 'utf8');
+    expect(modal, 'if the overlay stops being gated on `open`, a closed AppointmentModal would put appointment-* ids in the DOM')
+      .toContain('{open && (');
+  });
+
+  // The host may not declare an `appointment-` id of its own, or it could
+  // collide with the dialog mounted on that same page.
+  it('HOST PAGE: Schedule.jsx declares no appointment-* literal id', () => {
+    for (const host of APPT_HOSTS) {
+      for (const c of controlsIn(path.join(SRC, host))) {
+        expect(c.attrs.id === undefined || !String(c.attrs.id).startsWith('appointment-'),
+          `${host}:${c.line} declares ${c.attrs.id}, which could collide with AppointmentModal`).toBe(true);
+      }
+    }
+  });
+
+  it('SCOPE: AppointmentModal uses id/htmlFor, not a wrapping label, not useId, not a shared Field', () => {
+    const src = fs.readFileSync(path.join(SRC, APPT_MODAL), 'utf8');
+    expect(src, 'A6 must not introduce useId').not.toContain('useId');
+    expect(src, 'A6 must not introduce a shared Field component').not.toContain('<Field');
+    // DOM shape unchanged: still eight `.field` divs, each with a sibling label.
+    expect(src.match(/className="field/g) || []).toHaveLength(8);
+  });
+
+  // A6 is ADDITIVE ATTRIBUTES ONLY. These are the behaviours the spec named
+  // explicitly, and each is the kind a careless edit drops in passing.
+  it('SCOPE: A6 changed no behaviour — the limits, dir, the saving gate and the shared validator all survive', () => {
+    const src = fs.readFileSync(path.join(SRC, APPT_MODAL), 'utf8');
+    expect(src, 'the title input lost its SCHEDULE_LIMITS.title cap').toContain('maxLength={SCHEDULE_LIMITS.title}');
+    expect(src, 'the notes textarea lost its SCHEDULE_LIMITS.notes cap').toContain('maxLength={SCHEDULE_LIMITS.notes}');
+    expect((src.match(/dir="ltr"/g) || []).length,
+      'the date and both time inputs must keep dir="ltr"').toBe(3);
+    expect(src, 'the in-flight submit gate was dropped — a pending write could be re-submitted').toContain('disabled={saving}');
+    expect(src, 'the modal must keep validating through the SAME shared validator the api layer uses').toContain('validateAppointment(form)');
+    expect(src, 'a status field must NOT appear here — the outcome is recorded from the list').not.toContain("set('status'");
+  });
+
+  it('SCOPE: A6 did not start the other .field files', () => {
+    const untouched = ['components/forms/ProjectModal.jsx',
+      'components/onboarding/OnboardingWizard.jsx', 'components/settings/BusinessContextEditor.jsx'];
+    for (const f of untouched) {
+      expect(fs.readFileSync(path.join(SRC, f), 'utf8'),
+        `${f}: A6 is AppointmentModal-only — this file belongs to a later slice`).not.toContain('htmlFor');
+    }
+  });
+
+  // NEGATIVE CONTROLS — each drives the SAME checker the assertions use.
+  it('NEGATIVE: removing a htmlFor from the real source is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, APPT_MODAL), 'utf8');
+    const mutated = real.replace(' htmlFor="appointment-end-time"', '');
+    expect(mutated, 'mutation did not apply — the control would be vacuous').not.toBe(real);
+    expect(unpairedApptFields(mutated).some((p) => p.id === 'appointment-end-time'
+      && p.reason === 'no label htmlFor points at it')).toBe(true);
+  });
+
+  it('NEGATIVE: removing an id from the real source is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, APPT_MODAL), 'utf8');
+    const mutated = real.replace(' id="appointment-kind"', '');
+    expect(mutated).not.toBe(real);
+    expect(unpairedApptFields(mutated).some((p) => p.id === 'appointment-kind'
+      && p.reason === 'no control carries that id')).toBe(true);
+  });
+
+  it('NEGATIVE: a htmlFor/id typo mismatch is reported', () => {
+    const real = fs.readFileSync(path.join(SRC, APPT_MODAL), 'utf8');
+    const mutated = real.replace('htmlFor="appointment-start-time"', 'htmlFor="appointment-start-tim"');
+    expect(mutated).not.toBe(real);
+    expect(unpairedApptFields(mutated).some((p) => p.id === 'appointment-start-time')).toBe(true);
+  });
+
+  // ⚠️ THE CLASS LITERAL IDS ARE MOST EXPOSED TO. Prove the duplicate scan bites
+  // on this file rather than assuming the repo-wide backstop covers it.
+  it('NEGATIVE: a duplicated literal id would be caught by the duplicate scan', () => {
+    const real = fs.readFileSync(path.join(SRC, APPT_MODAL), 'utf8');
+    const mutated = real.replace(' id="appointment-notes"', ' id="appointment-title"');
+    expect(mutated).not.toBe(real);
+    const ids = controlsIn(path.join(SRC, APPT_MODAL), mutated)
+      .map((c) => c.attrs.id).filter((id) => id && !/[`${}]/.test(id));
+    expect(ids.length - new Set(ids).size, 'the duplicate was not detected').toBeGreaterThan(0);
+  });
+
+  // A second mount site is the specific regression that voids literal ids here.
+  it('NEGATIVE: a second mount site would be caught by the mount scan', () => {
+    const fake = 'const x = <AppointmentModal open={false} />;';
+    expect(/<AppointmentModal[\s/>]/.test(fake), 'the mount detector does not match a real mount').toBe(true);
   });
 });
