@@ -297,10 +297,17 @@ describe('T12/T13 — the context stays under the Gateway limit at QUOTA', () =>
     expect(ctx(worst).length + uncapped.length).toBeGreaterThan(LIMIT);
   });
 
-  it('the campaign block itself costs under 1000 chars at the worst case', () => {
+  // ⚠️ RE-SCOPED BY THE TASK↔CAMPAIGN JOIN SLICE, and the bound was RAISED
+  // 1000 → 1900 on a MEASUREMENT, not to make a red test green. This baseline
+  // drops `campaigns`, and the join's per-campaign listing is gated on campaigns
+  // being hydrated, so the delta now covers TWO blocks, not one. Measured at
+  // this worst case: 1,562 chars total. The campaigns block itself is unchanged
+  // — campaignLines() is byte-identical after the join slice — and the join's
+  // own bound is proven separately, and by row count, in jakeCampaignTasks.test.js.
+  it('the campaign block PLUS the task-join listing costs under 1900 chars at the worst case', () => {
     const withC = ctx(worst).length;
     const without = ctx({ ...worst, campaigns: undefined, campaignsError: false }).length;
-    expect(withC - without).toBeLessThan(1000);
+    expect(withC - without).toBeLessThan(1900);
   });
 
   // C1 — the pre-settle state is a SWAP, not an addition: it replaces the
