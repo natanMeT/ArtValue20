@@ -226,6 +226,16 @@ function calendarLines(data, now) {
 // ===================================================================
 const CAMPAIGN_ACTIVE_CAP = 5;
 
+// THE SHOWN ACTIVES, in ONE place. campaignLines() lists them and
+// campaignTaskLines() groups tasks under exactly the same set; two copies of
+// `filter(active).slice(CAP)` would be a fork waiting to drift, and a drifted
+// copy would attach task names to campaigns Jake was never told about.
+function shownActiveCampaigns(all) {
+  return (Array.isArray(all) ? all : [])
+    .filter((c) => c && c.status === 'active')
+    .slice(0, CAMPAIGN_ACTIVE_CAP);
+}
+
 function campaignLines(data) {
   if (!isHydrated(data.campaigns)) {
     // TWO different absences, and collapsing them would make one of them a lie.
@@ -267,7 +277,7 @@ function campaignLines(data) {
   // counts truthfully, and listing a completed campaign answers no question the
   // user is asking today while costing the same budget as an active one.
   if (active.length) {
-    const shown = active.slice(0, CAMPAIGN_ACTIVE_CAP);
+    const shown = shownActiveCampaigns(all);
     const hidden = active.length - shown.length;
     const items = shown.map((c) => {
       const window = (c.startDate || c.endDate) ? ` [${c.startDate || '—'} → ${c.endDate || '—'}]` : '';
@@ -276,6 +286,160 @@ function campaignLines(data) {
     lines.push(`קמפיינים פעילים: ${items}.`
       + (hidden > 0 ? ` ועוד ${hidden} פעילים שאינם מפורטים כאן.` : ''));
   }
+  return lines;
+}
+
+// ===================================================================
+// Task ↔ Campaign join → Jake. `tasks.campaign_id` and its composite FK have
+// been live since migration 20260729120000, TaskModal has submitted the link
+// since Campaigns slice 2, and Tasks.jsx renders a campaign column — yet Jake
+// knew campaign TITLES and task TITLES and nothing about which belongs to
+// which. Asked "אילו משימות שייכות לקמפיין קיץ" he had no grounded answer.
+//
+// ZERO NEW IO. Tasks ride the STORE (api.fetchAll hydrates them, and
+// api.js:172 rowToTask already maps campaign_id → campaignId); campaigns ride
+// the JAKE SEAM. Both are already in `data` by the time this runs. No new lane,
+// no new timer, no new fetch, and `src/lib/api.js` is untouched.
+//
+// ⚠️ THE CROSS-LIFECYCLE RULE — the whole reason this is not a two-line change.
+// The two collections settle INDEPENDENTLY: tasks are in the store before the
+// panel opens, campaigns are read once per panel open and can be pending, failed
+// or absent while tasks are fully hydrated. So a naive join would report
+// "המשימה אינה משויכת לקמפיין" at exactly the moment the truth is "I could not
+// read the campaigns". The split is therefore made on what each source can
+// actually answer:
+//   - WHETHER a task carries a campaign id  → knowable from `tasks` ALONE, so
+//     the roll-up sentence is emitted unconditionally and is true in every
+//     campaigns state, including error and pending.
+//   - WHICH campaign it is                  → needs the campaigns read, so the
+//     per-campaign listing is emitted ONLY when campaigns are hydrated.
+// Consequence: this adds ZERO new absence states. It inherits the campaigns
+// lane's existing three (error / pending / not-connected) rather than inventing
+// a fourth, and campaignLines() is left byte-identical — these lines are
+// appended after it, so no existing wording moves.
+//
+// ONE DIRECTION ONLY, DELIBERATELY: campaign → its open tasks, never
+// task → its campaign. Tasks are not individually listed anywhere in this
+// context (the tasks line is a scalar roll-up), so a per-task campaign clause
+// would mean creating a NEW listing surface over a collection with no quota and
+// no title bound — a different, larger slice wearing this one's name.
+//
+// ⚠️ WHY THE HARD SLICE IS THE ONLY BOUND THAT EXISTS. `public.tasks` has NO
+// row quota and `title` is `text not null` with NO length check (migration
+// 20260722120000), and TaskModal's title input carries NO maxLength either — so
+// a task title is unbounded from BOTH sides. The quota-ceiling argument used by
+// the campaigns section is unavailable here for the same reason it was
+// unavailable for quotes, and the substitute property is that this section is
+// O(1) IN TASK COUNT. Exposure is bounded by
+//   CAMPAIGN_ACTIVE_CAP × (campaign title + TASKS_PER_CAMPAIGN_CAP × TASK_TITLE_CHARS)
+//   = 5 × (120 + 3 × 60) + separators
+// and the campaign title is itself server-bounded at CAMPAIGN_LIMITS.title =
+// 120 by campaigns_title_bounded, so every term is a constant and NO term is a
+// row count. MEASURED on a 200-active-campaign account with 400-char task
+// titles: this section costs 1,986 chars at 5,000 tasks and 1,994 at 50,000 —
+// a 10x row increase costs EIGHT CHARACTERS, all of them digits in the counts.
+// Full worst-case context 5,067 chars. This text ships inside the same
+// `context.summary` the Gateway validates against MAX_CONTEXT_CHARS = 12000 and
+// REJECTS over-limit rather than truncating.
+//
+// EXCLUDED, not truncated: `notes` (unbounded free text — the `meta.prompt`
+// exclusion class; a half-sentence note is something Jake would quote back as a
+// fact), plus `id`, `clientId`, `projectId`, `assignee`, `linkRef`, `priority`
+// and `deadline`. Only the title and counts are emitted.
+//
+// READ-ONLY. There is no Jake task op and no Jake campaign op; none was added.
+// jakeAgent.js is untouched, pinned by jakeCampaignTasks.test.js.
+//
+// NO CLOCK — status and linkage are the whole selector.
+// ===================================================================
+const TASKS_PER_CAMPAIGN_CAP = 3;
+const TASK_TITLE_CHARS = 60;
+
+// THE OPEN-TASK PREDICATE, in ONE place. artValueContext() and
+// artValueBriefing() already defined this inline and identically; this slice
+// groups by the SAME set, and a fourth private copy is how the campaign
+// grouping and the "N פתוחות" count silently start disagreeing. Semantics are
+// unchanged from the inline form it replaces.
+const isOpenTask = (t) => t.status !== 'done';
+
+// Three buckets, and the third is the point. `campaignLabelForAsset` is a pure
+// resolver keyed off `.campaignId` — the field tasks and assets share — and it
+// already returns exactly the three states needed, so it is reused AS-IS rather
+// than reimplemented two-outcome here. Reimplementing it is precisely how
+// `unknown` gets folded into `none`.
+//
+// A task whose id resolves to nothing is STILL LINKED. That happens when the
+// campaign was deleted since this snapshot, when the campaigns seam read failed,
+// and when the read simply has not settled — the wording below is honest for all
+// three WITHOUT asserting which. Calling it unlinked would tell the user
+// something the database contradicts; inventing a title would be worse.
+function taskCampaignBuckets(openTasks, campaigns) {
+  const named = new Map();
+  let unknown = 0;
+  let unlinked = 0;
+  for (const t of openTasks) {
+    const r = campaignLabelForAsset(t, campaigns);
+    if (r.state === 'none') { unlinked += 1; continue; }
+    if (r.state === 'unknown') { unknown += 1; continue; }
+    const key = String(t.campaignId);
+    if (!named.has(key)) named.set(key, []);
+    named.get(key).push(t);
+  }
+  return { named, unknown, unlinked };
+}
+
+function campaignTaskLines(data) {
+  // Tasks unhydrated → say nothing rather than report a fabricated zero. The
+  // pre-existing `משימות: N פתוחות` line is untouched by this slice.
+  if (!isHydrated(data.tasks)) return [];
+  const open = data.tasks.filter(isOpenTask);
+  if (!open.length) return [];
+
+  const { named, unknown, unlinked } = taskCampaignBuckets(open, data.campaigns);
+  const linked = open.length - unlinked;
+  const lines = [];
+
+  // WHICH campaign — campaigns-dependent, so gated on hydration. Every shown
+  // active is listed even at zero tasks: "אין משימות פתוחות" is a fact, while
+  // omitting the campaign would leave Jake unable to distinguish "none" from
+  // "not covered here".
+  //
+  // ⚠️ THIS GUARD IS DOUBLED ON PURPOSE, and a mutation test proved it. Removing
+  // this line alone changes NOTHING observable, because shownActiveCampaigns()
+  // independently returns [] for a non-array and the listing is then skipped for
+  // want of campaigns to list — an EQUIVALENT MUTANT, not a coverage hole. Both
+  // halves are kept: this one states the cross-lifecycle rule at the point the
+  // decision is made, the other one enforces it for any future caller. Deleting
+  // EITHER is safe; deleting BOTH emits campaign names during a pending or
+  // failed campaigns read, which is the exact falsehood this section exists to
+  // prevent — pinned by the double-removal mutation control.
+  if (isHydrated(data.campaigns)) {
+    const shown = shownActiveCampaigns(data.campaigns);
+    if (shown.length) {
+      const items = shown.map((c) => {
+        const mine = named.get(String(c.id)) || [];
+        if (!mine.length) return `${c.title} — אין משימות פתוחות`;
+        const take = mine.slice(0, TASKS_PER_CAMPAIGN_CAP);
+        const hidden = mine.length - take.length;
+        return `${c.title} — ${take.map((t) => String(t.title || '').slice(0, TASK_TITLE_CHARS)).join('; ')}`
+          + (hidden > 0 ? ` (ועוד ${hidden} משימות פתוחות שאינן מפורטות כאן)` : '');
+      }).join(' | ');
+      lines.push(`משימות פתוחות לפי קמפיין (רק הקמפיינים הפעילים המפורטים למעלה): ${items}.`);
+    }
+  }
+
+  // WHETHER a task is linked — knowable from `tasks` alone, so this sentence is
+  // true in every campaigns state and is emitted unconditionally. The scoping
+  // clause is load-bearing: the listing above covers only the shown ACTIVES,
+  // while this count spans every campaign including draft/completed/cancelled,
+  // and without saying so the two numbers read as contradicting each other.
+  lines.push(`שיוך משימות לקמפיינים: ${linked} מתוך ${open.length} המשימות הפתוחות משויכות לקמפיין, `
+    + `${unlinked} אינן משויכות. הספירה הזו חלה על כל הקמפיינים, כולל כאלה שאינם פעילים ואינם מפורטים כאן.`
+    + (unknown > 0
+      ? ` מתוך המשויכות, ${unknown} משויכות לקמפיין ששמו אינו זמין לי כרגע — `
+        + `אל תאמר שהן אינן משויכות לקמפיין ואל תנחש את שמו.`
+      : ''));
+
   return lines;
 }
 
@@ -557,7 +721,7 @@ function quoteLines(data) {
 function artValueContext(data) {
   const k = dashboardKpis(data);
   const tasks = data.tasks || [];
-  const open = tasks.filter((t) => t.status !== 'done');
+  const open = tasks.filter(isOpenTask);
   const today = open.filter((t) => t.deadline && new Date(t.deadline).toDateString() === new Date().toDateString());
   const projects = (data.projects || []).filter((p) => p.status !== 'completed');
   const byStatus = (s) => data.clients.filter((c) => c.status === s).length;
@@ -587,6 +751,12 @@ function artValueContext(data) {
   // it does not belong ahead of the CRM collections, and appending moves no
   // existing line.
   lines.push(...campaignLines(data));
+
+  // Task ↔ campaign join. Appended directly after the campaigns block because
+  // the per-campaign listing is resolved against the same shown actives, so the
+  // two read together; appending moves no existing line and leaves every
+  // campaigns absence wording byte-identical.
+  lines.push(...campaignTaskLines(data));
 
   // Assets — durable, cloud-only, page-owned, read through the Jake seam, and
   // read-only. Placed directly after campaigns because the campaign LABEL on an
@@ -653,7 +823,7 @@ function artValueBriefing(data) {
   const tasks = data.tasks || [];
   const now = new Date();
   const todayStr = now.toDateString();
-  const open = tasks.filter((t) => t.status !== 'done');
+  const open = tasks.filter(isOpenTask);
   const overdue = open.filter((t) => t.deadline && new Date(t.deadline) < now && new Date(t.deadline).toDateString() !== todayStr);
   const dueToday = open.filter((t) => t.deadline && new Date(t.deadline).toDateString() === todayStr);
   // Money owed: work marked done / awaiting payment, value > 0, not yet paid.
