@@ -224,7 +224,7 @@ function hasActionVerb(text) {
 
 // Is this a WRITING request (letter / WhatsApp / email / reply)? → drafting lane
 // (prose only, no actions). Excludes "הצעת מחיר" which is a real add_quote action.
-function isDraftRequest(text) {
+export function isDraftRequest(text) {
   const t = String(text || '');
   if (/הצע(ת|ות)\s*מחיר/.test(t)) return false;
   const verb = /(כתוב|תכתוב|תכתבי|נסח|תנסח|נסחי|תכין|חבר|תחבר|לכתוב|לנסח|לחבר)/.test(t);
@@ -249,10 +249,53 @@ function gentleError(e) {
   return 'מצטער, לא הצלחתי לעבד את זה כרגע 🙏 נסה/י שוב בעוד רגע, או לנסח קצת אחרת.';
 }
 
+// ---- campaign INTENT classification (C1, 2026-08-07) ------------------------
+// Until this slice, clause 1 below was a BARE NOUN test — any text containing
+// "קמפיין" entered the S0F.1 creative-containment lane before Jake's context was
+// consulted, so informational questions about the account's DURABLE campaigns
+// (and the task↔campaign join shipped in `08f818d3`) could never be answered at
+// all. Containment KEEPS its precedence and its message; it now triggers on
+// creative-ACTION intent instead of on the word alone.
+//
+// Order, and it is load-bearing:
+//   1. a BUILD verb with the noun is ABSOLUTE — nothing overrides it;
+//   2. otherwise an informational, lead-CRM or drafting frame releases the text
+//      to the normal lanes;
+//   3. otherwise it FAILS CLOSED into containment (a bare "קמפיין", or an
+//      ambiguous "אני רוצה קמפיין", stays contained).
+// ONE rule for cloud and local/demo: this predicate never reads the mode. The
+// only mode divergence stays at the `isSupabaseConfigured` gate inside the lane.
+// ⚠️ BOTH nun forms. Hebrew writes the same consonant as FINAL nun ן (U+05DF)
+// word-finally and MEDIAL nun נ (U+05E0) elsewhere, so the singular קמפיין ends
+// in ן while the plural קמפיינים carries נ. The pre-slice matcher accepted only
+// ן, so NO plural form was ever a campaign — which left a real containment hole
+// ("תבנה לי קמפיינים חדשים" reached the model) and made three QA phrasings pass
+// for the wrong reason. The optional yod keeps the tolerated קמפין spelling.
+const CAMPAIGN_NOUN_RE = /קמפיי?[ןנ]|campaign/i;
+// ⚠️ Hebrew has no usable \b (see hasActionVerb above) — and a LEADING anchor
+// alone is NOT enough: /(?:^|\s)מה/ matches the first two letters of "מהקמפיין",
+// which would release a lead sentence through a PHANTOM info frame instead of
+// through the lead frame. Every token below is bounded on BOTH sides.
+const CAMPAIGN_BUILD_RE = /(?:^|\s)(תבנה|בנה|לבנות|תכין|הכן|להכין|תיצור|צור|ליצור|להקים|תריץ|הרץ|להריץ|תעצב|לעצב|תייצר|לייצר|build|create|run|design|generate|make)(?=\s|[?!.,;:]|$)/i;
+const CAMPAIGN_INFO_RE = /(?:^|\s)(מה|מהו|מהי|כמה|אילו|איזה|מי|סטטוס|תראה|הצג|תגיד|רשימת|what|which|status|show|list|how many)(?=\s|[?!.,;:]|$)/i;
+// Reused verbatim from jakeDecisionEngine.js — a campaign named as a lead's
+// SOURCE is a CRM statement, never a creative brief. It is an INDEPENDENT
+// escape: it must not require an info frame.
+const CAMPAIGN_LEAD_RE = /ליד(ים)?|\blead(s)?\b/i;
+
+function campaignCreativeIntent(t) {
+  if (!CAMPAIGN_NOUN_RE.test(t)) return false;
+  if (CAMPAIGN_BUILD_RE.test(t)) return true;                 // 1 — absolute
+  if (CAMPAIGN_INFO_RE.test(t) || t.includes('?')) return false; // 2a — info
+  if (CAMPAIGN_LEAD_RE.test(t)) return false;                 // 2b — CRM lead
+  if (isDraftRequest(t)) return false;                        // 2c — drafting
+  return true;                                                // 3 — fail closed
+}
+
 // Is this a CREATIVE CAMPAIGN request (→ Creative V2 slice: brief → adapter → V1)?
-function isCampaignRequest(text) {
+export function isCampaignRequest(text) {
   const t = String(text || '');
-  return /קמפיי?ן/.test(t)
+  return campaignCreativeIntent(t)
     || /(רעיונות|כיוונים)\s*(ל)?(פרסום|מודעה|קריאייטיב|קריאטיב)/.test(t)
     || /(תכין|בנה|תבנה|רוצה)\s*(לי\s*)?(מודעת? פרסום|כמה רעיונות פרסום)/.test(t);
 }
