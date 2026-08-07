@@ -97,9 +97,12 @@ describe('S1 · locked compatibility — released Gateway calls byte-identical',
   // contract, the action ids and the `context: { summary }` shape were not
   // touched by that slice.
   it('the three Assistant lane call expressions are unchanged', () => {
-    expect(assistant.includes('chatJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile))')).toBe(true);
+    // J3 repin: chat + draft gained a 4th EXPLICIT hidden-modules argument
+    // (isSupabaseConfigured ? BETA_HIDDEN_MODULES : null) so Jake stops
+    // advertising Growth OS in cloud. Same lanes, same wrapper, same profile.
+    expect(assistant.includes('chatJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile, isSupabaseConfigured ? BETA_HIDDEN_MODULES : null))')).toBe(true);
     expect(assistant.includes('forceActionsJake(text, activePack.buildContext(jakeData()))')).toBe(true);
-    expect(assistant.includes('draftWithJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile))')).toBe(true);
+    expect(assistant.includes('draftWithJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile, isSupabaseConfigured ? BETA_HIDDEN_MODULES : null))')).toBe(true);
   });
 
   it('Diagnose/Outreach lane call expressions are unchanged and stay off the gateway client', () => {

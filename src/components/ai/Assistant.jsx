@@ -13,7 +13,7 @@ import { calendarStateAfterRead, CALENDAR_OUTCOME } from '../../lib/calendarRead
 import { campaignStateAfterRead, CAMPAIGN_OUTCOME } from '../../lib/campaignReadState.js';
 import { assetStateAfterRead, ASSET_OUTCOME } from '../../lib/assetReadState.js';
 import { extractActions, executeActions, describeActions, detectBulkDelete, buildBulkDeleteGate } from '../../lib/jakeAgent.js';
-import { partitionJakeActions, BETA_MESSAGES } from '../../lib/betaCapabilities.js';
+import { partitionJakeActions, BETA_MESSAGES, BETA_HIDDEN_MODULES } from '../../lib/betaCapabilities.js';
 import { executeBulkDelete } from '../../lib/bulkDeleteOutcome.js';
 import { activePack } from '../../lib/jakePack.js';
 import { withBusinessBrain } from '../../lib/jakeBusinessContext.js';
@@ -1090,7 +1090,7 @@ export default function Assistant() {
       setLoading(true);
       try {
         const convo = next.filter((mm) => mm.text && !mm.system).slice(-12);
-        const { text: draft } = await draftWithJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile));
+        const { text: draft } = await draftWithJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile, isSupabaseConfigured ? BETA_HIDDEN_MODULES : null));
         const clean = extractActions(draft).clean || draft; // strip any stray actions block
         setMessages((m) => [...m, { role: 'assistant', text: clean }]);
         speak(clean);
@@ -1167,7 +1167,7 @@ export default function Assistant() {
       // (the deployed server chat contract requires user-first; chatJake maps
       // whatever it receives byte-exactly and repairs nothing).
       const convo = selectJakeChatHistory(next);
-      const { text: reply } = await chatJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile));
+      const { text: reply } = await chatJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile, isSupabaseConfigured ? BETA_HIDDEN_MODULES : null));
       let { clean, actions } = extractActions(reply); // eslint-disable-line prefer-const
 
       // Talked about doing something but emitted no block → force a proposal (2nd pass).

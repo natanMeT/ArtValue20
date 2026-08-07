@@ -349,7 +349,8 @@ describe('draftWithJake · frontend migration (source guards)', () => {
     const assistant = read('../../components/ai/Assistant.jsx');
     // Jake Calendar slice: context argument `data` → `jakeData()`. The drafting
     // seam and the "no gateway wiring in the UI" rule are both unchanged.
-    expect(assistant.includes('draftWithJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile))')).toBe(true);
+    // J3 repin: + 4th explicit hidden-modules argument; the drafting seam is unchanged.
+    expect(assistant.includes('draftWithJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile, isSupabaseConfigured ? BETA_HIDDEN_MODULES : null))')).toBe(true);
     expect(assistant.includes('aiGateway')).toBe(false);
   });
 
