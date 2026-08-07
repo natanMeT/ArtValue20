@@ -14,7 +14,6 @@
 // ===================================================================
 
 import {
-  toProviderMessagesForAction,
   buildGeminiMessagesRequest,
   parseGeminiTextResponse,
   parseStructuredResult,
@@ -27,6 +26,10 @@ import {
   buildProviderSuccessResponse,
   buildProviderJsonSuccessResponse,
 } from '../_shared/aiGatewayContract.js';
+// J1: the action-aware mapping is current-turn aware — jake.chat /
+// jake.draft_message fold context into the LAST user turn; every other
+// action delegates byte-identically to the legacy contract mapping.
+import { toProviderMessagesForActionCurrentTurn } from '../_shared/aiGatewayContextFold.js';
 import type { ActionProfile } from './actionProfiles.ts';
 
 const GEMINI_MODELS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -61,9 +64,12 @@ export async function runGeminiText(
   // specific shape (crm.lead_ideas → the pure contract builder) — is mapped to
   // provider-independent [{ role, text }] first, then to the Gemini body with the
   // SERVER-OWNED profile. user → user, assistant → model. The action-aware
-  // mapping lives entirely in the pure contract (toProviderMessagesForAction);
-  // no business branching happens here.
-  const messages = toProviderMessagesForAction(
+  // mapping lives entirely in the pure contract layer
+  // (aiGatewayContextFold.toProviderMessagesForActionCurrentTurn, which folds
+  // jake.chat / jake.draft_message context into the LAST user turn and
+  // delegates every other action byte-identically to the legacy
+  // toProviderMessagesForAction); no business branching happens here.
+  const messages = toProviderMessagesForActionCurrentTurn(
     decision ? decision.actionType : undefined,
     decision && decision.request ? decision.request.payload : undefined,
   );
