@@ -329,7 +329,8 @@ describe('J2 · Assistant confirmation flow integration (source, untouched)', ()
   it('same lane call shapes: chat wrapped with the business brain, force-actions lean', () => {
     // Jake Calendar slice: context argument `data` → `jakeData()`. Chat stays
     // brain-wrapped, force-actions stays lean — the asymmetry this pins is intact.
-    expect(assistant.includes('chatJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile))')).toBe(true);
+    // J3 repin: + 4th explicit hidden-modules argument; the asymmetry is intact.
+    expect(assistant.includes('chatJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile, isSupabaseConfigured ? BETA_HIDDEN_MODULES : null))')).toBe(true);
     expect(assistant.includes('forceActionsJake(text, activePack.buildContext(jakeData()))')).toBe(true);
   });
 

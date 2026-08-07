@@ -151,7 +151,12 @@ export const BUSINESS_BRAIN = deepFreeze({
 // ===================================================================
 const STATIC_CAPABILITIES = deepFreeze([
   { id: 'image-studio', kind: 'system', title: 'Image Studio', description: 'סטודיו התמונות המרכזי — יצירת תמונות לעסק וגלריית תוצרים במקום אחד.' },
-  { id: 'growth-os', kind: 'system', title: 'Growth OS', description: 'מרכז הצמיחה: מיפוי קטגוריות לידים, לוח פעולה חודשי, הכנת שיחות וספריית תוכן.' },
+  // J3 truthfulness: Growth OS is a real module in local/demo but is hidden in
+  // authenticated cloud (BETA_HIDDEN_MODULES has 'growth' and every Growth route
+  // renders BetaUnavailable). Jake must not advertise a surface the signed-in
+  // user cannot open, so the availability relationship is EXPLICIT:
+  //   requires: { module: 'growth' } -> removed when the runtime hides 'growth'.
+  { id: 'growth-os', kind: 'system', title: 'Growth OS', description: 'מרכז הצמיחה: מיפוי קטגוריות לידים, לוח פעולה חודשי, הכנת שיחות וספריית תוכן.', requires: { module: 'growth' } },
   { id: 'gallery', kind: 'system', title: 'גלריה / היסטוריית תוצרים', description: 'כל התמונות שנוצרו נשמרות ומסומנות לפי מקור, לשימוש חוזר.' },
   // Containment: this used to advertise "מפת Workflows קריאייטיביים" — the
   // workflow-map surface that the Studio no longer renders. Jake must not offer
@@ -195,6 +200,15 @@ export function systemCapabilities(availability = {}) {
     ? { modes: availability, modeLabels: [] }
     : (availability || {});
   const allowed = a.modes instanceof Set ? a.modes : new Set(Array.isArray(a.modes) ? a.modes : []);
+  // J3: which product MODULES the current runtime hides (cloud beta hides
+  // 'growth' etc.). Missing/malformed => empty set => NO module filtering —
+  // deliberately FAIL OPEN so the frozen legacy builder and every existing
+  // caller stay byte-identical. (Studio MODE gating below stays fail closed;
+  // the two defaults are different on purpose.) Entries are used as-is with no
+  // string coercion: only exact string ids can ever match a requirement.
+  const hidden = a.hiddenModules instanceof Set
+    ? a.hiddenModules
+    : new Set(Array.isArray(a.hiddenModules) ? a.hiddenModules : []);
   const snapshot = {
     modes: [...allowed],
     modeLabels: Array.isArray(a.modeLabels) ? a.modeLabels : [],
@@ -205,6 +219,9 @@ export function systemCapabilities(availability = {}) {
     const r = c.requires;
     if (!r) return true;                                   // non-Studio business capability
     if (r.anyStudioMode && allowed.size === 0) return false;
+    // A malformed r.module (non-string/empty) is repo data, not runtime input —
+    // ignored, so the capability stays available (same fail-open direction).
+    if (typeof r.module === 'string' && r.module && hidden.has(r.module)) return false;
     return true;
   };
 
@@ -355,6 +372,16 @@ function accountProfileLines(p) {
 export function buildAccountBusinessContext(profile, options = {}) {
   const maxCapabilities = clampInt(options.maxCapabilities, 1, 24, 8);
   const availableModes = options.availableModes || [];
+  // J3: optional runtime hidden-module set. null/undefined => the availability
+  // argument is passed through EXACTLY as before (local/demo byte identity by
+  // construction). When provided it is folded into the snapshot, so hidden
+  // modules are removed inside systemCapabilities — BEFORE the slice below.
+  const hiddenModules = options.hiddenModules ?? null;
+  const availability = hiddenModules == null
+    ? availableModes
+    : (Array.isArray(availableModes) || availableModes instanceof Set
+      ? { modes: availableModes, modeLabels: [], hiddenModules }
+      : { ...availableModes, hiddenModules });
   const parts = [];
   if (hasDurableProfile(profile)) {
     parts.push('הקשר עסקי — פרופיל העסק (מאושר ע״י המשתמש):', '', ...accountProfileLines(profile));
@@ -365,7 +392,7 @@ export function buildAccountBusinessContext(profile, options = {}) {
     );
   }
   parts.push('', 'יכולות המערכת (לשימוש כהצעות ביצוע ידניות):');
-  for (const c of systemCapabilities(availableModes).slice(0, maxCapabilities)) {
+  for (const c of systemCapabilities(availability).slice(0, maxCapabilities)) {
     parts.push(`- ${c.title}${c.mode ? ` [מצב: ${c.mode}]` : ''}: ${c.description}`);
   }
   parts.push('', safetyBlock());

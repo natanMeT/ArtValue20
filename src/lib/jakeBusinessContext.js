@@ -78,7 +78,12 @@ const ANTI_CLAIM = [
 //   * UNCONFIGURED account → append the neutral block only for marketing/content
 //     requests OR direct Business-Context questions; ordinary operational CRM
 //     messages stay lean.
-export function withBusinessBrain(contextText, userText, businessProfile = null) {
+// J3: `hiddenModules` is the runtime's hidden-MODULE set (cloud beta hides
+// 'growth' etc.), passed EXPLICITLY by the live caller — Assistant.jsx gates
+// on the cloud signal and passes the beta hidden-module set itself, so this
+// module stays pure and never decides the mode. null => no module filtering
+// (fail open), which keeps local/demo output byte-identical.
+export function withBusinessBrain(contextText, userText, businessProfile = null, hiddenModules = null) {
   const base = String(contextText ?? '');
   // Button seeds carry their own brain block → never double-pay (dedupe first).
   if (String(userText ?? '').includes(BUSINESS_CONTEXT_MARKER)) return base;
@@ -95,6 +100,7 @@ export function withBusinessBrain(contextText, userText, businessProfile = null)
   const brain = buildAccountBusinessContext(businessProfile, {
     maxCapabilities: 8,
     availableModes: studioAvailability(),
+    hiddenModules,
   });
   return `${base}\n\n${brain}\n\n${ANTI_CLAIM}`;
 }

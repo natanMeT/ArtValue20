@@ -261,8 +261,11 @@ describe('Assistant wiring (source-level)', () => {
     // Jake Calendar slice: context argument `data` → `jakeData()`. The 3rd
     // argument — the account profile this guard exists to pin — is untouched,
     // and it still reads from the store `data`, not the composed snapshot.
-    expect(assistant).toContain('draftWithJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile))');
-    expect(assistant).toContain('chatJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile))');
+    // J3 repin: both lanes gained a 4th EXPLICIT hidden-modules argument
+    // (isSupabaseConfigured ? BETA_HIDDEN_MODULES : null) — the live caller,
+    // not a default, decides cloud module filtering. Profile threading intact.
+    expect(assistant).toContain('draftWithJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile, isSupabaseConfigured ? BETA_HIDDEN_MODULES : null))');
+    expect(assistant).toContain('chatJake(convo, withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile, isSupabaseConfigured ? BETA_HIDDEN_MODULES : null))');
     // exactly 2 usages + 1 import line = 3 occurrences, no more (3rd ARG adds no token)
     expect((assistant.match(/withBusinessBrain/g) || []).length).toBe(3);
   });

@@ -199,7 +199,9 @@ describe('Assistant jake:prefill seam (additive, no auto-send)', () => {
     // Jake Calendar slice: the context ARGUMENT is now jakeData() (store snapshot
     // + seam-read appointments). The business-context injection this guard exists
     // for — the brain wrapper and the threaded account profile — is unchanged.
-    expect(assistant.includes('withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile)')).toBe(true);
+    // J3 repin: the call gained a 4th explicit hidden-modules argument; the
+    // brain wrapper + threaded account profile this guard pins are unchanged.
+    expect(assistant.includes('withBusinessBrain(activePack.buildContext(jakeData()), text, data.businessProfile, isSupabaseConfigured ? BETA_HIDDEN_MODULES : null)')).toBe(true);
   });
 });
 
