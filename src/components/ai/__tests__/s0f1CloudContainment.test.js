@@ -92,8 +92,10 @@ describe('S0F.1 · ArtValue offer-brief chip is hidden in cloud beta (D3)', () =
 });
 
 describe('S0F.1 · Jake persona (D2)', () => {
-  it('frontend and server persona stay byte-identical (drift guard intact)', () => {
-    expect(JAKE_PACK_PERSONA === activePack.persona).toBe(true);
+  // T1: the server copies the CLOUD persona (cloudPersona); the full local
+  // persona stays on the pack for local/demo.
+  it('frontend cloud persona and server persona stay byte-identical (drift guard intact)', () => {
+    expect(JAKE_PACK_PERSONA === activePack.cloudPersona).toBe(true);
   });
 
   it('ArtValue is the SYSTEM, never the account\'s own business', () => {

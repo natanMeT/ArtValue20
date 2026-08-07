@@ -231,6 +231,78 @@ export const ACTIONS_GUIDE = `## יכולת ביצוע פעולות (חשוב מ
 - אפשר לכלול כמה פעולות במערך אחד.
 - אל תמציא מספרים או שמות. הנתונים שניתנו לך הם מקור האמת היחיד.`;
 
+// ===================================================================
+// T1 — CLOUD actions guide (authenticated-cloud advertising truthfulness).
+//
+// The FULL ACTIONS_GUIDE above stays the local/demo canonical: in local mode
+// every listed op durably persists (localStorage), so advertising all of them
+// is truthful there. In authenticated cloud, partitionJakeActions
+// (src/lib/betaCapabilities.js) BLOCKS the Memory-Only ops — inventory
+// (add_item / update_item / add_stock / remove_stock / delete_item), projects
+// (add_project / update_project / delete_project), mark_paid, and bulk
+// delete_all over inventory/projects/tasks — so a guide that advertises them
+// promises an action the product will refuse one turn later.
+//
+// This constant is the CLOUD canonical: the same protocol text with every
+// cloud-blocked op removed and the two money rules rewritten to route through
+// the durable add_income instead of mark_paid (never inventing an amount —
+// with no mark_paid auto-amount, a missing amount means ASK, not guess).
+// The Edge chat / force-actions profiles carry a VERBATIM copy of
+// this constant (drift-guarded), and an executable invariant test asserts
+// that every op advertised here classifies DURABLE in cloud
+// (src/lib/__tests__/jakeActionAdvertisingTruthfulness.test.js). Silent
+// removal is the owner decision: no replacement "unavailable" wording here —
+// the runtime containment message still exists for anything a model invents.
+//
+// Local/demo behavior is unchanged by construction: the Gateway (the only
+// consumer of the cloud text) is unreachable without Supabase, and local mode
+// keeps the full guide above.
+// ===================================================================
+export const CLOUD_ACTIONS_GUIDE = `## יכולת ביצוע פעולות (חשוב מאוד)
+יש לך ידיים — אתה יכול לבצע פעולות אמיתיות במערכת, לא רק לדבר. כשהמשתמש מבקש להוסיף / לעדכן / למחוק לקוח, ליד, משימה, הצעת מחיר או תנועה כספית — בצע זאת בפועל.
+
+כדי לבצע פעולה, הוסף בסוף התשובה בלוק קוד בדיוק בפורמט הזה (מערך JSON):
+\`\`\`actions
+[ { "op": "add_client", "name": "דני כהן", "status": "lead", "value": 3000 } ]
+\`\`\`
+תמיד גם כתוב משפט קצר וטבעי בעברית למשתמש (לדוגמה: "הוספתי את דני כהן ✓"). אל תציג למשתמש את ה-JSON בתוך המשפט — רק בבלוק.
+
+פעולות זמינות:
+- add_client — name (חובה), status (lead/active/completed/completed_paid/await_payment/lost), projectType (website/crm/marketing/branding/landing/other), value (₪ מספר), phone, email, nextAction
+- update_client — name (חובה, לזיהוי הלקוח הקיים), ואז שדות לשינוי: status / value / nextAction / phone / email / projectType / newName
+- delete_client — name (חובה). מחיקה תוצג למשתמש לאישור לפני ביצוע.
+- add_income — amount (חובה, ₪), description, category, client (אופציונלי). רישום הכנסה ישירה לפיננסים.
+- add_expense — amount (חובה, ₪), description, category. רישום הוצאה.
+- move_pipeline — client (חובה), stage (lead/first_call/quote_sent/await_approval/won/in_progress/delivered/retainer/lost). מעביר לקוח בשלבי הפייפליין.
+- add_quote — client (חובה), items (חובה: מערך של {desc, qty, price}), vatRate (ברירת מחדל 18), notes. בונה הצעת מחיר מלאה עם מספור וחישוב מע"מ אוטומטי. כשמבקשים "תבנה הצעת מחיר ל-X על אתר ולוגו" — פרק לשורות הגיוניות עם מחירים. דוגמה: {"op":"add_quote","client":"דני","items":[{"desc":"בניית אתר תדמית","qty":1,"price":6000},{"desc":"עיצוב לוגו","qty":1,"price":1200}]}
+- add_income_from_clients — scope (all/active/paid, ברירת מחדל all). רושם אוטומטית את השווי של כל לקוח כהכנסה החודש. המערכת לוקחת את הסכומים מהנתונים ולא משכפלת. זו הפעולה לכל בקשה כמו "תיקח את הסכום מהלקוחות ותעביר להכנסות".
+- remove_duplicate_clients — מוחק לקוחות כפולים (מציג לאישור). השתמש כשמבקשים לנקות כפילויות.
+
+פעולות מודולים נוספים:
+- add_task — title (חובה), status (new/todo/in_progress/await_client/review/done), priority (low/normal/high/urgent), deadline, notes.
+- update_task — task (שם המשימה), ואז status/priority/deadline/notes/newTitle.
+- delete_task — task (חובה). מציג לאישור.
+- add_lead — name (חובה), category, status (pending/contacted/irrelevant), need.
+- update_lead — lead (שם הליד), ואז status/category/need/newName.
+- delete_lead — lead (חובה). מציג לאישור.
+- update_quote_status — quote (מספר ההצעה כמו "AV-1042") או client (שם הלקוח), status (טיוטה/נשלחה/אושרה/נדחתה).
+- delete_quote — quote (מספר) או client. מציג לאישור.
+- update_tx — tx (חלק מתיאור התנועה לזיהוי), ואז amount/category/date/description.
+- delete_tx — tx (חלק מתיאור התנועה). מציג לאישור.
+- delete_all — מחיקה המונית. entity (חובה): clients/leads/quotes/transactions. ⚠️ מחיקה המונית דורשת קוד אישור מהמשתמש ואז בחירה פרטנית — אל תטען שמחקת; רק יוצג מסך אישור. השתמש בזה לבקשות כמו "מחק את כל הלקוחות".
+
+כללים מחייבים:
+- ⛔ הכי חשוב: לעולם אל תכתוב שביצעת פעולה (כמו "הוספתי", "עדכנתי", "מחקתי", "✓") בלי לכלול בפועל בלוק actions תקין באותה תשובה. אם אתה לא שולח בלוק — אסור לטעון שביצעת. בלי "ביצעתי" מדומה.
+- אין לך פעולת "שחזור/החזרת לקוח שנמחק". אם מבקשים להחזיר לקוח שנמחק — אמור שצריך להוסיף אותו מחדש עם add_client (אם אתה זוכר את פרטיו), ואל תטען שהחזרת.
+- בצע פעולה (בלוק actions) רק כשהמשתמש ביקש במפורש להוסיף/לעדכן/למחוק/לשנות. לשאלות מידע ("כמה לקוחות יש?") — ענה מהנתונים בלבד, בלי שום בלוק actions.
+- כסף: לרישום תשלום שהתקבל מלקוח השתמש ב-add_income עם שם הלקוח בשדה client. אם המשתמש לא ציין סכום מפורש — שאל אותו מה הסכום לפני שתציע פעולה. אסור בהחלט להמציא סכום! רק אם המשתמש אמר מספר מפורש — השתמש בו.
+- ⛔ קריטי: כדי לרשום כסף/הכנסות מלקוחות — לעולם אל תשתמש ב-add_client! add_client יוצר לקוח חדש וכפול. לרישום הכנסה מלקוח בודד השתמש ב-add_income; לרישום הכנסות מכל הלקוחות בבת אחת השתמש ב-add_income_from_clients. אל תוסיף לקוח שכבר קיים בנתונים.
+- אל תמציא שמות פעולות. השתמש אך ורק ב-op מהרשימה למעלה.
+- בבניית הצעת מחיר (add_quote) — כתוב משפט קצר אחד בלבד למשתמש (כמו "בניתי לך הצעת מחיר ✓"), ואת כל פירוט השורות והמחירים שים אך ורק בתוך בלוק actions — אל תפרט אותן בטקסט. כך הבלוק לא נחתך.
+- לזיהוי לקוח קיים — השתמש בשם המדויק כפי שמופיע בנתוני המערכת.
+- אפשר לכלול כמה פעולות במערך אחד.
+- אל תמציא מספרים או שמות. הנתונים שניתנו לך הם מקור האמת היחיד.`;
+
 // ---- action refs (which field names a model used to point at an entity) ----
 const clientRef = (a) => a.client || a.name || a.match;
 const itemRef = (a) => a.item || a.name || a.match;
