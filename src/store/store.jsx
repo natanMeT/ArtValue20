@@ -3,7 +3,7 @@ import { buildSeed, uid } from '../data/seed.js';
 import { OUTREACH_EXTRA, OUTREACH_SEED_VERSION } from '../data/outreach.js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase.js';
 import * as api from '../lib/api.js';
-import { isMemoryOnlyDispatch } from '../lib/betaCapabilities.js';
+import { isMemoryOnlyDispatch, isWholeStoreReplaceDispatch } from '../lib/betaCapabilities.js';
 import { userFacingError } from '../lib/userFacingError.js';
 import { createReconcileScheduler } from '../lib/reconcileScheduler.js';
 
@@ -524,6 +524,17 @@ export function StoreProvider({ children }) {
       // before mutating so nothing changes and no caller can claim a save. Local
       // mode is unaffected (handled above — localStorage is durable there).
       if (isMemoryOnlyDispatch(action.type)) return Promise.resolve({ ok: false });
+      // T2 — whole-store replacement (RESET / IMPORT) has no cloud persist()
+      // route either: the optimistic apply below would swap the account's
+      // on-screen data for unsaved seed/demo content and then resolve
+      // { ok: true } from persist()'s default case — a false success that a
+      // refresh silently reverts. Refuse BEFORE any state change. Local mode
+      // is handled above and keeps both (localStorage is durable there). The
+      // cloud backup import (importBackup → api.bulkUpload + refetch) never
+      // dispatches IMPORT and stays fully functional.
+      if (isWholeStoreReplaceDispatch(action.type)) {
+        return Promise.resolve({ ok: false, reason: 'cloud_unavailable' });
+      }
       const act = withId(action);
       const userId = session?.user?.id;
 

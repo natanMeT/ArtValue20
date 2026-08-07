@@ -70,9 +70,15 @@ export default function Settings() {
     toast('כל הנתונים נוקו · נשמר מקומית');
   };
 
-  const loadDemo = () => {
-    dispatch({ type: 'IMPORT', payload: buildDemoSeed() });
-    toast('נתוני הדגמה נטענו · נשמר מקומית');
+  // T2: demo data is a LOCAL/DEMO feature. In cloud the store firewall
+  // refuses the IMPORT dispatch (whole-store replacement has no persist route),
+  // so success is claimed only when the store actually applied it — no false
+  // "loaded" toast. The button below is also hidden in cloud; this is the
+  // belt to that UI's braces.
+  const loadDemo = async () => {
+    const r = await dispatch({ type: 'IMPORT', payload: buildDemoSeed() });
+    if (r && r.ok) toast('נתוני הדגמה נטענו · נשמר מקומית');
+    else toast('טעינת נתוני הדגמה אינה זמינה במצב ענן', 'error');
   };
 
   const exportData = () => {
@@ -237,7 +243,13 @@ export default function Settings() {
               <button className="btn btn-ghost" onClick={() => fileRef.current?.click()} disabled={busy}><Icon name="copy" size={16} /> ייבוא קובץ</button>
               <input ref={fileRef} type="file" accept="application/json" onChange={importData} style={{ display: 'none' }} />
               <div className="grow" />
-              <button className="btn btn-ghost" onClick={loadDemo} disabled={busy}><Icon name="spark" size={16} /> טען נתוני הדגמה</button>
+              {/* T2: demo data never renders as a cloud control — in cloud it
+                  would replace the account's real on-screen data with unsaved
+                  ArtValue demo content until the next refresh. Local/demo keeps
+                  the button unchanged. */}
+              {!supabaseEnabled && (
+                <button className="btn btn-ghost" onClick={loadDemo} disabled={busy}><Icon name="spark" size={16} /> טען נתוני הדגמה</button>
+              )}
               {supabaseEnabled ? (
                 <button className="btn btn-ghost" onClick={() => setConfirmMigrate(true)} disabled={busy}>
                   <Icon name="cloud" size={17} /> ייבוא נתונים מקומיים ל-Supabase

@@ -29,7 +29,7 @@ const variants = {
 };
 
 export default function Intake() {
-  const { dispatch, toast } = useStore();
+  const { dispatch, toast, supabaseEnabled } = useStore();
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [dir, setDir] = useState(1);
@@ -62,13 +62,18 @@ export default function Intake() {
         source: f.source, date: new Date().toISOString().slice(0, 10), notes: f.notes,
       },
     });
-    toast('הליד נקלט במערכת · נשמר מקומית');
+    // T2 truthfulness: in cloud the lead IS durably persisted (ADD_CLIENT has
+    // a persist() route) — claiming "נשמר מקומית" understated a real cloud
+    // save. Each mode states exactly where the row went.
+    toast(supabaseEnabled ? 'הליד נקלט במערכת · נשמר בענן' : 'הליד נקלט במערכת · נשמר מקומית');
     navigate('/clients');
   };
 
   return (
     <div style={{ maxWidth: 760, margin: '0 auto' }}>
-      <SectionHeader title="קליטת ליד חדש" sub="הוספת לקוח פוטנציאלי למערכת" action={<DemoTag />} />
+      {/* T2: the DemoTag claims "נשמר מקומית במצב הדגמה" — truthful only in
+          local/demo mode, so it renders only there. */}
+      <SectionHeader title="קליטת ליד חדש" sub="הוספת לקוח פוטנציאלי למערכת" action={supabaseEnabled ? null : <DemoTag />} />
 
       <div className="card panel" style={{ padding: '26px 28px' }}>
         {/* Stepper */}

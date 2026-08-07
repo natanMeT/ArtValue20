@@ -44,6 +44,20 @@ export function isMemoryOnlyDispatch(type) {
   return MEMORY_ONLY_DISPATCH.has(type);
 }
 
+// T2 — whole-store REPLACEMENT dispatches. RESET rebuilds the seed and IMPORT
+// swaps in an arbitrary payload; in authenticated cloud NEITHER has a
+// persist() route, so the optimistic apply used to replace the on-screen
+// account data with unsaved local/demo content while resolving { ok: true } —
+// the S0A false-success class at whole-store scale. The store firewall blocks
+// both in cloud mode (nothing mutates, callers get { ok: false }). Local/demo
+// is untouched: there RESET/IMPORT hit localStorage and really are durable.
+// The legitimate cloud backup-import path (importBackup → api.bulkUpload) never
+// dispatches IMPORT, so it is unaffected by construction.
+export const WHOLE_STORE_REPLACE_DISPATCH = new Set(['RESET', 'IMPORT']);
+export function isWholeStoreReplaceDispatch(type) {
+  return WHOLE_STORE_REPLACE_DISPATCH.has(type);
+}
+
 // ---- Jake action-op classification ------------------------------------------
 // Every op here maps to the store dispatch type(s) its handler emits
 // (src/lib/jakeAgent.js ACTION_HANDLERS). Ops whose ONLY durable effect is a
