@@ -127,7 +127,8 @@ describe('S0C · generic Jake persona + signature-neutral drafting', () => {
     expect(JAKE_PACK_PERSONA.includes(PERSONAL_CLAIM)).toBe(false);
     expect(JAKE_PACK_PERSONA.includes(HARD_NAME)).toBe(false);
     // Do not weaken the existing drift guard — re-assert equality here as well.
-    expect(JAKE_PACK_PERSONA === activePack.persona).toBe(true);
+    // T1: the server persona copies the CLOUD canonical (cloudPersona).
+    expect(JAKE_PACK_PERSONA === activePack.cloudPersona).toBe(true);
   });
 
   it('frontend drafting guide never forces a personal signature', () => {

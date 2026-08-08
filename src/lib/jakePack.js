@@ -7,7 +7,7 @@
 // file, change the persona / domain-rules / entity language and the action set, and
 // point `activePack` at it. Build the engine once — configure per business.
 // ===================================================================
-import { ACTIONS_GUIDE, ACTION_HANDLERS, BUSINESS_ENTITIES } from './jakeAgent.js';
+import { ACTIONS_GUIDE, CLOUD_ACTIONS_GUIDE, ACTION_HANDLERS, BUSINESS_ENTITIES } from './jakeAgent.js';
 import { dashboardKpis, inventoryTotals, quoteTotal } from './calc.js';
 import { formatCurrency } from './format.js';
 import {
@@ -962,6 +962,19 @@ export const artValuePack = {
 פעל אך ורק לפי ההקשר העסקי המאושר של החשבון הפעיל. אל תייחס לחשבון עסק, תחום או שירותים שלא מופיעים בהקשר הזה, ואל תמציא פרטים — אם ההקשר העסקי חסר, אמור זאת בכנות.
 אם שואלים מי אתה — אתה ג׳יק. אל תזכיר שאתה מבוסס על מודל חיצוני.
 ענה בעברית בלבד, קצר, חברי ותכליתי. עזור עם לקוחות, לידים (מחקר לידים), פרויקטים, משימות, הצעות מחיר, מלאי ופיננסים.`,
+  // T1 — CLOUD persona (advertising truthfulness). Identical to `persona`
+  // above except the help-scope sentence: it no longer names פרויקטים or מלאי,
+  // because in authenticated cloud those modules are hidden
+  // (BETA_HIDDEN_MODULES) and every write to them is blocked by
+  // partitionJakeActions. Local/demo keeps the full `persona` above (all its
+  // modules are durable there). The Edge chat profile carries a VERBATIM
+  // copy of THIS constant (drift-guarded in
+  // src/lib/__tests__/jakeActionAdvertisingTruthfulness.test.js, which also
+  // asserts the cloud persona never advertises a hidden module).
+  cloudPersona: `אתה ג׳יק — העוזר העסקי של המשתמש בתוך מערכת ArtValue.
+פעל אך ורק לפי ההקשר העסקי המאושר של החשבון הפעיל. אל תייחס לחשבון עסק, תחום או שירותים שלא מופיעים בהקשר הזה, ואל תמציא פרטים — אם ההקשר העסקי חסר, אמור זאת בכנות.
+אם שואלים מי אתה — אתה ג׳יק. אל תזכיר שאתה מבוסס על מודל חיצוני.
+ענה בעברית בלבד, קצר, חברי ותכליתי. עזור עם לקוחות, לידים (מחקר לידים), משימות, הצעות מחיר ופיננסים.`,
   // Grounding rules (accuracy + history). These are reusable across businesses.
   rules: `חוק דיוק (קריטי): "נתוני המערכת" שלמטה הם מקור האמת היחיד והמעודכן. כשנשאלת על כמות / מספר / רשימה / סטטוס — שלוף את התשובה ישירות מהנתונים האלה ואל תנחש ואל תמציא. אם נשאלת "כמה לקוחות?" החזר את המספר המדויק שמופיע בנתונים. אם משהו לא קיים — אמור זאת בכנות.
 
@@ -971,6 +984,11 @@ export const artValuePack = {
   // business swaps both: its own guide text and its own ACTION_HANDLERS set
   // (or spread these and override/add entries).
   actionsGuide: ACTIONS_GUIDE,
+  // T1 — the CLOUD action protocol: the same guide with every cloud-blocked op
+  // removed (canonical text + rationale live beside ACTIONS_GUIDE in
+  // jakeAgent.js). The Edge chat / force-actions profiles copy THIS
+  // constant verbatim; local/demo keeps the full actionsGuide above.
+  cloudActionsGuide: CLOUD_ACTIONS_GUIDE,
   // CONFIRM MODE (gen-2): every proposed action is shown to the user as an approval
   // card and runs ONLY after the user approves. So phrase actions as PROPOSALS, not
   // done deeds — this is what unifies Jake here with the live cloud embeddings.

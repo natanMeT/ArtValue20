@@ -399,10 +399,14 @@ describe('jake.chat / jake.force_actions · server-owned profiles', () => {
 // 6) Jake pack drift guard — byte-for-byte, canonical values from jakePack.js
 // ---------------------------------------------------------------
 describe('Jake pack drift guard (byte-for-byte vs the frozen frontend pack)', () => {
-  it('server actionsGuide === activePack.actionsGuide (strict equality, not substring)', () => {
-    expect(typeof activePack.actionsGuide).toBe('string');
-    expect(JAKE_PACK_ACTIONS_GUIDE === activePack.actionsGuide).toBe(true);
-    expect(JAKE_PACK_ACTIONS_GUIDE.length).toBe(activePack.actionsGuide.length);
+  // T1: the server guide copies the CLOUD canonical (cloudActionsGuide) —
+  // the full local guide stays canonical for local/demo and never reaches the
+  // Gateway. The advertised(cloud) <= durable(cloud) invariant is executable in
+  // jakeActionAdvertisingTruthfulness.test.js.
+  it('server actionsGuide === activePack.cloudActionsGuide (strict equality, not substring)', () => {
+    expect(typeof activePack.cloudActionsGuide).toBe('string');
+    expect(JAKE_PACK_ACTIONS_GUIDE === activePack.cloudActionsGuide).toBe(true);
+    expect(JAKE_PACK_ACTIONS_GUIDE.length).toBe(activePack.cloudActionsGuide.length);
   });
 
   it('server confirmGuide === activePack.confirmGuide (strict equality, not substring)', () => {
@@ -411,8 +415,10 @@ describe('Jake pack drift guard (byte-for-byte vs the frozen frontend pack)', ()
     expect(JAKE_PACK_CONFIRM_GUIDE.length).toBe(activePack.confirmGuide.length);
   });
 
-  it('server persona === activePack.persona and server rules === activePack.rules', () => {
-    expect(JAKE_PACK_PERSONA === activePack.persona).toBe(true);
+  // T1: the server persona copies the CLOUD canonical (cloudPersona) — the
+  // full local persona stays on the pack for local/demo.
+  it('server persona === activePack.cloudPersona and server rules === activePack.rules', () => {
+    expect(JAKE_PACK_PERSONA === activePack.cloudPersona).toBe(true);
     expect(JAKE_PACK_RULES === activePack.rules).toBe(true);
   });
 
